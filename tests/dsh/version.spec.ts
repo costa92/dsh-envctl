@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { knownDshFamily, parseDshVersion } from '../../src/dsh/index.js'
+import { knownDshFamily, parseDshVersion, isCompatibleDshVersion } from '../../src/dsh/index.js'
 
 describe('knownDshFamily', () => {
   it.each([
@@ -43,4 +43,30 @@ describe('knownDshFamily', () => {
   ])('拒绝超出安全整数范围的版本 %s', value => {
     expect(parseDshVersion(value)).toBeNull()
   })
+})
+
+describe('isCompatibleDshVersion', () => {
+  it('accepts exact certified 0.1.7 versions', () => {
+    const res = isCompatibleDshVersion('0.1.7-rc.2');
+    expect(res.compatible).toBe(true);
+    expect(res.isUntested).toBe(false);
+  });
+
+  it('rejects version 0.0.1, 0.1.8, or 0.2.0 by default without override', () => {
+    expect(isCompatibleDshVersion('0.0.1').compatible).toBe(false);
+    expect(isCompatibleDshVersion('0.1.8').compatible).toBe(false);
+    expect(isCompatibleDshVersion('0.2.0').compatible).toBe(false);
+  });
+
+  it('accepts version with allowUntested override', () => {
+    const res = isCompatibleDshVersion('0.2.0', { allowUntested: true });
+    expect(res.compatible).toBe(true);
+    expect(res.isUntested).toBe(true);
+    expect(res.reason).toContain('--allow-untested-dsh');
+  });
+
+  it('rejects malformed versions even with allowUntested', () => {
+    expect(isCompatibleDshVersion('0.1.7garbage', { allowUntested: true }).compatible).toBe(false);
+    expect(isCompatibleDshVersion('v0.1.7', { allowUntested: true }).compatible).toBe(false);
+  });
 })

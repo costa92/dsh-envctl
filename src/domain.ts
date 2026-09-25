@@ -48,6 +48,7 @@ export interface EnvironmentManifest {
     sourceRoot?: string;
     harness?: {
       sourceDir?: string;
+      allowUntestedVersion?: boolean;
     };
   };
   profiles: Record<

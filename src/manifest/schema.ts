@@ -98,7 +98,8 @@ export const EnvironmentConfigSchema = z
     sourceRoot: z.string().refine(isAbsolutePath, 'sourceRoot must be absolute').optional(),
     harness: z
       .object({
-        sourceDir: z.string().refine(isAbsolutePath, 'sourceDir must be absolute').optional()
+        sourceDir: z.string().refine(isAbsolutePath, 'sourceDir must be absolute').optional(),
+        allowUntestedVersion: z.boolean().optional()
       })
       .strict()
       .optional()

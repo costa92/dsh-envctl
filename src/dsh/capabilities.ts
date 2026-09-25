@@ -1,4 +1,4 @@
-import { knownDshFamily } from './version.js';
+import { isCompatibleDshVersion, type CompatibilityCheckOptions } from './version.js';
 import type { CapabilityDetail, RuntimeCapabilityEvidence } from './capability-types.js';
 import { OFFICIAL_OPERATIONS_EXPORT } from './constants.js';
 
@@ -26,19 +26,33 @@ export interface DshCapabilities {
   mutations: false;
 }
 
-export function capabilityTemplateFor(version: string): DshCapabilities {
-  if (knownDshFamily(version) === '0.1.7') {
+export function capabilityTemplateFor(
+  version: string,
+  options?: CompatibilityCheckOptions
+): DshCapabilities {
+  const compat = isCompatibleDshVersion(version, options);
+  if (compat.compatible) {
+    const discoveryDetail: CapabilityDetail = compat.isUntested
+      ? {
+          status: 'available',
+          source: 'untested-override',
+          reason: compat.reason ?? 'Running in compatible mode on untested version'
+        }
+      : { status: 'available', source: 'dshenv' };
+
     return {
-      discovery: { status: 'available', source: 'dshenv' },
+      discovery: discoveryDetail,
       packageOperations: { status: 'available', source: 'operations-export' },
       bundleSelection: { status: 'requires-live-service', source: 'live-service', reason: liveServiceReason },
       entryToggle: { status: 'requires-live-service', source: 'live-service', reason: liveServiceReason },
       configurationValidation: {
-        status: 'disabled', source: 'static-matrix',
+        status: 'disabled',
+        source: 'static-matrix',
         reason: 'Configuration validation is disabled in Phase 2A; a verified validation adapter is required before applying changes'
       },
       environmentMutation: {
-        status: 'disabled', source: 'dshenv',
+        status: 'disabled',
+        source: 'dshenv',
         reason: 'Environment mutation is disabled in Phase 2A; ownership and transaction safeguards are required before applying changes'
       },
       operationsExport: OFFICIAL_OPERATIONS_EXPORT,
@@ -65,9 +79,10 @@ export function capabilityTemplateFor(version: string): DshCapabilities {
 
 export function evaluateCapabilities(
   version: string,
-  evidence: RuntimeCapabilityEvidence
+  evidence: RuntimeCapabilityEvidence,
+  options?: CompatibilityCheckOptions
 ): DshCapabilities {
-  const template = capabilityTemplateFor(version);
+  const template = capabilityTemplateFor(version, options);
   if (template.packageOperations.status !== 'available') return template;
 
   const exportEvidence = evidence.operationsExport;
@@ -90,10 +105,13 @@ export function evaluateCapabilities(
   };
 }
 
-export function capabilitiesFor(version: string): DshCapabilities {
+export function capabilitiesFor(
+  version: string,
+  options?: CompatibilityCheckOptions
+): DshCapabilities {
   return evaluateCapabilities(version, {
     operationsExport: { declared: false, targetExists: false, exportName: OFFICIAL_OPERATIONS_EXPORT },
     liveService: { configured: false, reachable: false },
     diagnostics: []
-  });
+  }, options);
 }

@@ -41,3 +41,36 @@ export function knownDshFamily(value: string): '0.1.7' | null {
 
   return null;
 }
+
+export interface CompatibilityCheckOptions {
+  allowUntested?: boolean;
+}
+
+export function isCompatibleDshVersion(
+  value: string,
+  options?: CompatibilityCheckOptions
+): { compatible: boolean; reason?: string; isUntested?: boolean } {
+  const parsed = parseDshVersion(value);
+  if (!parsed) {
+    return { compatible: false, reason: 'Malformed or unparseable version string' };
+  }
+
+  // Exact known/verified family 0.1.7 (e.g. 0.1.7, 0.1.7-rc.2)
+  if (parsed.major === 0 && parsed.minor === 1 && parsed.patch === 7) {
+    return { compatible: true, isUntested: false };
+  }
+
+  // Allow override for untested versions if flag/option is passed
+  if (options?.allowUntested) {
+    return {
+      compatible: true,
+      isUntested: true,
+      reason: `Version ${value} allowed via --allow-untested-dsh override`
+    };
+  }
+
+  return {
+    compatible: false,
+    reason: `Unsupported DSH version: ${value}. Use --allow-untested-dsh to enable untested runtimes.`
+  };
+}

@@ -73,7 +73,7 @@ exit 0
     fs.writeFileSync(
       unsuppDsh,
       `#!/bin/sh
-echo "0.1.70"
+echo "0.0.1"
 exit 0
 `
     );
@@ -94,6 +94,36 @@ exit 0
       expect(code).toBe(4);
       expect(stdout).toBe('');
       expect(stderr).toBe('Unsupported DSH version\n');
+    } finally {
+      if (oldDshCli) process.env.DSH_CLI = oldDshCli;
+      else delete process.env.DSH_CLI;
+    }
+  });
+
+  it('should pass doctor for untested version when --allow-untested-dsh is specified', async () => {
+    const untestedDsh = path.join(fakeBinDir, 'untested-dsh.sh');
+    fs.writeFileSync(
+      untestedDsh,
+      `#!/bin/sh
+echo "0.2.0"
+exit 0
+`
+    );
+    fs.chmodSync(untestedDsh, 0o755);
+
+    const oldDshCli = process.env.DSH_CLI;
+    process.env.DSH_CLI = untestedDsh;
+
+    let stdout = '';
+    const io = {
+      stdout: (chunk: string) => { stdout += chunk; },
+      stderr: () => {}
+    };
+
+    try {
+      const code = await runCli(['doctor', '--allow-untested-dsh', '--dsh-home', tempHome], io);
+      expect(code).toBe(0);
+      expect(stdout).toContain('0.2.0');
     } finally {
       if (oldDshCli) process.env.DSH_CLI = oldDshCli;
       else delete process.env.DSH_CLI;

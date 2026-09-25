@@ -44,6 +44,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .version('0.1.0', '-v, --version', 'output the current version')
     .option('--dsh-home <path>', 'custom DSH home directory')
     .option('--harness-source <path>', 'custom DSH source directory')
+    .option('--allow-untested-dsh', 'allow untested or experimental DSH runtime versions')
     .option('--json', 'output in structured JSON format')
     .configureOutput({
       writeOut: (str) => writeOut(str),
@@ -181,14 +182,19 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       const paths = resolveCliPaths(opts);
 
       let manifestHarnessSource: string | undefined;
+      let manifestAllowUntested: boolean | undefined;
       if (fs.existsSync(paths.manifestFile)) {
         try {
           const m = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
           manifestHarnessSource = m.environment?.harness?.sourceDir;
+          manifestAllowUntested = m.environment?.harness?.allowUntestedVersion;
         } catch {
           // ignore manifest error during doctor probing
         }
       }
+
+      const allowUntested = Boolean(opts.allowUntestedDsh || manifestAllowUntested);
+      const compatOpts = { allowUntested };
 
       const dshCmd = resolveDshCommand({
         cliHarnessSource: opts.harnessSource,
@@ -200,7 +206,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       }
 
       const probeResult = await probeDsh(dshCmd);
-      const caps = capabilitiesFor(probeResult.version);
+      const caps = capabilitiesFor(probeResult.version, compatOpts);
 
       if (caps.discovery.status !== 'available') {
         throw new CapabilityError('Unsupported DSH version');
@@ -217,7 +223,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
           liveService: { configured: false, reachable: false },
           diagnostics: ['HARNESS_SOURCE_UNAVAILABLE']
         };
-      const evaluatedCaps = evaluateCapabilities(probeResult.version, evidence);
+      const evaluatedCaps = evaluateCapabilities(probeResult.version, evidence, compatOpts);
 
       const report: DoctorReport = {
         runtime: {

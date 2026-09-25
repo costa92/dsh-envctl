@@ -5,7 +5,8 @@ export type CapabilitySource =
   | 'operations-export'
   | 'live-service'
   | 'static-matrix'
-  | 'unknown-version';
+  | 'unknown-version'
+  | 'untested-override';
 
 export interface CapabilityDetail {
   status: CapabilityStatus;
