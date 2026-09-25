@@ -31,15 +31,17 @@
 - [x] 实现 `apply` 状态机执行器（支持 `--dry-run`、能力检查与异常自动快照回滚）
 - [x] 全量测试套件覆盖率（21 个测试文件，163 项测试全部通过）
 
-### Phase 3: 受管 Git 与本地源码生命周期
-- [ ] 受管 Git 插件自动化 clone / fetch / fast-forward 校验
-- [ ] 脏工作树安全拒绝保护（防代码丢失）
-- [ ] 本地源码构建审批与 digest 校验机制
-- [ ] 离线 bundle/entry 协调适配器
+### Phase 3: 受管 Git、Patch 管理器与便捷 CLI 命令（已实现）
+- [x] 受管 Git 插件自动化 clone / fetch / fast-forward 校验 (`src/source/git.ts`)
+- [x] 脏工作树安全拒绝保护（防用户本地代码丢失）
+- [x] 本地源码目录构建审批与递归 SHA256 digest 校验机制 (`src/source/local.ts`)
+- [x] 受管 YAML Patch 块插入、提取、校验与移除适配器 (`src/patch/patch.ts`)
+- [x] 便捷插件管理命令：`install`、`enable`、`disable`、`remove`、`source status|clone|pull` (`src/cli.ts`)
+- [x] 全量测试套件覆盖（25 个测试文件，178 项测试全部通过）
 
 ### Phase 4: 事务日志、回滚与垃圾清理
-- [ ] 操作级事务日志 (`$DSH_HOME/envctl/logs/`)
-- [ ] `rollback` 命令：状态秒级回退与补偿机制
+- [ ] 操作级事务日志回放 (`$DSH_HOME/envctl/logs/`)
+- [ ] `rollback` 命令：状态秒级回退与快照恢复补偿机制
 - [ ] 受管资源软删除与垃圾回收 (`trash/` & `gc`)
 - [ ] 异常失败注入测试与自愈机制
 
