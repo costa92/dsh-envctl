@@ -24,7 +24,7 @@ describe('capabilityTemplateFor', () => {
     expect(template.bundleSelection).toMatchObject({ status: 'requires-live-service', source: 'live-service' });
     expect(template.entryToggle).toMatchObject({ status: 'requires-live-service', source: 'live-service' });
     expect(template.configurationValidation.status).toBe('disabled');
-    expect(template.environmentMutation.status).toBe('disabled');
+    expect(template.environmentMutation).toMatchObject({ status: 'disabled', source: 'dshenv' });
     expect(template.operationsExport).toBe(officialExport);
     expect(template.mutations).toBe(false);
   });

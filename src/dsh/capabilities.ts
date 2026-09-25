@@ -22,7 +22,7 @@ export function capabilityTemplateFor(version: string): DshCapabilities {
       bundleSelection: { status: 'requires-live-service', source: 'live-service' },
       entryToggle: { status: 'requires-live-service', source: 'live-service' },
       configurationValidation: { status: 'disabled', source: 'static-matrix' },
-      environmentMutation: { status: 'disabled', source: 'static-matrix' },
+      environmentMutation: { status: 'disabled', source: 'dshenv' },
       operationsExport: officialOperationsExport,
       mutations: false
     };
