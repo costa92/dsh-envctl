@@ -1,4 +1,5 @@
 import type { EnvironmentPlan, PlanOperation, EnvironmentStatusSummary } from '../planner/plan.js';
+import type { DshCapabilities } from '../dsh/capabilities.js';
 
 export function renderPlan(plan: EnvironmentPlan): string {
   const lines: string[] = [];
@@ -86,6 +87,7 @@ export interface DoctorReport {
     version: string;
     discoverySupported: boolean;
     mutationsSupported: boolean;
+    capabilities: DshCapabilities;
   };
   paths: {
     home: string;
@@ -103,6 +105,19 @@ export function renderDoctor(report: DoctorReport): string {
   lines.push(`DSH Command: ${report.runtime.command}`);
   lines.push(`Discovery Capability: ${report.runtime.discoverySupported ? 'Supported (✓)' : 'Unsupported (✗)'}`);
   lines.push(`Mutation Capability: ${report.runtime.mutationsSupported ? 'Supported (✓)' : 'Not enabled in prototype (read-only mode)'}`);
+  lines.push('');
+  lines.push('Capability details:');
+  for (const name of [
+    'discovery',
+    'packageOperations',
+    'bundleSelection',
+    'entryToggle',
+    'configurationValidation',
+    'environmentMutation'
+  ] as const) {
+    const detail = report.runtime.capabilities[name];
+    lines.push(`  ${name}: ${detail.status} (source: ${detail.source}; reason: ${detail.reason ?? 'none'})`);
+  }
   lines.push('');
   lines.push('Paths:');
   lines.push(`  Home: ${report.paths.home}`);

@@ -63,7 +63,17 @@ describe('renderDoctor', () => {
         command: 'dsh',
         version: '0.1.7-rc.2',
         discoverySupported: true,
-        mutationsSupported: false
+        mutationsSupported: false,
+        capabilities: {
+          discovery: { status: 'available', source: 'dshenv' },
+          packageOperations: { status: 'disabled', source: 'operations-export', reason: 'Official operations export was not verified' },
+          bundleSelection: { status: 'requires-live-service', source: 'live-service' },
+          entryToggle: { status: 'requires-live-service', source: 'live-service' },
+          configurationValidation: { status: 'disabled', source: 'static-matrix' },
+          environmentMutation: { status: 'disabled', source: 'dshenv' },
+          operationsExport: '@deepseek-ai/dsh-plugin-manager/operations',
+          mutations: false
+        }
       },
       paths: {
         home: '/tmp/dsh',
@@ -75,5 +85,9 @@ describe('renderDoctor', () => {
     });
     expect(text).toContain('0.1.7-rc.2');
     expect(text).toContain('Not enabled in prototype');
+    expect(text).toContain('Capability details:');
+    expect(text).toContain('packageOperations: disabled (source: operations-export; reason: Official operations export was not verified)');
+    expect(text).toContain('bundleSelection: requires-live-service (source: live-service; reason: none)');
+    expect(text).toContain('environmentMutation: disabled (source: dshenv; reason: none)');
   });
 });

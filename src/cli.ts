@@ -13,7 +13,7 @@ import {
 import { buildPlan, buildStatus, planExitCode } from './planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from './output/render.js';
 import { writeAtomic } from './io/atomic-file.js';
-import { resolveDshCommand, probeDsh, capabilitiesFor } from './dsh/index.js';
+import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, type RuntimeCapabilityEvidence } from './dsh/index.js';
 import { DshError, ValidationError, CapabilityError } from './errors.js';
 import type { EnvironmentManifest, EnvironmentLock, EnvironmentState } from './domain.js';
 import type { EnvironmentPaths } from './environment/paths.js';
@@ -206,12 +206,26 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
         throw new CapabilityError(`Unsupported DSH version: ${probeResult.version}`);
       }
 
+      const evidence: RuntimeCapabilityEvidence = dshCmd.cwd
+        ? await probeOfficialSurfaces({ harnessSourceDir: dshCmd.cwd })
+        : {
+          operationsExport: {
+            declared: false,
+            targetExists: false,
+            exportName: caps.operationsExport ?? ''
+          },
+          liveService: { configured: false, reachable: false },
+          diagnostics: ['HARNESS_SOURCE_UNAVAILABLE']
+        };
+      const evaluatedCaps = evaluateCapabilities(probeResult.version, evidence);
+
       const report: DoctorReport = {
         runtime: {
-          command: `${dshCmd.file} ${dshCmd.args.join(' ')}`.trim(),
+          command: dshCmd.file,
           version: probeResult.version,
-          discoverySupported: caps.discovery.status === 'available',
-          mutationsSupported: caps.mutations
+          discoverySupported: evaluatedCaps.discovery.status === 'available',
+          mutationsSupported: evaluatedCaps.mutations,
+          capabilities: evaluatedCaps
         },
         paths: {
           home: paths.home,
