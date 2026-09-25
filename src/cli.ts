@@ -1,11 +1,20 @@
 import { Command } from 'commander';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveEnvironmentPaths } from './environment/paths.js';
 import { readEnvironmentInventory } from './inventory/profile-reader.js';
 import { captureEnvironment, initEnvironment } from './capture/capture.js';
-import { serializeCaptureDocument } from './manifest/files.js';
+import {
+  loadManifest,
+  loadLock,
+  loadState,
+  serializeCaptureDocument
+} from './manifest/files.js';
+import { buildPlan, buildStatus } from './planner/plan.js';
+import { renderPlan, renderStatus } from './output/render.js';
 import { writeAtomic } from './io/atomic-file.js';
-import { DshError } from './errors.js';
+import { DshError, ValidationError } from './errors.js';
+import type { EnvironmentManifest, EnvironmentLock, EnvironmentState } from './domain.js';
 
 export interface CliIO {
   stdout?: (chunk: string) => void;
@@ -15,6 +24,8 @@ export interface CliIO {
 export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   const writeOut = io?.stdout ?? ((chunk: string) => process.stdout.write(chunk));
   const writeErr = io?.stderr ?? ((chunk: string) => process.stderr.write(chunk));
+
+  let exitCodeToReturn = 0;
 
   const program = new Command();
   program
@@ -78,9 +89,88 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       }
     });
 
+  program
+    .command('plan')
+    .description('Plan drift between target manifest and actual DSH environment')
+    .action(async () => {
+      const opts = program.opts();
+      const paths = resolveEnvironmentPaths({
+        cliDshHome: opts.dshHome
+      });
+
+      let manifest: EnvironmentManifest | null = null;
+      let lock: EnvironmentLock | null = null;
+
+      if (fs.existsSync(paths.manifestFile)) {
+        const content = fs.readFileSync(paths.manifestFile, 'utf8');
+        manifest = loadManifest(content);
+      } else {
+        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+
+      if (fs.existsSync(paths.lockFile)) {
+        const content = fs.readFileSync(paths.lockFile, 'utf8');
+        lock = loadLock(content);
+      }
+
+      const inventory = await readEnvironmentInventory(paths);
+      const plan = buildPlan(manifest, lock, inventory);
+
+      if (opts.json) {
+        writeOut(JSON.stringify(plan, null, 2) + '\n');
+      } else {
+        writeOut(renderPlan(plan));
+      }
+
+      if (plan.hasChanges) {
+        exitCodeToReturn = 2;
+      }
+    });
+
+  program
+    .command('status')
+    .description('Display status summary of DSH environment and manifests')
+    .action(async () => {
+      const opts = program.opts();
+      const paths = resolveEnvironmentPaths({
+        cliDshHome: opts.dshHome
+      });
+
+      let manifest: EnvironmentManifest | null = null;
+      let lock: EnvironmentLock | null = null;
+      let state: EnvironmentState | null = null;
+
+      if (fs.existsSync(paths.manifestFile)) {
+        const content = fs.readFileSync(paths.manifestFile, 'utf8');
+        manifest = loadManifest(content);
+      }
+      if (fs.existsSync(paths.lockFile)) {
+        const content = fs.readFileSync(paths.lockFile, 'utf8');
+        lock = loadLock(content);
+      }
+      if (fs.existsSync(paths.stateFile)) {
+        const content = fs.readFileSync(paths.stateFile, 'utf8');
+        state = loadState(content);
+      }
+
+      const inventory = await readEnvironmentInventory(paths);
+      const plan = buildPlan(manifest, lock, inventory);
+      const summary = buildStatus(manifest, lock, state, inventory, plan);
+
+      if (opts.json) {
+        writeOut(JSON.stringify(summary, null, 2) + '\n');
+      } else {
+        writeOut(renderStatus(summary));
+      }
+
+      if (plan.hasChanges) {
+        exitCodeToReturn = 2;
+      }
+    });
+
   try {
     await program.parseAsync(argv, { from: 'user' });
-    return 0;
+    return exitCodeToReturn;
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'exitCode' in err) {
       const exitCode = (err as { exitCode: number }).exitCode;
