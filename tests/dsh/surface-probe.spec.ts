@@ -2,8 +2,45 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { probeOfficialSurfaces } from '../../src/dsh/index.js'
+
+const manifestRace = vi.hoisted(() => ({
+  path: '',
+  oversizedContent: '',
+  symlinkTarget: '',
+  swapParentAtOpenPath: '',
+  replacementPackageDir: '',
+}))
+
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    lstat: async (...args: Parameters<typeof actual.lstat>) => {
+      const stat = await actual.lstat(...args)
+      if (String(args[0]) === manifestRace.path) {
+        manifestRace.path = ''
+        if (manifestRace.oversizedContent) {
+          await actual.writeFile(args[0], manifestRace.oversizedContent)
+        } else if (manifestRace.symlinkTarget) {
+          await actual.rm(args[0])
+          await actual.symlink(manifestRace.symlinkTarget, args[0])
+        }
+      }
+      return stat
+    },
+    open: async (...args: Parameters<typeof actual.open>) => {
+      if (String(args[0]) === manifestRace.swapParentAtOpenPath) {
+        manifestRace.swapParentAtOpenPath = ''
+        const packageDir = join(String(args[0]), '..')
+        await actual.rename(packageDir, `${packageDir}-saved`)
+        await actual.symlink(manifestRace.replacementPackageDir, packageDir, 'dir')
+      }
+      return actual.open(...args)
+    },
+  }
+})
 
 const fixtureDir = fileURLToPath(new URL('../fixtures/harness-source', import.meta.url))
 const temporaryDirs: string[] = []
@@ -17,6 +54,11 @@ async function temporaryPackageDir(): Promise<{ harnessSourceDir: string; packag
 }
 
 afterEach(async () => {
+  manifestRace.path = ''
+  manifestRace.oversizedContent = ''
+  manifestRace.symlinkTarget = ''
+  manifestRace.swapParentAtOpenPath = ''
+  manifestRace.replacementPackageDir = ''
   await Promise.all(temporaryDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
@@ -56,6 +98,23 @@ describe('probeOfficialSurfaces', () => {
     expect(evidence.diagnostics).toContain('PACKAGE_MANIFEST_NOT_REGULAR')
   })
 
+  it('rejects a parent directory symlink pointing outside the harness source', async () => {
+    const harnessSourceDir = await mkdtemp(join(tmpdir(), 'dshenv-surface-probe-'))
+    const outsideBootDir = await mkdtemp(join(tmpdir(), 'dshenv-external-boot-'))
+    temporaryDirs.push(harnessSourceDir, outsideBootDir)
+    const outsidePackageDir = join(outsideBootDir, 'plugin-manager')
+    await mkdir(join(harnessSourceDir, 'packages'), { recursive: true })
+    await mkdir(outsidePackageDir)
+    await writeFile(join(outsidePackageDir, 'package.json'), JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
+    await writeFile(join(outsidePackageDir, 'operations.js'), 'export {}')
+    await symlink(outsideBootDir, join(harnessSourceDir, 'packages/boot'), 'dir')
+
+    const evidence = await probeOfficialSurfaces({ harnessSourceDir })
+
+    expect(evidence.operationsExport).toMatchObject({ declared: false, targetExists: false })
+    expect(evidence.diagnostics).toContain('PACKAGE_MANIFEST_NOT_REGULAR')
+  })
+
   it('rejects a manifest larger than 1 MiB', async () => {
     const { harnessSourceDir, packageDir } = await temporaryPackageDir()
     await writeFile(join(packageDir, 'package.json'), `{"padding":"${'x'.repeat(1_048_576)}"}`)
@@ -64,6 +123,56 @@ describe('probeOfficialSurfaces', () => {
 
     expect(evidence.operationsExport).toMatchObject({ declared: false, targetExists: false })
     expect(evidence.diagnostics).toContain('PACKAGE_MANIFEST_TOO_LARGE')
+  })
+
+  it('rejects a manifest that grows after the initial path check', async () => {
+    const { harnessSourceDir, packageDir } = await temporaryPackageDir()
+    const manifestPath = join(packageDir, 'package.json')
+    await writeFile(manifestPath, JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
+    await writeFile(join(packageDir, 'operations.js'), 'export {}')
+    manifestRace.path = manifestPath
+    manifestRace.oversizedContent = JSON.stringify({
+      exports: { './operations': { default: './operations.js' } },
+      padding: 'x'.repeat(1_048_576),
+    })
+
+    const evidence = await probeOfficialSurfaces({ harnessSourceDir })
+
+    expect(evidence.operationsExport).toMatchObject({ declared: false, targetExists: false })
+    expect(evidence.diagnostics).toContain('PACKAGE_MANIFEST_TOO_LARGE')
+  })
+
+  it('rejects a manifest replaced by a symlink after the initial path check', async () => {
+    const { harnessSourceDir, packageDir } = await temporaryPackageDir()
+    const manifestPath = join(packageDir, 'package.json')
+    const alternateManifest = join(packageDir, 'alternate-package.json')
+    await writeFile(manifestPath, '{}')
+    await writeFile(alternateManifest, JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
+    await writeFile(join(packageDir, 'operations.js'), 'export {}')
+    manifestRace.path = manifestPath
+    manifestRace.symlinkTarget = alternateManifest
+
+    const evidence = await probeOfficialSurfaces({ harnessSourceDir })
+
+    expect(evidence.operationsExport).toMatchObject({ declared: false, targetExists: false })
+    expect(evidence.diagnostics).toContain('PACKAGE_MANIFEST_NOT_REGULAR')
+  })
+
+  it('rejects a package directory redirected outside immediately before opening the manifest', async () => {
+    const { harnessSourceDir, packageDir } = await temporaryPackageDir()
+    const outsidePackageDir = await mkdtemp(join(tmpdir(), 'dshenv-external-package-'))
+    temporaryDirs.push(outsidePackageDir)
+    await writeFile(join(packageDir, 'package.json'), JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
+    await writeFile(join(packageDir, 'operations.js'), 'export {}')
+    await writeFile(join(outsidePackageDir, 'package.json'), JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
+    await writeFile(join(outsidePackageDir, 'operations.js'), 'export {}')
+    manifestRace.swapParentAtOpenPath = join(packageDir, 'package.json')
+    manifestRace.replacementPackageDir = outsidePackageDir
+
+    const evidence = await probeOfficialSurfaces({ harnessSourceDir })
+
+    expect(evidence.operationsExport).toMatchObject({ declared: false, targetExists: false })
+    expect(evidence.diagnostics).toContain('PACKAGE_MANIFEST_NOT_REGULAR')
   })
 
   it('reports an undeclared operations export', async () => {

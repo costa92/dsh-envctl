@@ -1,4 +1,5 @@
-import { lstat, readFile, realpath } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, open, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { RuntimeCapabilityEvidence } from './capability-types.js'
 
@@ -20,9 +21,42 @@ function operationsTarget(manifest: unknown): string | null {
     : null
 }
 
-function isWithinPackage(packageDir: string, targetPath: string): boolean {
-  const target = relative(packageDir, targetPath)
+function isWithinDirectory(directory: string, targetPath: string): boolean {
+  const target = relative(directory, targetPath)
   return target !== '' && target !== '..' && !target.startsWith(`..${sep}`) && !isAbsolute(target)
+}
+
+async function readBoundedManifest(
+  path: string,
+  actualHarnessDir: string,
+  actualPackageDir: string,
+): Promise<{ content: string } | { diagnostic: string }> {
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const openedStat = await file.stat()
+    if (!openedStat.isFile()) return { diagnostic: 'PACKAGE_MANIFEST_NOT_REGULAR' }
+    const openedPath = await realpath(path)
+    const pathStat = await stat(path)
+    if (
+      !isWithinDirectory(actualHarnessDir, openedPath) ||
+      !isWithinDirectory(actualPackageDir, openedPath) ||
+      pathStat.dev !== openedStat.dev ||
+      pathStat.ino !== openedStat.ino
+    ) return { diagnostic: 'PACKAGE_MANIFEST_NOT_REGULAR' }
+    if (openedStat.size > manifestLimit) return { diagnostic: 'PACKAGE_MANIFEST_TOO_LARGE' }
+
+    const buffer = Buffer.alloc(manifestLimit + 1)
+    let total = 0
+    while (total < buffer.length) {
+      const { bytesRead } = await file.read(buffer, total, buffer.length - total, null)
+      if (bytesRead === 0) break
+      total += bytesRead
+    }
+    if (total > manifestLimit) return { diagnostic: 'PACKAGE_MANIFEST_TOO_LARGE' }
+    return { content: buffer.subarray(0, total).toString('utf8') }
+  } finally {
+    await file.close()
+  }
 }
 
 export async function probeOfficialSurfaces(input: {
@@ -38,42 +72,55 @@ export async function probeOfficialSurfaces(input: {
   }
 
   try {
-    const stat = await lstat(manifestPath)
-    if (!stat.isFile()) {
+    const actualHarnessDir = await realpath(input.harnessSourceDir)
+    const actualPackageDir = await realpath(packageDir)
+    if (!isWithinDirectory(actualHarnessDir, actualPackageDir)) {
       diagnostics.push('PACKAGE_MANIFEST_NOT_REGULAR')
-    } else if (stat.size > manifestLimit) {
-      diagnostics.push('PACKAGE_MANIFEST_TOO_LARGE')
     } else {
-      let manifest: unknown
-      try {
-        manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-      } catch {
-        manifest = null
-      }
-
-      const target = operationsTarget(manifest)
-      if (target === null) {
-        diagnostics.push('OPERATIONS_EXPORT_MISSING')
+      const stat = await lstat(manifestPath)
+      if (!stat.isFile()) {
+        diagnostics.push('PACKAGE_MANIFEST_NOT_REGULAR')
       } else {
-        operationsExport.declared = true
-        const targetPath = resolve(packageDir, target)
-        if (!isWithinPackage(packageDir, targetPath)) {
-          diagnostics.push('EXPORT_TARGET_OUTSIDE_PACKAGE')
+        const actualManifestPath = await realpath(manifestPath)
+        if (!isWithinDirectory(actualHarnessDir, actualManifestPath) || !isWithinDirectory(actualPackageDir, actualManifestPath)) {
+          diagnostics.push('PACKAGE_MANIFEST_NOT_REGULAR')
         } else {
-          try {
-            if ((await lstat(targetPath)).isFile()) {
-              const actualPackageDir = await realpath(packageDir)
-              const actualTargetPath = await realpath(targetPath)
-              if (isWithinPackage(actualPackageDir, actualTargetPath)) {
-                operationsExport.targetExists = true
-              } else {
-                diagnostics.push('EXPORT_TARGET_OUTSIDE_PACKAGE')
-              }
-            } else {
-              diagnostics.push('EXPORT_TARGET_MISSING')
+          const readResult = await readBoundedManifest(manifestPath, actualHarnessDir, actualPackageDir)
+          if ('diagnostic' in readResult) {
+            diagnostics.push(readResult.diagnostic)
+          } else {
+            let manifest: unknown
+            try {
+              manifest = JSON.parse(readResult.content)
+            } catch {
+              manifest = null
             }
-          } catch {
-            diagnostics.push('EXPORT_TARGET_MISSING')
+
+            const target = operationsTarget(manifest)
+            if (target === null) {
+              diagnostics.push('OPERATIONS_EXPORT_MISSING')
+            } else {
+              operationsExport.declared = true
+              const targetPath = resolve(packageDir, target)
+              if (!isWithinDirectory(packageDir, targetPath)) {
+                diagnostics.push('EXPORT_TARGET_OUTSIDE_PACKAGE')
+              } else {
+                try {
+                  if ((await lstat(targetPath)).isFile()) {
+                    const actualTargetPath = await realpath(targetPath)
+                    if (isWithinDirectory(actualHarnessDir, actualTargetPath) && isWithinDirectory(actualPackageDir, actualTargetPath)) {
+                      operationsExport.targetExists = true
+                    } else {
+                      diagnostics.push('EXPORT_TARGET_OUTSIDE_PACKAGE')
+                    }
+                  } else {
+                    diagnostics.push('EXPORT_TARGET_MISSING')
+                  }
+                } catch {
+                  diagnostics.push('EXPORT_TARGET_MISSING')
+                }
+              }
+            }
           }
         }
       }
