@@ -1,0 +1,8 @@
+{
+  "name": "@deepseek-ai/dsh-plugin-manager",
+  "exports": {
+    "./operations": {
+      "default": "./lib/types/operations.js"
+    }
+  }
+}
