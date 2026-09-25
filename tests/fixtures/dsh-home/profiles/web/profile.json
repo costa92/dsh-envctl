@@ -1,0 +1,8 @@
+{
+  "name": "web",
+  "plugins": {
+    "@nanmicoder/dsh-agent-teams": {
+      "enabled": true
+    }
+  }
+}
