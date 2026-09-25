@@ -1,0 +1,38 @@
+{
+  "name": "dsh-envctl",
+  "version": "0.1.0",
+  "description": "Environment-as-Code manager for DeepSeek Harness",
+  "type": "module",
+  "bin": {
+    "dshenv": "./bin/dshenv.js"
+  },
+  "main": "./lib/cli.js",
+  "types": "./lib/cli.d.ts",
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "execa": "^9.5.2",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "tsdown": "^0.15.6",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}
