@@ -203,7 +203,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       const caps = capabilitiesFor(probeResult.version);
 
       if (caps.discovery.status !== 'available') {
-        throw new CapabilityError(`Unsupported DSH version: ${probeResult.version}`);
+        throw new CapabilityError('Unsupported DSH version');
       }
 
       const evidence: RuntimeCapabilityEvidence = dshCmd.cwd

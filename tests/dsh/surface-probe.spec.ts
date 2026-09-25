@@ -1,4 +1,6 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { closeSync, constants, openSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +15,8 @@ const manifestRace = vi.hoisted(() => ({
   swapParentCanonicalPath: '',
   parentLink: '',
   replacementBootDir: '',
+  fifoAtOpenPath: '',
+  fifoRescued: false,
 }))
 
 vi.mock('node:fs/promises', async importOriginal => {
@@ -33,6 +37,23 @@ vi.mock('node:fs/promises', async importOriginal => {
       return stat
     },
     open: async (...args: Parameters<typeof actual.open>) => {
+      if (String(args[0]) === manifestRace.fifoAtOpenPath) {
+        const fifoPath = manifestRace.fifoAtOpenPath
+        manifestRace.fifoAtOpenPath = ''
+        await actual.rm(fifoPath)
+        execFileSync('mkfifo', [fifoPath])
+        // Release an unsafe blocking open so the RED test fails without hanging the suite.
+        const rescue = setTimeout(() => {
+          manifestRace.fifoRescued = true
+          const writer = openSync(fifoPath, constants.O_WRONLY | constants.O_NONBLOCK)
+          closeSync(writer)
+        }, 250)
+        try {
+          return await actual.open(...args)
+        } finally {
+          clearTimeout(rescue)
+        }
+      }
       if (
         String(args[0]) === manifestRace.swapParentAtOpenPath ||
         String(args[0]) === manifestRace.swapParentCanonicalPath
@@ -66,10 +87,27 @@ afterEach(async () => {
   manifestRace.swapParentCanonicalPath = ''
   manifestRace.parentLink = ''
   manifestRace.replacementBootDir = ''
+  manifestRace.fifoAtOpenPath = ''
+  manifestRace.fifoRescued = false
   await Promise.all(temporaryDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
 describe('probeOfficialSurfaces', () => {
+  it.each([
+    ['package.json', false, 'PACKAGE_MANIFEST_NOT_REGULAR'],
+    ['operations.js', true, 'EXPORT_TARGET_MISSING'],
+  ] as const)('rejects %s replaced by a FIFO immediately before open without blocking', async (file, declared, diagnostic) => {
+    const { harnessSourceDir, packageDir } = await temporaryPackageDir()
+    await writeFile(join(packageDir, 'package.json'), JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
+    await writeFile(join(packageDir, 'operations.js'), 'throw new Error("must not execute")')
+    manifestRace.fifoAtOpenPath = await realpath(join(packageDir, file))
+
+    const evidence = await probeOfficialSurfaces({ harnessSourceDir })
+
+    expect(manifestRace.fifoRescued).toBe(false)
+    expect(evidence.operationsExport).toMatchObject({ declared, targetExists: false })
+    expect(evidence.diagnostics).toEqual([diagnostic, 'LIVE_SERVICE_NOT_CONFIGURED'])
+  })
   it('finds the declared official operations export without executing its target', async () => {
     const evidence = await probeOfficialSurfaces({ harnessSourceDir: fixtureDir })
 

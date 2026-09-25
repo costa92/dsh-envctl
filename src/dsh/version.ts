@@ -7,8 +7,8 @@ export interface DshVersion {
 }
 
 export function parseDshVersion(value: string): DshVersion | null {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
-  if (!match) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
+  if (!match || match[0] !== value) {
     return null;
   }
 
@@ -19,12 +19,17 @@ export function parseDshVersion(value: string): DshVersion | null {
     return null;
   }
 
+  const prerelease = match[4] ?? null;
+  if (prerelease?.split('.').some(identifier => /^0\d+$/.test(identifier))) {
+    return null;
+  }
+
   return {
     raw: value,
     major,
     minor,
     patch,
-    prerelease: match[4] ?? null
+    prerelease
   };
 }
 

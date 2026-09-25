@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import { execa } from 'execa';
 import { DegradedError } from '../errors.js';
+import { parseDshVersion } from './version.js';
 
 export interface CommandSpec {
   file: string;
@@ -111,15 +112,15 @@ export async function probeDsh(
     throw new DegradedError('DSH runtime probe execution failed');
   }
 
-  const output = (res.stdout || res.stderr || '').trim();
-  // Match version like 0.1.7-rc.2 or 0.1.7
-  const versionMatch = output.match(/(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._-]+)?)/);
-  if (!versionMatch) {
+  const output = res.stdout || res.stderr || '';
+  // Ignore command echoes; only a complete, strictly valid version line is evidence.
+  const version = output.split(/\r?\n/).find(line => parseDshVersion(line) !== null);
+  if (version === undefined) {
     throw new DegradedError('Unable to parse DSH runtime version');
   }
 
   return {
-    version: versionMatch[1],
-    raw: output
+    version,
+    raw: output.trim()
   };
 }

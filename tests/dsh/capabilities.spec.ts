@@ -31,6 +31,48 @@ describe('capabilityTemplateFor', () => {
 });
 
 describe('evaluateCapabilities', () => {
+  it.each([
+    ['HARNESS_SOURCE_UNAVAILABLE', 'Harness source is unavailable; provide an explicit --harness-source to verify official operations'],
+    ['PACKAGE_MANIFEST_MISSING', 'Plugin manager manifest is missing; check the harness source installation'],
+    ['PACKAGE_MANIFEST_NOT_REGULAR', 'Plugin manager manifest is not a verified regular file; check the harness source installation'],
+    ['PACKAGE_MANIFEST_TOO_LARGE', 'Plugin manager manifest exceeds the size limit; check the harness source installation'],
+    ['OPERATIONS_EXPORT_MISSING', 'Official operations export is not declared; use a supported harness source installation'],
+    ['EXPORT_TARGET_OUTSIDE_PACKAGE', 'Official operations target escapes the package; check the harness source installation'],
+    ['EXPORT_TARGET_MISSING', 'Official operations target is missing or not a verified regular file; build or repair the harness source installation'],
+  ])('maps safe diagnostic %s to an actionable package reason', (diagnostic, reason) => {
+    const caps = evaluateCapabilities('0.1.7', evidence({
+      operationsExport: { declared: false, targetExists: false, exportName: officialExport },
+      diagnostics: ['Authorization: Bearer doctor-secret /private/source', diagnostic, 'LIVE_SERVICE_NOT_CONFIGURED']
+    }));
+    expect(caps.packageOperations).toEqual({ status: 'disabled', source: 'operations-export', reason });
+    expect(JSON.stringify(caps)).not.toMatch(/doctor-secret|Authorization|\/private/);
+    expect(caps.mutations).toBe(false);
+  });
+
+  it('uses a fixed package diagnostic when evidence contains only untrusted text', () => {
+    const caps = evaluateCapabilities('0.1.7', evidence({
+      operationsExport: { declared: false, targetExists: false, exportName: officialExport },
+      diagnostics: ['Authorization: Bearer doctor-secret /private/source', 'toString', '__proto__']
+    }));
+    expect(caps.packageOperations.reason).toBe('Official operations export was not verified');
+    expect(JSON.stringify(caps)).not.toMatch(/doctor-secret|Authorization|\/private/);
+  });
+
+  it('explains every unavailable Phase 2A capability without promoting it', () => {
+    const caps = evaluateCapabilities('0.1.7', evidence({ liveService: { configured: true, reachable: true } }));
+    const liveReason = 'Requires an explicitly configured, authenticated live service adapter; Phase 2A does not enable live service operations';
+    expect(caps.bundleSelection).toEqual({ status: 'requires-live-service', source: 'live-service', reason: liveReason });
+    expect(caps.entryToggle).toEqual({ status: 'requires-live-service', source: 'live-service', reason: liveReason });
+    expect(caps.configurationValidation).toEqual({
+      status: 'disabled', source: 'static-matrix',
+      reason: 'Configuration validation is disabled in Phase 2A; a verified validation adapter is required before applying changes'
+    });
+    expect(caps.environmentMutation).toEqual({
+      status: 'disabled', source: 'dshenv',
+      reason: 'Environment mutation is disabled in Phase 2A; ownership and transaction safeguards are required before applying changes'
+    });
+    expect(caps.mutations).toBe(false);
+  });
   it('keeps the known family within the static matrix when export evidence is present', () => {
     const caps = evaluateCapabilities('0.1.7-rc.2', evidence());
     expect(caps.discovery.status).toBe('available');

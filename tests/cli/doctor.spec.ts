@@ -93,7 +93,7 @@ exit 0
       const code = await runCli(['doctor', '--dsh-home', tempHome], io);
       expect(code).toBe(4);
       expect(stdout).toBe('');
-      expect(stderr).toContain('Unsupported DSH version');
+      expect(stderr).toBe('Unsupported DSH version\n');
     } finally {
       if (oldDshCli) process.env.DSH_CLI = oldDshCli;
       else delete process.env.DSH_CLI;
@@ -133,7 +133,7 @@ exit 0
           packageOperations: {
             status: 'disabled',
             source: 'operations-export',
-            reason: 'Official operations export was not verified'
+            reason: 'Harness source is unavailable; provide an explicit --harness-source to verify official operations'
           }
         }
       });
@@ -264,6 +264,35 @@ exit 0
     } finally {
       if (oldDshCli) process.env.DSH_CLI = oldDshCli;
       else delete process.env.DSH_CLI;
+    }
+  });
+
+  it.each([
+    ['v0.1.7', 5], ['0.1.7garbage', 5], ['0.1.7-', 5], ['0.1.7.0', 5],
+    ['00.01.007', 5], ['0.1.7-01', 5],
+    ['0.1.70-Authorization_Bearer_doctor-secret', 5],
+    ['0.1.70-Authorization-Bearer-doctor-secret', 4],
+  ])('rejects %s without echoing the version token', async (version, exitCode) => {
+    fs.writeFileSync(fakeDsh, `#!/bin/sh\necho '${version}'\n`);
+    const oldDshCli = process.env.DSH_CLI;
+    process.env.DSH_CLI = fakeDsh;
+    try {
+      for (const jsonArgs of [[], ['--json']]) {
+        let stdout = '';
+        let stderr = '';
+        const code = await runCli(['doctor', '--dsh-home', tempHome, ...jsonArgs], {
+          stdout: chunk => { stdout += chunk; },
+          stderr: chunk => { stderr += chunk; }
+        });
+        expect(code).toBe(exitCode);
+        expect(stdout).toBe('');
+        expect(stderr).toBe(exitCode === 4 ? 'Unsupported DSH version\n' : 'Unable to parse DSH runtime version\n');
+        expect(stderr).not.toContain('doctor-secret');
+        expect(stderr).not.toContain('Authorization');
+      }
+    } finally {
+      if (oldDshCli === undefined) delete process.env.DSH_CLI;
+      else process.env.DSH_CLI = oldDshCli;
     }
   });
 });

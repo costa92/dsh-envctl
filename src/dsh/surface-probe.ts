@@ -2,9 +2,9 @@ import { constants } from 'node:fs'
 import { lstat, open, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { RuntimeCapabilityEvidence } from './capability-types.js'
+import { OFFICIAL_OPERATIONS_EXPORT } from './constants.js'
 
 const manifestLimit = 1_048_576
-const operationsExportName = '@deepseek-ai/dsh-plugin-manager/operations'
 
 function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -42,7 +42,7 @@ async function readBoundedManifest(
   canonicalPath: string,
   initialStat: FileIdentity,
 ): Promise<{ content: string } | { diagnostic: string }> {
-  const file = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW)
+  const file = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const openedStat = await file.stat()
     if (!openedStat.isFile()) return { diagnostic: 'PACKAGE_MANIFEST_NOT_REGULAR' }
@@ -66,7 +66,7 @@ async function readBoundedManifest(
 }
 
 async function canonicalTargetIsRegularFile(canonicalPath: string, initialStat: FileIdentity): Promise<boolean> {
-  const file = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW)
+  const file = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const openedStat = await file.stat()
     return openedStat.isFile() &&
@@ -86,7 +86,7 @@ export async function probeOfficialSurfaces(input: {
   const operationsExport = {
     declared: false,
     targetExists: false,
-    exportName: operationsExportName,
+    exportName: OFFICIAL_OPERATIONS_EXPORT,
   }
 
   try {

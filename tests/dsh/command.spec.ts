@@ -6,6 +6,26 @@ import {
   type CommandSpec
 } from '../../src/dsh/index.js';
 
+describe('probeDsh', () => {
+  const cmd: CommandSpec = { file: 'dsh', args: [] };
+  it.each([
+    'v0.1.7', '0.1.7garbage', '0.1.7-', '0.1.7.0', '00.01.007',
+    '0.1.7-01', '0.1.7-rc.01', 'DSH 0.1.7', ' 0.1.7 ',
+    '0.1.70-Authorization_Bearer_doctor-secret',
+  ])('rejects output without a strictly valid version line: %j', async stdout => {
+    await expect(probeDsh(cmd, async () => ({ stdout, stderr: '' })))
+      .rejects.toThrow('Unable to parse DSH runtime version');
+  });
+  it('selects the independent version line after pnpm command echoes', async () => {
+    const stdout = '> harness@0.1.7 dsh /source\r\n> node cli.js --version\r\n\r\n0.1.7-rc.2\r\n';
+    expect(await probeDsh(cmd, async () => ({ stdout, stderr: '' })))
+      .toEqual({ version: '0.1.7-rc.2', raw: stdout.trim() });
+  });
+  it('accepts a strict version line from stderr when stdout is empty', async () => {
+    expect((await probeDsh(cmd, async () => ({ stdout: '', stderr: '0.1.7\n' }))).version).toBe('0.1.7');
+  });
+});
+
 describe('resolveDshCommand', () => {
   it('should parse DSH_CLI as JSON array if formatted as array', () => {
     const cmd = resolveDshCommand({
