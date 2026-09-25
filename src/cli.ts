@@ -11,15 +11,19 @@ import {
   loadLock,
   loadState,
   parseYamlStrict,
-  serializeCaptureDocument
+  serializeCaptureDocument,
+  serializeManifest
 } from './manifest/files.js';
 import { CaptureDocumentSchema } from './manifest/schema.js';
 import { buildPlan, buildStatus, planExitCode } from './planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from './output/render.js';
 import { writeAtomic } from './io/atomic-file.js';
 import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, type RuntimeCapabilityEvidence } from './dsh/index.js';
+import { inspectGitWorkingTree, cloneManagedGit, safeFastForwardManagedGit } from './source/git.js';
+import { inspectLocalSource, calculateSourceDigest } from './source/local.js';
+import { applyPatchBlock, removePatchBlock, extractManagedPatches } from './patch/patch.js';
 import { DshError, ValidationError, CapabilityError } from './errors.js';
-import type { EnvironmentManifest, EnvironmentLock, EnvironmentState, CaptureDocument } from './domain.js';
+import type { EnvironmentManifest, EnvironmentLock, EnvironmentState, CaptureDocument, PluginSource } from './domain.js';
 import type { EnvironmentPaths } from './environment/paths.js';
 
 function resolveCliPaths(opts: { dshHome?: string }): EnvironmentPaths {
@@ -316,6 +320,255 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
         writeOut(JSON.stringify(report, null, 2) + '\n');
       } else {
         writeOut(renderDoctor(report));
+      }
+    });
+
+  function parsePluginSpec(spec: string, optsAlias?: string): { alias: string; packageName: string; source: PluginSource } {
+    if (spec.startsWith('git+') || spec.startsWith('http://') || spec.startsWith('https://') || spec.startsWith('git@') || spec.endsWith('.git')) {
+      const cleanUrl = spec.startsWith('git+') ? spec.slice(4) : spec;
+      const urlParts = cleanUrl.split('#');
+      const repoUrl = urlParts[0];
+      const commitOrRef = urlParts[1];
+      const baseName = path.basename(repoUrl, '.git');
+      const alias = optsAlias || baseName.replace(/^(dsh-plugin-|dsh-)/, '');
+      return {
+        alias,
+        packageName: baseName,
+        source: {
+          type: 'git',
+          url: repoUrl,
+          commit: commitOrRef
+        }
+      };
+    }
+
+    if (spec.startsWith('./') || spec.startsWith('../') || spec.startsWith('/') || spec.startsWith('file:')) {
+      const localPath = spec.startsWith('file:') ? spec.slice(5) : spec;
+      const resolved = path.resolve(localPath);
+      const baseName = path.basename(resolved);
+      const alias = optsAlias || baseName.replace(/^(dsh-plugin-|dsh-)/, '');
+      return {
+        alias,
+        packageName: baseName,
+        source: {
+          type: 'local-link',
+          path: resolved
+        }
+      };
+    }
+
+    let packageName = spec;
+    let version = '*';
+
+    if (spec.startsWith('@')) {
+      const atIdx = spec.indexOf('@', 1);
+      if (atIdx !== -1) {
+        packageName = spec.slice(0, atIdx);
+        version = spec.slice(atIdx + 1);
+      }
+    } else {
+      const atIdx = spec.indexOf('@');
+      if (atIdx !== -1) {
+        packageName = spec.slice(0, atIdx);
+        version = spec.slice(atIdx + 1);
+      }
+    }
+
+    const simpleName = packageName.startsWith('@') ? packageName.split('/')[1] : packageName;
+    const alias = optsAlias || simpleName.replace(/^(dsh-plugin-|dsh-)/, '');
+
+    return {
+      alias,
+      packageName,
+      source: {
+        type: 'npm',
+        version
+      }
+    };
+  }
+
+  program
+    .command('install <spec>')
+    .description('Install a plugin into the manifest for a profile')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .option('--as <alias>', 'custom alias name for the plugin')
+    .action(async (spec: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+
+      if (!fs.existsSync(paths.manifestFile)) {
+        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}. Run dshenv init first.`);
+      }
+
+      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      if (!manifest.profiles[cmdOpts.profile]) {
+        manifest.profiles[cmdOpts.profile] = { plugins: {} };
+      }
+
+      const parsed = parsePluginSpec(spec, cmdOpts.as);
+      manifest.profiles[cmdOpts.profile].plugins[parsed.alias] = {
+        package: parsed.packageName,
+        enabled: true,
+        source: parsed.source
+      };
+
+      await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'installed', profile: cmdOpts.profile, alias: parsed.alias, package: parsed.packageName, source: parsed.source }, null, 2) + '\n');
+      } else {
+        writeOut(`Installed ${parsed.packageName} (${parsed.alias}) in profile '${cmdOpts.profile}'.\n`);
+      }
+    });
+
+  program
+    .command('enable <alias>')
+    .description('Enable an installed plugin in a profile')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .action(async (alias: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+
+      if (!fs.existsSync(paths.manifestFile)) {
+        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+
+      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const profile = manifest.profiles[cmdOpts.profile];
+      if (!profile || !profile.plugins[alias]) {
+        throw new ValidationError(`Plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+      }
+
+      profile.plugins[alias].enabled = true;
+      await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'enabled', profile: cmdOpts.profile, alias }, null, 2) + '\n');
+      } else {
+        writeOut(`Enabled plugin '${alias}' in profile '${cmdOpts.profile}'.\n`);
+      }
+    });
+
+  program
+    .command('disable <alias>')
+    .description('Disable an installed plugin in a profile')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .action(async (alias: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+
+      if (!fs.existsSync(paths.manifestFile)) {
+        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+
+      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const profile = manifest.profiles[cmdOpts.profile];
+      if (!profile || !profile.plugins[alias]) {
+        throw new ValidationError(`Plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+      }
+
+      profile.plugins[alias].enabled = false;
+      await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'disabled', profile: cmdOpts.profile, alias }, null, 2) + '\n');
+      } else {
+        writeOut(`Disabled plugin '${alias}' in profile '${cmdOpts.profile}'.\n`);
+      }
+    });
+
+  program
+    .command('remove <alias>')
+    .description('Remove an installed plugin from a profile')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .option('-y, --yes', 'skip confirmation')
+    .action(async (alias: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+
+      if (!fs.existsSync(paths.manifestFile)) {
+        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+
+      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const profile = manifest.profiles[cmdOpts.profile];
+      if (!profile || !profile.plugins[alias]) {
+        throw new ValidationError(`Plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+      }
+
+      delete profile.plugins[alias];
+      await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'removed', profile: cmdOpts.profile, alias }, null, 2) + '\n');
+      } else {
+        writeOut(`Removed plugin '${alias}' from profile '${cmdOpts.profile}'.\n`);
+      }
+    });
+
+  const sourceCmd = program.command('source').description('Manage local and Git plugin sources');
+
+  sourceCmd
+    .command('status [sourcePath]')
+    .description('Inspect working tree and digest status of a source directory')
+    .action(async (sourcePath?: string) => {
+      const opts = program.opts();
+      const targetDir = sourcePath ? path.resolve(process.cwd(), sourcePath) : process.cwd();
+      const gitStatus = await inspectGitWorkingTree(targetDir);
+      let localInfo: unknown = null;
+      try {
+        localInfo = await inspectLocalSource(targetDir);
+      } catch {
+        // Not a standard plugin source dir
+      }
+
+      const result = {
+        dir: targetDir,
+        git: gitStatus,
+        local: localInfo
+      };
+
+      if (opts.json) {
+        writeOut(JSON.stringify(result, null, 2) + '\n');
+      } else {
+        writeOut(`Source: ${targetDir}\n`);
+        writeOut(`  Git Repo: ${gitStatus.isGitRepo ? 'Yes' : 'No'}\n`);
+        if (gitStatus.isGitRepo) {
+          writeOut(`  Dirty: ${gitStatus.isDirty ? 'Yes (uncommitted changes)' : 'No'}\n`);
+          writeOut(`  Commit: ${gitStatus.commit ?? 'unknown'}\n`);
+          if (gitStatus.branch) {
+            writeOut(`  Branch: ${gitStatus.branch}\n`);
+          }
+        }
+      }
+    });
+
+  sourceCmd
+    .command('clone <url> <targetDir>')
+    .description('Clone a Git plugin repository safely')
+    .option('--ref <ref>', 'branch or tag to clone')
+    .action(async (url: string, targetDir: string, cmdOpts) => {
+      const opts = program.opts();
+      const resolvedTarget = path.resolve(process.cwd(), targetDir);
+      const res = await cloneManagedGit(url, resolvedTarget, cmdOpts.ref);
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'cloned', url, target: resolvedTarget, commit: res.commit }, null, 2) + '\n');
+      } else {
+        writeOut(`Cloned ${url} to ${resolvedTarget} (HEAD at ${res.commit})\n`);
+      }
+    });
+
+  sourceCmd
+    .command('pull <targetDir> <targetRef>')
+    .description('Fast-forward update a managed Git plugin repository')
+    .action(async (targetDir: string, targetRef: string) => {
+      const opts = program.opts();
+      const resolvedTarget = path.resolve(process.cwd(), targetDir);
+      const res = await safeFastForwardManagedGit(resolvedTarget, targetRef);
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'pulled', target: resolvedTarget, ...res }, null, 2) + '\n');
+      } else {
+        writeOut(`Updated ${resolvedTarget} from ${res.previousCommit} to ${res.newCommit}\n`);
       }
     });
 
