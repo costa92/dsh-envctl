@@ -11,9 +11,10 @@ import {
   serializeCaptureDocument
 } from './manifest/files.js';
 import { buildPlan, buildStatus } from './planner/plan.js';
-import { renderPlan, renderStatus } from './output/render.js';
+import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from './output/render.js';
 import { writeAtomic } from './io/atomic-file.js';
-import { DshError, ValidationError } from './errors.js';
+import { resolveDshCommand, probeDsh, capabilitiesFor } from './dsh/index.js';
+import { DshError, ValidationError, CapabilityError } from './errors.js';
 import type { EnvironmentManifest, EnvironmentLock, EnvironmentState } from './domain.js';
 
 export interface CliIO {
@@ -168,14 +169,74 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       }
     });
 
+  program
+    .command('doctor')
+    .description('Probe DSH runtime and inspect environment readiness')
+    .action(async () => {
+      const opts = program.opts();
+      const paths = resolveEnvironmentPaths({
+        cliDshHome: opts.dshHome
+      });
+
+      let manifestHarnessSource: string | undefined;
+      if (fs.existsSync(paths.manifestFile)) {
+        try {
+          const m = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+          manifestHarnessSource = m.environment?.harness?.sourceDir;
+        } catch {
+          // ignore manifest error during doctor probing
+        }
+      }
+
+      const dshCmd = resolveDshCommand({
+        cliHarnessSource: opts.harnessSource,
+        manifestHarnessSource
+      });
+
+      if (!dshCmd) {
+        throw new CapabilityError('DSH command could not be resolved from DSH_CLI, harness-source, or PATH');
+      }
+
+      const probeResult = await probeDsh(dshCmd);
+      const caps = capabilitiesFor(probeResult.version);
+
+      if (!caps.discovery) {
+        throw new CapabilityError(`Unsupported DSH version: ${probeResult.version}`);
+      }
+
+      const report: DoctorReport = {
+        runtime: {
+          command: `${dshCmd.file} ${dshCmd.args.join(' ')}`.trim(),
+          version: probeResult.version,
+          discoverySupported: caps.discovery,
+          mutationsSupported: caps.mutations
+        },
+        paths: {
+          home: paths.home,
+          managerDir: paths.managerDir,
+          manifestExists: fs.existsSync(paths.manifestFile),
+          lockExists: fs.existsSync(paths.lockFile),
+          stateExists: fs.existsSync(paths.stateFile)
+        }
+      };
+
+      if (opts.json) {
+        writeOut(JSON.stringify(report, null, 2) + '\n');
+      } else {
+        writeOut(renderDoctor(report));
+      }
+    });
+
   try {
     await program.parseAsync(argv, { from: 'user' });
     return exitCodeToReturn;
   } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'exitCode' in err) {
-      const exitCode = (err as { exitCode: number }).exitCode;
+    const isCommanderError = err && typeof err === 'object' && (err as { code?: string }).code?.startsWith('commander.');
+    if (isCommanderError) {
+      const exitCode = (err as { exitCode?: number }).exitCode;
       return typeof exitCode === 'number' ? exitCode : 1;
     }
+
     const message = err instanceof Error ? err.message : String(err);
     writeErr(`${message}\n`);
     if (err instanceof DshError) {

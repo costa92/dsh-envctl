@@ -79,3 +79,37 @@ export function renderStatus(status: EnvironmentStatusSummary): string {
 
   return lines.join('\n') + '\n';
 }
+
+export interface DoctorReport {
+  runtime: {
+    command: string;
+    version: string;
+    discoverySupported: boolean;
+    mutationsSupported: boolean;
+  };
+  paths: {
+    home: string;
+    managerDir: string;
+    manifestExists: boolean;
+    lockExists: boolean;
+    stateExists: boolean;
+  };
+}
+
+export function renderDoctor(report: DoctorReport): string {
+  const lines: string[] = [];
+  lines.push('=== DSH Environment Doctor ===');
+  lines.push(`DSH Runtime Version: ${report.runtime.version}`);
+  lines.push(`DSH Command: ${report.runtime.command}`);
+  lines.push(`Discovery Capability: ${report.runtime.discoverySupported ? 'Supported (✓)' : 'Unsupported (✗)'}`);
+  lines.push(`Mutation Capability: ${report.runtime.mutationsSupported ? 'Supported (✓)' : 'Not enabled in prototype (read-only mode)'}`);
+  lines.push('');
+  lines.push('Paths:');
+  lines.push(`  Home: ${report.paths.home}`);
+  lines.push(`  Manager Dir: ${report.paths.managerDir}`);
+  lines.push(`  Manifest: ${report.paths.manifestExists ? 'Found' : 'Not created'}`);
+  lines.push(`  Lockfile: ${report.paths.lockExists ? 'Found' : 'Not created'}`);
+  lines.push(`  State: ${report.paths.stateExists ? 'Found' : 'Not created'}`);
+
+  return lines.join('\n') + '\n';
+}
