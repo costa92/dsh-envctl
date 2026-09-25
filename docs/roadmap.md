@@ -6,13 +6,15 @@
 
 ## 阶段规划
 
-### Phase 1: 只读原型（当前版本）
+### Phase 1: 只读原型（0.1.0，已验证）
 - [x] CLI 骨架与环境路径解析
 - [x] 声明式清单 (`manifest.yaml`)、锁 (`lock.json`) 与状态格式及校验
 - [x] 安全 DSH 运行时能力探测 (`doctor`)
 - [x] 只读 Profile 盘点 (`inventory`)
 - [x] 无损环境捕获 (`capture`)
 - [x] 确定性变更比对与状态映射 (`plan`, `status`)
+
+验证基线：13 个测试文件、62 项测试通过；`typecheck` 通过；隔离 `doctor` 能识别 DSH `0.1.7-rc.2`，并保持 `mutations=false`。
 
 ### Phase 2: 官方管理器适配与环境接管 (`apply` & `adopt`)
 - [ ] 挂载 `@deepseek-ai/dsh-plugin-manager` 官方写适配器
