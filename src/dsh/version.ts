@@ -7,16 +7,23 @@ export interface DshVersion {
 }
 
 export function parseDshVersion(value: string): DshVersion | null {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/.exec(value);
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
   if (!match) {
+    return null;
+  }
+
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (![major, minor, patch].every(Number.isSafeInteger)) {
     return null;
   }
 
   return {
     raw: value,
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
+    major,
+    minor,
+    patch,
     prerelease: match[4] ?? null
   };
 }
