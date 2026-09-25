@@ -4,13 +4,13 @@
 
 它构建在 DSH 官方插件管理器协议与能力之上，通过声明式清单（`manifest.yaml`）和精确锁文件（`lock.json`）管理多 Profile 的插件、精确版本与配置补丁。
 
-当前版本为 **只读原型（Read-Only Prototype）**，提供环境探测、Profile 盘点、环境捕获、状态汇总、差异比对及健康诊断功能，不修改 DSH 现有环境与 Profile。
+当前处于 **Phase 2A 只读能力基础设施** 阶段，提供环境探测、Profile 盘点、环境捕获、状态汇总、差异比对及健康诊断功能，不修改 DSH 现有环境与 Profile。DSH 环境写命令仍未开放。
 
 ---
 
 ## 核心特性
 
-- **安全只读**：在原型阶段仅写入 `$DSH_HOME/envctl/*`，Profile、依赖与运行时数据保持 100% 只读。
+- **安全只读**：`init` 仅写入 `$DSH_HOME/envctl/*`，`capture --output` 仅写入显式指定的审阅文件；Profile、依赖与运行时数据保持只读。
 - **声明式漂移检测**：自动计算实际安装态与目标清单差异（`plan` / `status`）。
 - **无损环境捕获**：一键将现有 DSH Profile 盘点为可审阅的候选清单（`capture`）。
 - **多运行时与能力探测**：无缝支持源码运行模式（`--harness-source`）、环境变量（`DSH_CLI`）及全局 PATH 探测（`doctor`）。
@@ -67,6 +67,18 @@ dshenv doctor --harness-source /Users/costalong/code/dsh/deepseek-harness
 # 结构化 JSON 输出
 dshenv doctor --json
 ```
+
+`doctor --json` 在 `runtime.capabilities` 中逐项报告能力状态，并保留 `runtime.discoverySupported`、`runtime.mutationsSupported` 等兼容字段：
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `available` | 已知 DSH 版本支持该能力，且需要的本地证据已验证；仅表示该项能力可见。 |
+| `requires-live-service` | 该能力依赖已连接并认证的 live manager service；当前阶段尚未建立其连接契约。 |
+| `disabled` | 当前版本、探测证据或本工具的安全边界不允许使用该能力。 |
+
+对已验证的 DSH `0.1.7-rc.2` 源码，`discovery` 与 `packageOperations` 为 `available`，`bundleSelection` 与 `entryToggle` 为 `requires-live-service`，`configurationValidation` 与 `environmentMutation` 为 `disabled`。`packageOperations` 需要官方 operations export 的声明及目标文件均通过只读探测；只通过 DSH 命令探测、缺少可验证源码时，该项为 `disabled`。
+
+`runtime.mutationsSupported=false`（能力矩阵中的 `mutations=false`）在 Phase 2A 始终成立。`packageOperations` 可见只说明官方包操作接口存在，**不代表 `apply` 可用**；本工具尚未注册 `apply` 或其他 DSH 环境写命令。
 
 ### 2. `dshenv init`
 在 `$DSH_HOME/envctl/` 下初始化空的清单、锁文件与初始状态。
@@ -130,7 +142,7 @@ dshenv status --json
 
 ## 尚不可用的命令
 
-当前只读原型**不提供**下列命令（调用会得到 Commander 未知命令错误）：
+当前 Phase 2A **不提供**下列命令（调用会得到 Commander 未知命令错误）：
 
 - `apply` / `adopt`
 - `install` / `update` / `enable` / `disable` / `remove` / `purge`
