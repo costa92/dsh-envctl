@@ -83,6 +83,9 @@ dshenv init --dsh-home /path/to/custom-dsh
 # 输出到控制台
 dshenv capture
 
+# 只捕获一个 Profile
+dshenv capture --profile web
+
 # 原子写入审阅文件（若目标文件已存在则拒绝覆盖）
 dshenv capture --output my-dsh-backup.yaml
 ```
@@ -125,9 +128,24 @@ dshenv status --json
 
 ---
 
+## 尚不可用的命令
+
+当前只读原型**不提供**下列命令（调用会得到 Commander 未知命令错误）：
+
+- `apply` / `adopt`
+- `install` / `update` / `enable` / `disable` / `remove` / `purge`
+- `source clone|pull|status`
+- `config get|validate|set`
+- `list`
+- `rollback` / `gc`
+
+`status` 输出环境摘要，暂不接受 `[plugin]` 位置参数。
+
+---
+
 ## 后续路线图
 
-以下能力将在后续版本交付：
+见 `docs/roadmap.md`。后续版本计划交付：
 - `apply` 与 `adopt`：受管写入与所有权接管
 - 受管 Git 插件生命周期与构建审批
 - 事务日志与一键回滚（Rollback）

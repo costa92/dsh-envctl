@@ -6,5 +6,6 @@ export default defineConfig({
   dts: true,
   clean: true,
   target: 'node22',
-  outDir: 'lib'
+  outDir: 'lib',
+  fixedExtension: false
 });

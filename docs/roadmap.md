@@ -31,3 +31,15 @@
 - [ ] `rollback` 命令：状态秒级回退与补偿机制
 - [ ] 受管资源软删除与垃圾回收 (`trash/` & `gc`)
 - [ ] 异常失败注入测试与自愈机制
+
+## 延后能力
+
+下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
+
+- Base + Overlay 清单合并与出处规则
+- 动态 HMR / 调用运行时内部 service（如 `ctx.dynamicCordisRunner`）
+- 静态 Cordis Service DAG 分析（需插件暴露机器可读的服务贡献元数据）
+- GitHub Actions、容器示例、远程环境分发
+- GUI / TUI / 插件市场 / 主观发行版
+- 自动重启非本工具启动的 DSH 进程
+- Desktop 内嵌 Harness 管理

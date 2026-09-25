@@ -10,7 +10,7 @@ import {
   loadState,
   serializeCaptureDocument
 } from './manifest/files.js';
-import { buildPlan, buildStatus } from './planner/plan.js';
+import { buildPlan, buildStatus, planExitCode } from './planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from './output/render.js';
 import { writeAtomic } from './io/atomic-file.js';
 import { resolveDshCommand, probeDsh, capabilitiesFor } from './dsh/index.js';
@@ -69,11 +69,14 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .command('capture')
     .description('Capture existing DSH environment into reviewable candidate manifest')
     .option('-o, --output <file>', 'output candidate manifest file')
+    .option('--profile <name>', 'capture a single profile')
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const inventory = await readEnvironmentInventory(paths);
-      const captureDoc = captureEnvironment(paths, inventory);
+      const captureDoc = captureEnvironment(paths, inventory, {
+        profile: cmdOpts.profile
+      });
 
       if (cmdOpts.output) {
         const targetOutput = path.isAbsolute(cmdOpts.output)
@@ -126,9 +129,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
         writeOut(renderPlan(plan));
       }
 
-      if (plan.hasChanges) {
-        exitCodeToReturn = 2;
-      }
+      exitCodeToReturn = planExitCode(plan);
     });
 
   program
@@ -165,8 +166,10 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
         writeOut(renderStatus(summary));
       }
 
-      if (plan.hasChanges) {
-        exitCodeToReturn = 2;
+      if (summary.status === 'degraded' || summary.status === 'incompatible') {
+        exitCodeToReturn = 5;
+      } else {
+        exitCodeToReturn = planExitCode(plan);
       }
     });
 

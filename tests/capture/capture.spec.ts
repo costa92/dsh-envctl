@@ -74,4 +74,96 @@ describe('captureEnvironment and initEnvironment', () => {
     // Re-running init should fail
     await expect(initEnvironment(paths)).rejects.toThrow();
   });
+
+  it('should warn on unknown sources instead of inventing npm@0.0.0', () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const doc = captureEnvironment(paths, {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            mystery: {
+              name: 'mystery',
+              installed: true,
+              sourceType: 'unknown',
+              isSymlink: false,
+              isExternalSymlink: false,
+              enabled: true
+            }
+          }
+        }
+      }
+    });
+    expect(doc.manifest.profiles.web.plugins.mystery).toBeUndefined();
+    expect(doc.lock.profiles.web.plugins.mystery).toBeUndefined();
+    expect(doc.warnings.some((w) => w.includes('mystery'))).toBe(true);
+    expect(JSON.stringify(doc)).not.toContain('0.0.0');
+  });
+
+  it('should lock a git commit from the spec and not invent HEAD', () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const doc = captureEnvironment(paths, {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            'git-plug': {
+              name: 'git-plug',
+              installed: true,
+              version: '0.0.0',
+              sourceType: 'git',
+              resolvedSource: 'github:example/git-plug#abcdef1234567',
+              isSymlink: false,
+              isExternalSymlink: false,
+              enabled: true
+            },
+            'git-float': {
+              name: 'git-float',
+              installed: true,
+              version: '1.2.3',
+              sourceType: 'git',
+              resolvedSource: 'github:example/git-float',
+              isSymlink: false,
+              isExternalSymlink: false,
+              enabled: true
+            }
+          }
+        }
+      }
+    });
+    const locked = doc.lock.profiles.web.plugins['git-plug'].source;
+    expect(locked).toEqual({
+      type: 'git',
+      url: 'github:example/git-plug',
+      commit: 'abcdef1234567'
+    });
+    expect(doc.lock.profiles.web.plugins['git-float']).toBeUndefined();
+    expect(doc.manifest.profiles.web.plugins['git-float']?.source).toEqual({
+      type: 'git',
+      url: 'github:example/git-float'
+    });
+    expect(doc.warnings.some((w) => w.includes('git-float'))).toBe(true);
+    expect(JSON.stringify(doc.lock)).not.toContain('HEAD');
+  });
+
+  it('should capture only the requested profile', async () => {
+    const tuiDir = path.join(tempHome, 'profiles', 'tui');
+    fs.mkdirSync(tuiDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(tuiDir, 'package.json'),
+      JSON.stringify({
+        name: 'dsh-profile-tui',
+        private: true,
+        dependencies: {},
+        dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } }
+      })
+    );
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const inventory = await readEnvironmentInventory(paths);
+    const doc = captureEnvironment(paths, inventory, { profile: 'web' });
+    expect(Object.keys(doc.manifest.profiles)).toEqual(['web']);
+    expect(doc.manifest.profiles.tui).toBeUndefined();
+  });
 });

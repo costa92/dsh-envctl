@@ -57,7 +57,7 @@ export const PluginSourceSchema = z.discriminatedUnion('type', [
 export const PatchEntrySchema = z
   .object({
     id: z.string().min(1),
-    config: z.record(z.unknown()),
+    config: z.record(z.string(), z.unknown()),
     enabled: z.boolean().optional()
   })
   .strict();
@@ -75,7 +75,7 @@ export const PluginManifestEntrySchema = z
 
 export const ProfileManifestEntrySchema = z
   .object({
-    plugins: z.record(PluginManifestEntrySchema).default({})
+    plugins: z.record(z.string(), PluginManifestEntrySchema).default({})
   })
   .strict()
   .superRefine((val, ctx) => {
@@ -109,7 +109,7 @@ export const ManifestSchema = z
   .object({
     apiVersion: z.literal('dshenv/v1'),
     environment: EnvironmentConfigSchema.optional(),
-    profiles: z.record(ProfileManifestEntrySchema).default({})
+    profiles: z.record(z.string(), ProfileManifestEntrySchema).default({})
   })
   .strict();
 
@@ -169,14 +169,14 @@ export const PluginLockEntrySchema = z
 
 export const ProfileLockEntrySchema = z
   .object({
-    plugins: z.record(PluginLockEntrySchema).default({})
+    plugins: z.record(z.string(), PluginLockEntrySchema).default({})
   })
   .strict();
 
 export const LockSchema = z
   .object({
     apiVersion: z.literal('dshenv-lock/v1'),
-    profiles: z.record(ProfileLockEntrySchema).default({})
+    profiles: z.record(z.string(), ProfileLockEntrySchema).default({})
   })
   .strict();
 
@@ -191,7 +191,7 @@ export const PluginStateEntrySchema = z
 
 export const ProfileStateEntrySchema = z
   .object({
-    plugins: z.record(PluginStateEntrySchema).default({})
+    plugins: z.record(z.string(), PluginStateEntrySchema).default({})
   })
   .strict();
 
@@ -200,7 +200,7 @@ export const StateSchema = z
     apiVersion: z.literal('dshenv-state/v1'),
     lastApplied: z.string(),
     appliedLockHash: z.string(),
-    profiles: z.record(ProfileStateEntrySchema).default({})
+    profiles: z.record(z.string(), ProfileStateEntrySchema).default({})
   })
   .strict();
 

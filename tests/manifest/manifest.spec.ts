@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   loadManifest,
+  parseYamlStrict,
   serializeManifest,
   ManifestSchema,
   CaptureDocumentSchema
@@ -113,6 +114,21 @@ profiles:
 
     const reloaded = loadManifest(serialized);
     expect(reloaded).toEqual(manifest);
+  });
+
+  it('should reject YAML with too many aliases', () => {
+    const plugins = Array.from({ length: 22 }, (_, i) => {
+      const source = i === 0
+        ? `        source: &src\n          type: npm\n          version: "1.0.0"`
+        : `        source: *src`;
+      return `      pkg-${i}:\n        package: "pkg-${i}"\n${source}`;
+    }).join('\n');
+    const yamlStr = `apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins:\n${plugins}\n`;
+    expect(() => loadManifest(yamlStr)).toThrow(ValidationError);
+  });
+
+  it('should reject cyclic YAML aliases', () => {
+    expect(() => parseYamlStrict('a: &a\n  b: *a\n')).toThrow(ValidationError);
   });
 
   it('should validate CaptureDocument schema', () => {

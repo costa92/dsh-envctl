@@ -82,4 +82,36 @@ exit 0
       else delete process.env.DSH_CLI;
     }
   });
+
+  it('should print doctor JSON without environment or credential dumps', async () => {
+    const oldDshCli = process.env.DSH_CLI;
+    process.env.DSH_CLI = fakeDsh;
+    process.env.SECRET_FOR_DOCTOR = 'should-not-appear';
+
+    let stdout = '';
+    const io = {
+      stdout: (chunk: string) => {
+        stdout += chunk;
+      },
+      stderr: () => {}
+    };
+
+    try {
+      const code = await runCli(['doctor', '--json', '--dsh-home', tempHome], io);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout) as {
+        runtime: { version: string };
+        paths: { home: string };
+      };
+      expect(parsed.runtime.version).toBe('0.1.7-rc.2');
+      expect(parsed.paths.home).toBe(tempHome);
+      expect(stdout).not.toContain('should-not-appear');
+      expect(stdout).not.toContain('SECRET_FOR_DOCTOR');
+      expect(Object.keys(parsed).sort()).toEqual(['paths', 'runtime']);
+    } finally {
+      delete process.env.SECRET_FOR_DOCTOR;
+      if (oldDshCli) process.env.DSH_CLI = oldDshCli;
+      else delete process.env.DSH_CLI;
+    }
+  });
 });

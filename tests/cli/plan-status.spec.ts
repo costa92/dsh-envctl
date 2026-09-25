@@ -62,4 +62,49 @@ profiles:
     expect(code).toBe(0);
     expect(stdout).toContain('in sync');
   });
+
+  it('should return exit code 5 when plan is blocked by insufficient evidence', async () => {
+    const io = {
+      stdout: () => {},
+      stderr: () => {}
+    };
+    await runCli(['init', '--dsh-home', tempHome], io);
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      agent-teams:
+        package: "@nanmicoder/dsh-agent-teams"
+        enabled: true
+        source:
+          type: npm
+          version: "0.1.21"
+        patches:
+          - id: agent-teams
+            config:
+              taskPlanning: captain
+`
+    );
+    fs.mkdirSync(path.join(tempHome, 'profiles', 'web', 'node_modules', '@nanmicoder', 'dsh-agent-teams'), {
+      recursive: true
+    });
+    fs.writeFileSync(
+      path.join(tempHome, 'profiles', 'web', 'package.json'),
+      JSON.stringify({
+        name: 'dsh-profile-web',
+        private: true,
+        dependencies: { '@nanmicoder/dsh-agent-teams': '0.1.21' },
+        dsh: { profile: { bundles: ['@nanmicoder/dsh-agent-teams'] } }
+      })
+    );
+    fs.writeFileSync(
+      path.join(tempHome, 'profiles', 'web', 'node_modules', '@nanmicoder', 'dsh-agent-teams', 'package.json'),
+      JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.21' })
+    );
+
+    const code = await runCli(['plan', '--dsh-home', tempHome], io);
+    expect(code).toBe(5);
+  });
 });

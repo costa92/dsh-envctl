@@ -1,5 +1,3 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { EnvironmentInventory } from '../inventory/profile-reader.js';
 import type {
@@ -16,6 +14,22 @@ import {
   serializeState
 } from '../manifest/files.js';
 import { writeAtomic } from '../io/atomic-file.js';
+import { ValidationError } from '../errors.js';
+
+const GIT_COMMIT_RE = /^[0-9a-f]{7,40}$/i;
+
+function parseGitSpec(spec: string): { url: string; commit?: string } {
+  const hashIndex = spec.lastIndexOf('#');
+  if (hashIndex <= 0) {
+    return { url: spec };
+  }
+  const url = spec.slice(0, hashIndex);
+  const fragment = spec.slice(hashIndex + 1);
+  if (GIT_COMMIT_RE.test(fragment)) {
+    return { url, commit: fragment };
+  }
+  return { url: spec };
+}
 
 function getAliasFromPackageName(pkgName: string, usedKeys: Set<string>): string {
   let base = pkgName.includes('/') ? pkgName.split('/')[1] : pkgName;
@@ -33,7 +47,8 @@ function getAliasFromPackageName(pkgName: string, usedKeys: Set<string>): string
 
 export function captureEnvironment(
   paths: EnvironmentPaths,
-  inventory: EnvironmentInventory
+  inventory: EnvironmentInventory,
+  options?: { profile?: string }
 ): CaptureDocument {
   const warnings: string[] = [];
   const manifest: EnvironmentManifest = {
@@ -45,7 +60,15 @@ export function captureEnvironment(
     profiles: {}
   };
 
-  for (const [profileName, profileInv] of Object.entries(inventory.profiles)) {
+  if (options?.profile && !inventory.profiles[options.profile]) {
+    throw new ValidationError(`Profile not found: ${options.profile}`);
+  }
+
+  const selectedProfiles = options?.profile
+    ? { [options.profile]: inventory.profiles[options.profile] }
+    : inventory.profiles;
+
+  for (const [profileName, profileInv] of Object.entries(selectedProfiles)) {
     const profileManifestPlugins: Record<string, PluginManifestEntry> = {};
     const profileLockPlugins: Record<string, PluginLockEntry> = {};
     const usedKeys = new Set<string>();
@@ -81,22 +104,27 @@ export function captureEnvironment(
           }
         };
       } else if (plugin.sourceType === 'git') {
+        const parsed = parseGitSpec(plugin.resolvedSource || '');
         profileManifestPlugins[alias] = {
           package: pkgName,
           enabled: isEnabled,
           source: {
             type: 'git',
-            url: plugin.resolvedSource || ''
+            url: parsed.url
           }
         };
-        profileLockPlugins[alias] = {
-          package: pkgName,
-          source: {
-            type: 'git',
-            url: plugin.resolvedSource || '',
-            commit: plugin.version || 'HEAD'
-          }
-        };
+        if (parsed.commit) {
+          profileLockPlugins[alias] = {
+            package: pkgName,
+            source: {
+              type: 'git',
+              url: parsed.url,
+              commit: parsed.commit
+            }
+          };
+        } else {
+          warnings.push(`Cannot lock git commit for package ${pkgName} in profile ${profileName}`);
+        }
       } else if (plugin.sourceType === 'local-link') {
         const targetPath = plugin.resolvedSource || plugin.targetPath || '';
         profileManifestPlugins[alias] = {
@@ -147,21 +175,6 @@ export function captureEnvironment(
         };
       } else {
         warnings.push(`Missing or unknown source metadata for package ${pkgName} in profile ${profileName}`);
-        profileManifestPlugins[alias] = {
-          package: pkgName,
-          enabled: isEnabled,
-          source: {
-            type: 'npm',
-            version: plugin.version || '0.0.0'
-          }
-        };
-        profileLockPlugins[alias] = {
-          package: pkgName,
-          source: {
-            type: 'npm',
-            resolvedVersion: plugin.version || '0.0.0'
-          }
-        };
       }
     }
 

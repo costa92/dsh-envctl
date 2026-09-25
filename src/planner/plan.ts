@@ -38,13 +38,19 @@ export interface EnvironmentPlan {
 }
 
 export type StableStatus =
-  | 'clean'
+  | 'healthy'
+  | 'disabled'
+  | 'restart-required'
   | 'drifted'
   | 'unmanaged'
-  | 'blocked'
-  | 'missing-lock'
-  | 'missing-manifest'
+  | 'incompatible'
   | 'degraded';
+
+export interface PluginStatusEntry {
+  profile: string;
+  package: string;
+  status: StableStatus;
+}
 
 export interface EnvironmentStatusSummary {
   status: StableStatus;
@@ -52,6 +58,7 @@ export interface EnvironmentStatusSummary {
   operationCounts: Record<OperationKind, number>;
   unmanagedCount: number;
   profilesCount: number;
+  plugins: PluginStatusEntry[];
 }
 
 const KIND_ORDER: Record<OperationKind, number> = {
@@ -106,6 +113,21 @@ export function buildPlan(
       }
 
       const installed = profInv?.plugins?.[pkgName];
+      const gitLockCommit =
+        lockEntry?.source?.type === 'git' ? lockEntry.source.commit : undefined;
+
+      if (pluginManifest.source.type === 'git' && !gitLockCommit) {
+        operations.push({
+          kind: 'blocked',
+          profile: profName,
+          alias,
+          package: pkgName,
+          reason: 'Git source has no locked commit; refusing to invent HEAD',
+          blockedReason: 'Git source has no locked commit; refusing to invent HEAD',
+          targetEnabled
+        });
+        continue;
+      }
 
       if (!installed || !installed.installed) {
         operations.push({
@@ -117,43 +139,45 @@ export function buildPlan(
           targetVersion,
           targetEnabled
         });
-      } else {
-        const currentVersion = installed.version;
-        const currentEnabled = installed.enabled ?? true;
+        continue;
+      }
 
-        if (targetVersion && currentVersion && targetVersion !== currentVersion) {
-          operations.push({
-            kind: 'update',
-            profile: profName,
-            alias,
-            package: pkgName,
-            reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
-            currentVersion,
-            targetVersion,
-            currentEnabled,
-            targetEnabled
-          });
-        } else if (currentEnabled !== targetEnabled) {
-          operations.push({
-            kind: targetEnabled ? 'enable' : 'disable',
-            profile: profName,
-            alias,
-            package: pkgName,
-            reason: `Enable state mismatch: current ${currentEnabled} != target ${targetEnabled}`,
-            currentEnabled,
-            targetEnabled
-          });
-        } else if (pluginManifest.patches && pluginManifest.patches.length > 0) {
-          operations.push({
-            kind: 'configure',
-            profile: profName,
-            alias,
-            package: pkgName,
-            reason: 'Configuration patches pending verification/application',
-            currentEnabled,
-            targetEnabled
-          });
-        }
+      const currentVersion = installed.version;
+      const currentEnabled = installed.enabled ?? true;
+
+      if (targetVersion && currentVersion && targetVersion !== currentVersion) {
+        operations.push({
+          kind: 'update',
+          profile: profName,
+          alias,
+          package: pkgName,
+          reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
+          currentVersion,
+          targetVersion,
+          currentEnabled,
+          targetEnabled
+        });
+      } else if (currentEnabled !== targetEnabled) {
+        operations.push({
+          kind: targetEnabled ? 'enable' : 'disable',
+          profile: profName,
+          alias,
+          package: pkgName,
+          reason: `Enable state mismatch: current ${currentEnabled} != target ${targetEnabled}`,
+          currentEnabled,
+          targetEnabled
+        });
+      } else if (pluginManifest.patches && pluginManifest.patches.length > 0) {
+        operations.push({
+          kind: 'blocked',
+          profile: profName,
+          alias,
+          package: pkgName,
+          reason: 'Configuration patches cannot be verified in the read-only prototype',
+          blockedReason: 'Configuration patches cannot be verified in the read-only prototype',
+          currentEnabled,
+          targetEnabled
+        });
       }
     }
   }
@@ -217,17 +241,22 @@ export function buildStatus(
     operationCounts[op.kind] = (operationCounts[op.kind] || 0) + 1;
   }
 
-  let status: StableStatus = 'clean';
-  if (!manifest) {
-    status = 'missing-manifest';
-  } else if (!lock) {
-    status = 'missing-lock';
-  } else if (operationCounts.blocked > 0) {
-    status = 'blocked';
-  } else if (plan.hasChanges) {
+  const plugins = collectPluginStatuses(manifest, state, inventory, plan);
+
+  let status: StableStatus = 'healthy';
+  if (!manifest || operationCounts.blocked > 0 || plugins.some((p) => p.status === 'degraded')) {
+    status = 'degraded';
+  } else if (plugins.some((p) => p.status === 'incompatible')) {
+    status = 'incompatible';
+  } else if (
+    operationCounts.install + operationCounts.update + operationCounts.enable + operationCounts.disable >
+    0
+  ) {
     status = 'drifted';
   } else if (plan.unmanaged.length > 0) {
     status = 'unmanaged';
+  } else if (plugins.some((p) => p.status === 'restart-required')) {
+    status = 'restart-required';
   }
 
   return {
@@ -235,6 +264,84 @@ export function buildStatus(
     hasChanges: plan.hasChanges,
     operationCounts,
     unmanagedCount: plan.unmanaged.length,
-    profilesCount: Object.keys(inventory.profiles).length
+    profilesCount: Object.keys(inventory.profiles).length,
+    plugins
   };
+}
+
+function collectPluginStatuses(
+  manifest: EnvironmentManifest | null,
+  state: EnvironmentState | null,
+  inventory: EnvironmentInventory,
+  plan: EnvironmentPlan
+): PluginStatusEntry[] {
+  const entries: PluginStatusEntry[] = [];
+  const blocked = new Set(plan.operations.filter((op) => op.kind === 'blocked').map((op) => `${op.profile}\0${op.package}`));
+  const drifted = new Set(
+    plan.operations
+      .filter((op) => op.kind === 'install' || op.kind === 'update' || op.kind === 'enable' || op.kind === 'disable')
+      .map((op) => `${op.profile}\0${op.package}`)
+  );
+  const unmanaged = new Set(plan.unmanaged.map((u) => `${u.profile}\0${u.package}`));
+
+  const seen = new Set<string>();
+  const push = (profile: string, pkg: string, status: StableStatus) => {
+    const key = `${profile}\0${pkg}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    entries.push({ profile, package: pkg, status });
+  };
+
+  for (const [profName, profInv] of Object.entries(inventory.profiles)) {
+    for (const pkgName of Object.keys(profInv.plugins)) {
+      const key = `${profName}\0${pkgName}`;
+      const stateStatus = state?.profiles?.[profName]?.plugins?.[pkgName]?.status;
+      if (unmanaged.has(key)) {
+        push(profName, pkgName, 'unmanaged');
+      } else if (blocked.has(key)) {
+        push(profName, pkgName, 'degraded');
+      } else if (drifted.has(key)) {
+        push(profName, pkgName, 'drifted');
+      } else if (stateStatus === 'restart-required' || stateStatus === 'incompatible' || stateStatus === 'degraded') {
+        push(profName, pkgName, stateStatus);
+      } else if (profInv.plugins[pkgName].enabled === false) {
+        push(profName, pkgName, 'disabled');
+      } else {
+        push(profName, pkgName, 'healthy');
+      }
+    }
+  }
+
+  if (manifest) {
+    for (const [profName, profManifest] of Object.entries(manifest.profiles)) {
+      for (const plugin of Object.values(profManifest.plugins)) {
+        const key = `${profName}\0${plugin.package}`;
+        if (blocked.has(key)) {
+          push(profName, plugin.package, 'degraded');
+        } else if (drifted.has(key)) {
+          push(profName, plugin.package, 'drifted');
+        } else {
+          push(profName, plugin.package, 'healthy');
+        }
+      }
+    }
+  }
+
+  entries.sort((a, b) => {
+    if (a.profile !== b.profile) return a.profile.localeCompare(b.profile);
+    return a.package.localeCompare(b.package);
+  });
+  return entries;
+}
+
+export function planExitCode(plan: { hasChanges: boolean; operations: { kind: OperationKind }[] }): number {
+  if (plan.operations.some((op) => op.kind === 'blocked')) {
+    return 5;
+  }
+  if (plan.hasChanges) {
+    return 2;
+  }
+  return 0;
 }

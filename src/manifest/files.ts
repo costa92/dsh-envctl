@@ -33,7 +33,21 @@ export function parseYamlStrict(content: string): unknown {
     throw new ValidationError(`YAML parsing error: ${errorMsg}`);
   }
 
-  return doc.toJS({ maxAliasCount: 20 });
+  let raw: unknown;
+  try {
+    raw = doc.toJS({ maxAliasCount: 20 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new ValidationError(`YAML parsing error: ${message}`);
+  }
+
+  try {
+    JSON.stringify(raw);
+  } catch {
+    throw new ValidationError('YAML parsing error: cyclic aliases are not allowed');
+  }
+
+  return raw;
 }
 
 export function loadManifest(content: string): EnvironmentManifest {
