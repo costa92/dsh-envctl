@@ -10,7 +10,9 @@ const manifestRace = vi.hoisted(() => ({
   oversizedContent: '',
   symlinkTarget: '',
   swapParentAtOpenPath: '',
-  replacementPackageDir: '',
+  swapParentCanonicalPath: '',
+  parentLink: '',
+  replacementBootDir: '',
 }))
 
 vi.mock('node:fs/promises', async importOriginal => {
@@ -31,11 +33,14 @@ vi.mock('node:fs/promises', async importOriginal => {
       return stat
     },
     open: async (...args: Parameters<typeof actual.open>) => {
-      if (String(args[0]) === manifestRace.swapParentAtOpenPath) {
+      if (
+        String(args[0]) === manifestRace.swapParentAtOpenPath ||
+        String(args[0]) === manifestRace.swapParentCanonicalPath
+      ) {
         manifestRace.swapParentAtOpenPath = ''
-        const packageDir = join(String(args[0]), '..')
-        await actual.rename(packageDir, `${packageDir}-saved`)
-        await actual.symlink(manifestRace.replacementPackageDir, packageDir, 'dir')
+        manifestRace.swapParentCanonicalPath = ''
+        await actual.rm(manifestRace.parentLink)
+        await actual.symlink(manifestRace.replacementBootDir, manifestRace.parentLink, 'dir')
       }
       return actual.open(...args)
     },
@@ -58,7 +63,9 @@ afterEach(async () => {
   manifestRace.oversizedContent = ''
   manifestRace.symlinkTarget = ''
   manifestRace.swapParentAtOpenPath = ''
-  manifestRace.replacementPackageDir = ''
+  manifestRace.swapParentCanonicalPath = ''
+  manifestRace.parentLink = ''
+  manifestRace.replacementBootDir = ''
   await Promise.all(temporaryDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
@@ -158,21 +165,29 @@ describe('probeOfficialSurfaces', () => {
     expect(evidence.diagnostics).toContain('PACKAGE_MANIFEST_NOT_REGULAR')
   })
 
-  it('rejects a package directory redirected outside immediately before opening the manifest', async () => {
-    const { harnessSourceDir, packageDir } = await temporaryPackageDir()
-    const outsidePackageDir = await mkdtemp(join(tmpdir(), 'dshenv-external-package-'))
-    temporaryDirs.push(outsidePackageDir)
-    await writeFile(join(packageDir, 'package.json'), JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
-    await writeFile(join(packageDir, 'operations.js'), 'export {}')
-    await writeFile(join(outsidePackageDir, 'package.json'), JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
-    await writeFile(join(outsidePackageDir, 'operations.js'), 'export {}')
-    manifestRace.swapParentAtOpenPath = join(packageDir, 'package.json')
-    manifestRace.replacementPackageDir = outsidePackageDir
+  it('keeps the canonical package when its original parent symlink changes before opening', async () => {
+    const harnessSourceDir = await mkdtemp(join(tmpdir(), 'dshenv-surface-probe-'))
+    const outsideBootDir = await mkdtemp(join(tmpdir(), 'dshenv-external-boot-'))
+    temporaryDirs.push(harnessSourceDir, outsideBootDir)
+    const canonicalPackageDir = join(harnessSourceDir, 'real-boot/plugin-manager')
+    const outsidePackageDir = join(outsideBootDir, 'plugin-manager')
+    const parentLink = join(harnessSourceDir, 'packages/boot')
+    await mkdir(canonicalPackageDir, { recursive: true })
+    await mkdir(outsidePackageDir)
+    await mkdir(join(harnessSourceDir, 'packages'))
+    await symlink(join(harnessSourceDir, 'real-boot'), parentLink, 'dir')
+    await writeFile(join(canonicalPackageDir, 'package.json'), JSON.stringify({ exports: { './operations': { default: './operations.js' } } }))
+    await writeFile(join(canonicalPackageDir, 'operations.js'), 'export {}')
+    await writeFile(join(outsidePackageDir, 'package.json'), JSON.stringify({ exports: {} }))
+    manifestRace.swapParentAtOpenPath = join(parentLink, 'plugin-manager/package.json')
+    manifestRace.swapParentCanonicalPath = join(canonicalPackageDir, 'package.json')
+    manifestRace.parentLink = parentLink
+    manifestRace.replacementBootDir = outsideBootDir
 
     const evidence = await probeOfficialSurfaces({ harnessSourceDir })
 
-    expect(evidence.operationsExport).toMatchObject({ declared: false, targetExists: false })
-    expect(evidence.diagnostics).toContain('PACKAGE_MANIFEST_NOT_REGULAR')
+    expect(evidence.operationsExport).toMatchObject({ declared: true, targetExists: true })
+    expect(evidence.diagnostics).toEqual(['LIVE_SERVICE_NOT_CONFIGURED'])
   })
 
   it('reports an undeclared operations export', async () => {
