@@ -102,14 +102,36 @@ dshenv capture --profile web
 dshenv capture --output my-dsh-backup.yaml
 ```
 
-### 4. `dshenv plan`
+### 4. `dshenv adopt`
+接管来自 `capture` 生成的候选清单，建立明确的插件所有权记录。
+
+```bash
+# 校验候选事实一致性并接管所有权
+dshenv adopt --from my-candidate.yaml
+
+# 跳过交互确认
+dshenv adopt --from my-candidate.yaml --yes
+```
+
+### 5. `dshenv plan`
 比对期望清单与当前 Profile 实际安装状态，计算变更计划。
 
 ```bash
 dshenv plan
 ```
 
-### 5. `dshenv status`
+### 6. `dshenv apply`
+基于受管清单与锁文件，将期望状态安全收敛应用到 DSH 运行环境中（具备独占写锁、快照备份与操作日志审计）。
+
+```bash
+# 模拟执行（不修改磁盘或获取排他锁）
+dshenv apply --dry-run
+
+# 执行变更并提交状态
+dshenv apply --yes
+```
+
+### 7. `dshenv status`
 显示当前环境状态摘要与操作统计。
 
 ```bash
@@ -136,28 +158,14 @@ dshenv status --json
 
 1. **绝对路径与防越权**：所有外部本地链接和文件路径必须为绝对路径；包名必须严格匹配 npm 命名规范，防止路径穿越攻击。
 2. **凭据与脱敏**：清单与锁文件中禁止嵌入明文密钥，敏感环境变量与 Authorization header 不进入日志与输出。
-3. **非受管保护**：非受管插件在原型阶段保持 `unmanaged`，绝不执行静默删除。
-
----
-
-## 尚不可用的命令
-
-当前 Phase 2A **不提供**下列命令（调用会得到 Commander 未知命令错误）：
-
-- `apply` / `adopt`
-- `install` / `update` / `enable` / `disable` / `remove` / `purge`
-- `source clone|pull|status`
-- `config get|validate|set`
-- `list`
-- `rollback` / `gc`
-
-`status` 输出环境摘要，暂不接受 `[plugin]` 位置参数。
+3. **非受管保护**：非受管插件在未被 `adopt` 接管前保持 `unmanaged`，绝不执行静默删除。
+4. **事务与回滚**：`apply` 执行前强制创建快照备份并获取独占锁，异常中断自动回滚恢复。
 
 ---
 
 ## 后续路线图
 
 见 `docs/roadmap.md`。后续版本计划交付：
-- `apply` 与 `adopt`：受管写入与所有权接管
-- 受管 Git 插件生命周期与构建审批
-- 事务日志与一键回滚（Rollback）
+- 受管 Git 插件生命周期（clone/fetch/fast-forward）与构建审批
+- `rollback` 与垃圾回收（`gc` / `purge`）
+- 细粒度 live manager service 双向通讯

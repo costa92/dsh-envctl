@@ -117,6 +117,15 @@ export interface PluginStateEntry {
   lastVerified?: string;
 }
 
+export interface PluginOwnershipRecord {
+  package: string;
+  alias: string;
+  sourceType: SourceType;
+  lockedVersion?: string;
+  adoptedAt: string;
+  adoptedBy: string;
+}
+
 export interface EnvironmentState {
   apiVersion: 'dshenv-state/v1';
   lastApplied: string;
@@ -126,6 +135,10 @@ export interface EnvironmentState {
     {
       plugins: Record<string, PluginStateEntry>;
     }
+  >;
+  ownership?: Record<
+    string,
+    Record<string, PluginOwnershipRecord>
   >;
 }
 

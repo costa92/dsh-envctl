@@ -196,12 +196,24 @@ export const ProfileStateEntrySchema = z
   })
   .strict();
 
+export const PluginOwnershipRecordSchema = z
+  .object({
+    package: z.string().regex(PackageNameRegex),
+    alias: z.string().min(1),
+    sourceType: z.enum(['npm', 'git', 'local-link', 'local-file', 'in-box', 'unknown']),
+    lockedVersion: z.string().optional(),
+    adoptedAt: z.string().min(1),
+    adoptedBy: z.string().min(1)
+  })
+  .strict();
+
 export const StateSchema = z
   .object({
     apiVersion: z.literal('dshenv-state/v1'),
     lastApplied: z.string(),
     appliedLockHash: z.string(),
-    profiles: z.record(z.string(), ProfileStateEntrySchema).default({})
+    profiles: z.record(z.string(), ProfileStateEntrySchema).default({}),
+    ownership: z.record(z.string(), z.record(z.string(), PluginOwnershipRecordSchema)).optional()
   })
   .strict();
 

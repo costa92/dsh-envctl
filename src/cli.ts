@@ -4,18 +4,22 @@ import * as path from 'node:path';
 import { resolveEnvironmentPaths } from './environment/paths.js';
 import { readEnvironmentInventory } from './inventory/profile-reader.js';
 import { captureEnvironment, initEnvironment } from './capture/capture.js';
+import { adoptEnvironment } from './adopt/adopt.js';
+import { applyEnvironment } from './apply/apply.js';
 import {
   loadManifest,
   loadLock,
   loadState,
+  parseYamlStrict,
   serializeCaptureDocument
 } from './manifest/files.js';
+import { CaptureDocumentSchema } from './manifest/schema.js';
 import { buildPlan, buildStatus, planExitCode } from './planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from './output/render.js';
 import { writeAtomic } from './io/atomic-file.js';
 import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, type RuntimeCapabilityEvidence } from './dsh/index.js';
 import { DshError, ValidationError, CapabilityError } from './errors.js';
-import type { EnvironmentManifest, EnvironmentLock, EnvironmentState } from './domain.js';
+import type { EnvironmentManifest, EnvironmentLock, EnvironmentState, CaptureDocument } from './domain.js';
 import type { EnvironmentPaths } from './environment/paths.js';
 
 function resolveCliPaths(opts: { dshHome?: string }): EnvironmentPaths {
@@ -95,6 +99,72 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
           writeOut(JSON.stringify(captureDoc, null, 2) + '\n');
         } else {
           writeOut(serializeCaptureDocument(captureDoc));
+        }
+      }
+    });
+
+  program
+    .command('adopt')
+    .description('Adopt a candidate capture manifest into active environment management')
+    .requiredOption('-f, --from <file>', 'path to candidate capture manifest')
+    .option('-y, --yes', 'skip confirmation')
+    .action(async (cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+
+      const candidatePath = path.isAbsolute(cmdOpts.from)
+        ? cmdOpts.from
+        : path.resolve(process.cwd(), cmdOpts.from);
+
+      if (!fs.existsSync(candidatePath)) {
+        throw new ValidationError(`Candidate file not found: ${candidatePath}`);
+      }
+
+      const content = fs.readFileSync(candidatePath, 'utf8');
+      const raw = parseYamlStrict(content);
+      const parsed = CaptureDocumentSchema.safeParse(raw);
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+        throw new ValidationError(`Invalid candidate schema: ${issues}`);
+      }
+
+      const summary = await adoptEnvironment(paths, parsed.data as CaptureDocument);
+
+      if (opts.json) {
+        writeOut(JSON.stringify(summary, null, 2) + '\n');
+      } else {
+        writeOut(`Adopted ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}\n`);
+        for (const d of summary.details) {
+          writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]\n`);
+        }
+      }
+    });
+
+  program
+    .command('apply')
+    .description('Apply declared environment manifest to DSH profile installations')
+    .option('--dry-run', 'simulate apply without modifying state or acquiring exclusive locks')
+    .option('-y, --yes', 'skip confirmation')
+    .action(async (cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      const allowUntested = Boolean(opts.allowUntestedDsh);
+
+      const res = await applyEnvironment(paths, {
+        dryRun: Boolean(cmdOpts.dryRun),
+        allowUntested
+      });
+
+      if (opts.json) {
+        writeOut(JSON.stringify(res, null, 2) + '\n');
+      } else {
+        if (res.dryRun) {
+          writeOut(`[DRY-RUN] Planned operations:\n` + renderPlan(res.plan));
+        } else if (res.applied) {
+          writeOut(`Successfully applied changes (Operation ID: ${res.operationId})\n`);
+          writeOut(renderPlan(res.plan));
+        } else {
+          writeOut(`${res.message ?? 'No changes applied.'}\n`);
         }
       }
     });

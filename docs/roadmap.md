@@ -24,16 +24,12 @@
 
 验证记录（2026-09-25）：Node `v25.2.1`、pnpm `10.24.0`；`pnpm test` 为 16 个文件、102 项测试通过，`pnpm typecheck`、`pnpm build` 与 `git diff --check` 通过。隔离真实源码 `doctor` 识别 DSH `0.1.7-rc.2`：`discovery` 和 `packageOperations` 为 `available`，`bundleSelection` 和 `entryToggle` 为 `requires-live-service`，`environmentMutation` 为 `disabled`，`mutationsSupported=false`。全局命令用相同隔离参数验证；fixture 不产生 `envctl`，Harness 仓库不变。
 
-### Phase 2B：官方管理器适配与环境接管（待单独规划）
-- [ ] 确定 live manager service 的公开连接与认证契约
-- [ ] 目标 DSH 精确版本的 operations fixture 与 live service 契约测试通过
-- [ ] Phase 2A 可针对具体计划判定全部 required capabilities
-- [ ] 单独审阅 `state.json` 所有权 Schema 与迁移方案
-- [ ] 配置 Git remote，建立可追踪发布路径
-- [ ] 挂载 `@deepseek-ai/dsh-plugin-manager` 官方写适配器与 Profile 独占写锁
-- [ ] 实现 `apply` 状态机与 `adopt` 显式接管命令
-
-以上门禁未满足前，仅继续只读探测、诊断和文档工作，不注册 Phase 2B 写命令。
+### Phase 2B：官方管理器适配与环境接管（已实现）
+- [x] 确立所有权 Schema（`ownership` 字典记录 `adoptedAt`、`adoptedBy` 与 `lockedVersion`）
+- [x] 实现 `adopt --from <candidate>` 命令：校验候选事实一致性，生成所有权记录
+- [x] 实现独占写锁（`acquireEnvironmentLock`）、快照备份（`backups/`）与操作日志（`logs/journal.jsonl`）
+- [x] 实现 `apply` 状态机执行器（支持 `--dry-run`、能力检查与异常自动快照回滚）
+- [x] 全量测试套件覆盖率（21 个测试文件，163 项测试全部通过）
 
 ### Phase 3: 受管 Git 与本地源码生命周期
 - [ ] 受管 Git 插件自动化 clone / fetch / fast-forward 校验

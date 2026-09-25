@@ -1,0 +1,124 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { adoptEnvironment, checkCandidateFreshness } from '../../src/adopt/adopt.js';
+import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
+import { readEnvironmentInventory } from '../../src/inventory/profile-reader.js';
+import { loadManifest, loadLock, loadState } from '../../src/manifest/files.js';
+import type { CaptureDocument } from '../../src/domain.js';
+
+describe('adoptEnvironment', () => {
+  let tempHome: string;
+
+  beforeEach(() => {
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-adopt-test-'));
+    const webProfile = path.join(tempHome, 'profiles', 'web');
+    fs.mkdirSync(path.join(webProfile, 'node_modules', '@nanmicoder', 'dsh-agent-teams'), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(webProfile, 'package.json'),
+      JSON.stringify({
+        name: 'dsh-profile-web',
+        private: true,
+        dependencies: {
+          '@nanmicoder/dsh-agent-teams': '^0.1.21'
+        },
+        dsh: {
+          profile: {
+            bundles: ['@nanmicoder/dsh-agent-teams']
+          }
+        }
+      })
+    );
+
+    fs.writeFileSync(
+      path.join(webProfile, 'node_modules', '@nanmicoder', 'dsh-agent-teams', 'package.json'),
+      JSON.stringify({
+        name: '@nanmicoder/dsh-agent-teams',
+        version: '0.1.21',
+        _resolved: 'https://registry.npmjs.org/@nanmicoder/dsh-agent-teams/-/dsh-agent-teams-0.1.21.tgz'
+      })
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('should adopt valid candidate and record ownership in state.json', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const candidate: CaptureDocument = {
+      apiVersion: 'dshenv-capture/v1',
+      manifest: {
+        apiVersion: 'dshenv/v1',
+        profiles: {
+          web: {
+            plugins: {
+              'agent-teams': {
+                package: '@nanmicoder/dsh-agent-teams',
+                enabled: true,
+                source: { type: 'npm', version: '0.1.21' }
+              }
+            }
+          }
+        }
+      },
+      lock: {
+        apiVersion: 'dshenv-lock/v1',
+        profiles: {
+          web: {
+            plugins: {
+              'agent-teams': {
+                package: '@nanmicoder/dsh-agent-teams',
+                source: { type: 'npm', resolvedVersion: '0.1.21' }
+              }
+            }
+          }
+        }
+      },
+      warnings: []
+    };
+
+    const summary = await adoptEnvironment(paths, candidate);
+    expect(summary.adoptedCount).toBe(1);
+
+    // Verify manifest, lock, state written
+    expect(fs.existsSync(paths.manifestFile)).toBe(true);
+    expect(fs.existsSync(paths.lockFile)).toBe(true);
+    expect(fs.existsSync(paths.stateFile)).toBe(true);
+
+    const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
+    expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeDefined();
+    expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].package).toBe('@nanmicoder/dsh-agent-teams');
+    expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].lockedVersion).toBe('0.1.21');
+  });
+
+  it('should reject stale candidate when live inventory differs from candidate facts', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const candidate: CaptureDocument = {
+      apiVersion: 'dshenv-capture/v1',
+      manifest: {
+        apiVersion: 'dshenv/v1',
+        profiles: {
+          web: {
+            plugins: {
+              'agent-teams': {
+                package: '@nanmicoder/dsh-agent-teams',
+                enabled: true,
+                source: { type: 'npm', version: '0.9.99' } // Mismatched version!
+              }
+            }
+          }
+        }
+      },
+      lock: {
+        apiVersion: 'dshenv-lock/v1',
+        profiles: {}
+      },
+      warnings: []
+    };
+
+    await expect(adoptEnvironment(paths, candidate)).rejects.toThrow(/stale|mismatch/i);
+  });
+});
