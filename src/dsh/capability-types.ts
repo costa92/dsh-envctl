@@ -1,3 +1,18 @@
+export type CapabilityStatus = 'available' | 'requires-live-service' | 'disabled';
+
+export type CapabilitySource =
+  | 'dshenv'
+  | 'operations-export'
+  | 'live-service'
+  | 'static-matrix'
+  | 'unknown-version';
+
+export interface CapabilityDetail {
+  status: CapabilityStatus;
+  source: CapabilitySource;
+  reason?: string;
+}
+
 export interface RuntimeCapabilityEvidence {
   operationsExport: {
     declared: boolean
@@ -5,8 +20,8 @@ export interface RuntimeCapabilityEvidence {
     exportName: string
   }
   liveService: {
-    configured: false
-    reachable: false
+    configured: boolean
+    reachable: boolean
   }
   diagnostics: readonly string[]
 }

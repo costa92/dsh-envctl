@@ -62,19 +62,17 @@ describe('resolveDshCommand', () => {
 describe('capabilitiesFor', () => {
   it('should return capabilities for 0.1.7-rc.2', () => {
     const caps = capabilitiesFor('0.1.7-rc.2');
-    expect(caps).toEqual({
-      discovery: true,
-      mutations: false,
-      operationsExport: '@deepseek-ai/dsh-plugin-manager/operations'
-    });
+    expect(caps.discovery.status).toBe('available');
+    expect(caps.packageOperations.status).toBe('disabled');
+    expect(caps.mutations).toBe(false);
+    expect(caps.operationsExport).toBe('@deepseek-ai/dsh-plugin-manager/operations');
   });
 
   it('should return unsupported capabilities for unknown version', () => {
     const caps = capabilitiesFor('0.0.1');
-    expect(caps).toEqual({
-      discovery: false,
-      mutations: false,
-      operationsExport: null
-    });
+    expect(caps.discovery.status).toBe('disabled');
+    expect(caps.packageOperations.status).toBe('disabled');
+    expect(caps.mutations).toBe(false);
+    expect(caps.operationsExport).toBeNull();
   });
 });

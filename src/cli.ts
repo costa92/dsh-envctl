@@ -202,7 +202,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       const probeResult = await probeDsh(dshCmd);
       const caps = capabilitiesFor(probeResult.version);
 
-      if (!caps.discovery) {
+      if (caps.discovery.status !== 'available') {
         throw new CapabilityError(`Unsupported DSH version: ${probeResult.version}`);
       }
 
@@ -210,7 +210,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
         runtime: {
           command: `${dshCmd.file} ${dshCmd.args.join(' ')}`.trim(),
           version: probeResult.version,
-          discoverySupported: caps.discovery,
+          discoverySupported: caps.discovery.status === 'available',
           mutationsSupported: caps.mutations
         },
         paths: {
