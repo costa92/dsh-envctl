@@ -211,4 +211,59 @@ exit 0
       else delete process.env.DSH_CLI;
     }
   });
+
+  it('returns a fixed execution diagnostic when DSH_CLI exits with sensitive arguments', async () => {
+    const failingDsh = path.join(fakeBinDir, 'failing-dsh.sh');
+    fs.writeFileSync(failingDsh, '#!/bin/sh\necho "Authorization: Bearer doctor-secret" >&2\nexit 17\n');
+    fs.chmodSync(failingDsh, 0o755);
+    const oldDshCli = process.env.DSH_CLI;
+    process.env.DSH_CLI = JSON.stringify([failingDsh, '--Authorization', 'Bearer doctor-secret', '--argv-marker']);
+
+    let stdout = '';
+    let stderr = '';
+    try {
+      const code = await runCli(['doctor', '--json', '--dsh-home', tempHome], {
+        stdout: chunk => { stdout += chunk; },
+        stderr: chunk => { stderr += chunk; }
+      });
+      expect(code).toBe(5);
+      expect(stdout).toBe('');
+      expect(stderr).toBe('DSH runtime probe execution failed\n');
+      expect(stderr).not.toContain('doctor-secret');
+      expect(stderr).not.toContain('Authorization');
+      expect(stderr).not.toContain('--argv-marker');
+      expect(stderr).not.toContain(failingDsh);
+    } finally {
+      if (oldDshCli) process.env.DSH_CLI = oldDshCli;
+      else delete process.env.DSH_CLI;
+    }
+  });
+
+  it('returns a fixed parse diagnostic without raw malformed version output', async () => {
+    const malformedDsh = path.join(fakeBinDir, 'malformed-dsh.sh');
+    fs.writeFileSync(malformedDsh, '#!/bin/sh\necho "Authorization: Bearer doctor-secret malformed-version"\n');
+    fs.chmodSync(malformedDsh, 0o755);
+    const oldDshCli = process.env.DSH_CLI;
+    process.env.DSH_CLI = JSON.stringify([malformedDsh, '--Authorization', 'Bearer doctor-secret', '--argv-marker']);
+
+    let stdout = '';
+    let stderr = '';
+    try {
+      const code = await runCli(['doctor', '--json', '--dsh-home', tempHome], {
+        stdout: chunk => { stdout += chunk; },
+        stderr: chunk => { stderr += chunk; }
+      });
+      expect(code).toBe(5);
+      expect(stdout).toBe('');
+      expect(stderr).toBe('Unable to parse DSH runtime version\n');
+      expect(stderr).not.toContain('doctor-secret');
+      expect(stderr).not.toContain('Authorization');
+      expect(stderr).not.toContain('malformed-version');
+      expect(stderr).not.toContain('--argv-marker');
+      expect(stderr).not.toContain(malformedDsh);
+    } finally {
+      if (oldDshCli) process.env.DSH_CLI = oldDshCli;
+      else delete process.env.DSH_CLI;
+    }
+  });
 });

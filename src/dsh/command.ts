@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import { execa } from 'execa';
-import { CapabilityError, DegradedError } from '../errors.js';
+import { DegradedError } from '../errors.js';
 
 export interface CommandSpec {
   file: string;
@@ -102,27 +102,24 @@ export async function probeDsh(
     });
   });
 
+  let res: { stdout: string; stderr: string };
   try {
-    const res = await run(cmd.file, [...cmd.args, '--version'], {
+    res = await run(cmd.file, [...cmd.args, '--version'], {
       cwd: cmd.cwd
     });
-
-    const output = (res.stdout || res.stderr || '').trim();
-    // Match version like 0.1.7-rc.2 or 0.1.7
-    const versionMatch = output.match(/(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._-]+)?)/);
-    if (!versionMatch) {
-      throw new DegradedError(`Unable to parse DSH version from output: "${output}"`);
-    }
-
-    return {
-      version: versionMatch[1],
-      raw: output
-    };
-  } catch (err: unknown) {
-    if (err instanceof DegradedError || err instanceof CapabilityError) {
-      throw err;
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    throw new DegradedError(`Failed to probe DSH: ${message}`);
+  } catch {
+    throw new DegradedError('DSH runtime probe execution failed');
   }
+
+  const output = (res.stdout || res.stderr || '').trim();
+  // Match version like 0.1.7-rc.2 or 0.1.7
+  const versionMatch = output.match(/(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._-]+)?)/);
+  if (!versionMatch) {
+    throw new DegradedError('Unable to parse DSH runtime version');
+  }
+
+  return {
+    version: versionMatch[1],
+    raw: output
+  };
 }
