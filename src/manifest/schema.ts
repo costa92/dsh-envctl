@@ -1,0 +1,200 @@
+import { z } from 'zod';
+import * as path from 'node:path';
+
+export const PackageNameRegex = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/;
+
+const isAbsolutePath = (val: string) => path.isAbsolute(val);
+
+export const NpmSourceSchema = z
+  .object({
+    type: z.literal('npm'),
+    version: z.string().min(1),
+    registry: z.string().url().optional()
+  })
+  .strict();
+
+export const GitSourceSchema = z
+  .object({
+    type: z.literal('git'),
+    url: z.string().min(1),
+    ref: z.string().optional(),
+    commit: z.string().optional()
+  })
+  .strict();
+
+export const LocalLinkSourceSchema = z
+  .object({
+    type: z.literal('local-link'),
+    path: z.string().refine(isAbsolutePath, {
+      message: 'Local link path must be absolute'
+    })
+  })
+  .strict();
+
+export const LocalFileSourceSchema = z
+  .object({
+    type: z.literal('local-file'),
+    path: z.string().refine(isAbsolutePath, {
+      message: 'Local file path must be absolute'
+    })
+  })
+  .strict();
+
+export const PluginSourceSchema = z.discriminatedUnion('type', [
+  NpmSourceSchema,
+  GitSourceSchema,
+  LocalLinkSourceSchema,
+  LocalFileSourceSchema
+]);
+
+export const PatchEntrySchema = z
+  .object({
+    id: z.string().min(1),
+    config: z.record(z.unknown()),
+    enabled: z.boolean().optional()
+  })
+  .strict();
+
+export const PluginManifestEntrySchema = z
+  .object({
+    package: z.string().regex(PackageNameRegex, {
+      message: 'Invalid npm package name format'
+    }),
+    enabled: z.boolean().optional().default(true),
+    source: PluginSourceSchema,
+    patches: z.array(PatchEntrySchema).optional()
+  })
+  .strict();
+
+export const ProfileManifestEntrySchema = z
+  .object({
+    plugins: z.record(PluginManifestEntrySchema).default({})
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    const seenPackages = new Map<string, string>();
+    for (const [key, plugin] of Object.entries(val.plugins)) {
+      const existingKey = seenPackages.get(plugin.package);
+      if (existingKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate package "${plugin.package}" in profile (used in keys "${existingKey}" and "${key}")`
+        });
+      } else {
+        seenPackages.set(plugin.package, key);
+      }
+    }
+  });
+
+export const EnvironmentConfigSchema = z
+  .object({
+    sourceRoot: z.string().refine(isAbsolutePath, 'sourceRoot must be absolute').optional(),
+    harness: z
+      .object({
+        sourceDir: z.string().refine(isAbsolutePath, 'sourceDir must be absolute').optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict();
+
+export const ManifestSchema = z
+  .object({
+    apiVersion: z.literal('dshenv/v1'),
+    environment: EnvironmentConfigSchema.optional(),
+    profiles: z.record(ProfileManifestEntrySchema).default({})
+  })
+  .strict();
+
+export const NpmLockSourceSchema = z
+  .object({
+    type: z.literal('npm'),
+    resolvedVersion: z.string().min(1),
+    integrity: z.string().optional(),
+    resolvedFrom: z.string().optional()
+  })
+  .strict();
+
+export const GitLockSourceSchema = z
+  .object({
+    type: z.literal('git'),
+    url: z.string().min(1),
+    commit: z.string().min(1)
+  })
+  .strict();
+
+export const LocalLinkLockSourceSchema = z
+  .object({
+    type: z.literal('local-link'),
+    path: z.string().refine(isAbsolutePath, 'Path must be absolute'),
+    digest: z.string().optional()
+  })
+  .strict();
+
+export const LocalFileLockSourceSchema = z
+  .object({
+    type: z.literal('local-file'),
+    path: z.string().refine(isAbsolutePath, 'Path must be absolute'),
+    digest: z.string().optional()
+  })
+  .strict();
+
+export const PluginLockSourceSchema = z.discriminatedUnion('type', [
+  NpmLockSourceSchema,
+  GitLockSourceSchema,
+  LocalLinkLockSourceSchema,
+  LocalFileLockSourceSchema
+]);
+
+export const PluginLockEntrySchema = z
+  .object({
+    package: z.string().regex(PackageNameRegex),
+    source: PluginLockSourceSchema
+  })
+  .strict();
+
+export const ProfileLockEntrySchema = z
+  .object({
+    plugins: z.record(PluginLockEntrySchema).default({})
+  })
+  .strict();
+
+export const LockSchema = z
+  .object({
+    apiVersion: z.literal('dshenv-lock/v1'),
+    profiles: z.record(ProfileLockEntrySchema).default({})
+  })
+  .strict();
+
+export const PluginStateEntrySchema = z
+  .object({
+    package: z.string().regex(PackageNameRegex),
+    status: z.string(),
+    installedVersion: z.string().optional(),
+    lastVerified: z.string().optional()
+  })
+  .strict();
+
+export const ProfileStateEntrySchema = z
+  .object({
+    plugins: z.record(PluginStateEntrySchema).default({})
+  })
+  .strict();
+
+export const StateSchema = z
+  .object({
+    apiVersion: z.literal('dshenv-state/v1'),
+    lastApplied: z.string(),
+    appliedLockHash: z.string(),
+    profiles: z.record(ProfileStateEntrySchema).default({})
+  })
+  .strict();
+
+export const CaptureDocumentSchema = z
+  .object({
+    apiVersion: z.literal('dshenv-capture/v1'),
+    manifest: ManifestSchema,
+    lock: LockSchema,
+    warnings: z.array(z.string()).default([])
+  })
+  .strict();
