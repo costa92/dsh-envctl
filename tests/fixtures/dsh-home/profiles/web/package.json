@@ -1,0 +1,16 @@
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "@nanmicoder/dsh-agent-teams": "0.1.21"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "@nanmicoder/dsh-agent-teams"
+      ]
+    }
+  }
+}

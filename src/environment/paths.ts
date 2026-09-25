@@ -18,28 +18,25 @@ export interface ResolvePathsInput {
   cliDshHome?: string;
   envDshHome?: string;
   userHome?: string;
+  cwd?: string;
+}
+
+function resolveHomePath(value: string, label: string, cwd: string): string {
+  if (!value.trim()) {
+    throw new ValidationError(`${label} must not be empty`);
+  }
+  return path.isAbsolute(value) ? path.normalize(value) : path.resolve(cwd, value);
 }
 
 export function resolveEnvironmentPaths(input?: ResolvePathsInput): EnvironmentPaths {
   const userHome = input?.userHome ?? os.homedir();
+  const cwd = input?.cwd ?? process.cwd();
   let explicitHome: string | undefined;
 
   if (input?.cliDshHome !== undefined) {
-    if (!input.cliDshHome.trim()) {
-      throw new ValidationError('CLI dsh-home path must not be empty');
-    }
-    if (!path.isAbsolute(input.cliDshHome)) {
-      throw new ValidationError(`CLI dsh-home must be an absolute path: ${input.cliDshHome}`);
-    }
-    explicitHome = path.normalize(input.cliDshHome);
+    explicitHome = resolveHomePath(input.cliDshHome, 'CLI dsh-home', cwd);
   } else if (input?.envDshHome !== undefined) {
-    if (!input.envDshHome.trim()) {
-      throw new ValidationError('DSH_HOME environment variable must not be empty');
-    }
-    if (!path.isAbsolute(input.envDshHome)) {
-      throw new ValidationError(`DSH_HOME must be an absolute path: ${input.envDshHome}`);
-    }
-    explicitHome = path.normalize(input.envDshHome);
+    explicitHome = resolveHomePath(input.envDshHome, 'DSH_HOME environment variable', cwd);
   }
 
   const home = explicitHome ?? path.join(userHome, '.dsh');

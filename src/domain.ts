@@ -1,4 +1,4 @@
-export type SourceType = 'npm' | 'git' | 'local-link' | 'local-file' | 'unknown';
+export type SourceType = 'npm' | 'git' | 'local-link' | 'local-file' | 'in-box' | 'unknown';
 
 export interface NpmSource {
   type: 'npm';
@@ -23,7 +23,11 @@ export interface LocalFileSource {
   path: string;
 }
 
-export type PluginSource = NpmSource | GitSource | LocalLinkSource | LocalFileSource;
+export interface InBoxSource {
+  type: 'in-box';
+}
+
+export type PluginSource = NpmSource | GitSource | LocalLinkSource | LocalFileSource | InBoxSource;
 
 export interface PatchEntry {
   id: string;
@@ -79,11 +83,16 @@ export type LocalFileLockSource = {
   digest?: string;
 };
 
+export type InBoxLockSource = {
+  type: 'in-box';
+};
+
 export type PluginLockSource =
   | NpmLockSource
   | GitLockSource
   | LocalLinkLockSource
-  | LocalFileLockSource;
+  | LocalFileLockSource
+  | InBoxLockSource;
 
 export interface PluginLockEntry {
   package: string;

@@ -25,6 +25,8 @@ Harness 主目录解析优先级：
 2. 环境变量 `DSH_HOME`
 3. 默认用户主目录 `~/.dsh`
 
+相对路径先按当前工作目录转为绝对路径。盘点读取 Profile 的 `package.json`（`dsh.profile.bundles` + `dependencies`），不把 `node_modules` 中的传递依赖当成插件，也不跟随 Profile 外的 symlink 读取包元数据。
+
 DSH 运行时命令解析优先级：
 1. 环境变量 `DSH_CLI`（支持 JSON 数组或字面执行文件名，绝不进入 shell）
 2. `--harness-source <path>` / 清单中的 `environment.harness.sourceDir`（转换为 `pnpm --dir <sourceDir> dsh`）

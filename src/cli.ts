@@ -16,6 +16,15 @@ import { writeAtomic } from './io/atomic-file.js';
 import { resolveDshCommand, probeDsh, capabilitiesFor } from './dsh/index.js';
 import { DshError, ValidationError, CapabilityError } from './errors.js';
 import type { EnvironmentManifest, EnvironmentLock, EnvironmentState } from './domain.js';
+import type { EnvironmentPaths } from './environment/paths.js';
+
+function resolveCliPaths(opts: { dshHome?: string }): EnvironmentPaths {
+  return resolveEnvironmentPaths({
+    cliDshHome: opts.dshHome,
+    envDshHome: process.env.DSH_HOME,
+    cwd: process.cwd()
+  });
+}
 
 export interface CliIO {
   stdout?: (chunk: string) => void;
@@ -47,9 +56,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .description('Initialize an empty dshenv environment')
     .action(async () => {
       const opts = program.opts();
-      const paths = resolveEnvironmentPaths({
-        cliDshHome: opts.dshHome
-      });
+      const paths = resolveCliPaths(opts);
       await initEnvironment(paths);
       if (opts.json) {
         writeOut(JSON.stringify({ status: 'initialized', paths }, null, 2) + '\n');
@@ -64,9 +71,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .option('-o, --output <file>', 'output candidate manifest file')
     .action(async (cmdOpts) => {
       const opts = program.opts();
-      const paths = resolveEnvironmentPaths({
-        cliDshHome: opts.dshHome
-      });
+      const paths = resolveCliPaths(opts);
       const inventory = await readEnvironmentInventory(paths);
       const captureDoc = captureEnvironment(paths, inventory);
 
@@ -95,9 +100,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .description('Plan drift between target manifest and actual DSH environment')
     .action(async () => {
       const opts = program.opts();
-      const paths = resolveEnvironmentPaths({
-        cliDshHome: opts.dshHome
-      });
+      const paths = resolveCliPaths(opts);
 
       let manifest: EnvironmentManifest | null = null;
       let lock: EnvironmentLock | null = null;
@@ -133,9 +136,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .description('Display status summary of DSH environment and manifests')
     .action(async () => {
       const opts = program.opts();
-      const paths = resolveEnvironmentPaths({
-        cliDshHome: opts.dshHome
-      });
+      const paths = resolveCliPaths(opts);
 
       let manifest: EnvironmentManifest | null = null;
       let lock: EnvironmentLock | null = null;
@@ -174,9 +175,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .description('Probe DSH runtime and inspect environment readiness')
     .action(async () => {
       const opts = program.opts();
-      const paths = resolveEnvironmentPaths({
-        cliDshHome: opts.dshHome
-      });
+      const paths = resolveCliPaths(opts);
 
       let manifestHarnessSource: string | undefined;
       if (fs.existsSync(paths.manifestFile)) {

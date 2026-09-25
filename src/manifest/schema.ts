@@ -40,11 +40,18 @@ export const LocalFileSourceSchema = z
   })
   .strict();
 
+export const InBoxSourceSchema = z
+  .object({
+    type: z.literal('in-box')
+  })
+  .strict();
+
 export const PluginSourceSchema = z.discriminatedUnion('type', [
   NpmSourceSchema,
   GitSourceSchema,
   LocalLinkSourceSchema,
-  LocalFileSourceSchema
+  LocalFileSourceSchema,
+  InBoxSourceSchema
 ]);
 
 export const PatchEntrySchema = z
@@ -139,11 +146,18 @@ export const LocalFileLockSourceSchema = z
   })
   .strict();
 
+export const InBoxLockSourceSchema = z
+  .object({
+    type: z.literal('in-box')
+  })
+  .strict();
+
 export const PluginLockSourceSchema = z.discriminatedUnion('type', [
   NpmLockSourceSchema,
   GitLockSourceSchema,
   LocalLinkLockSourceSchema,
-  LocalFileLockSourceSchema
+  LocalFileLockSourceSchema,
+  InBoxLockSourceSchema
 ]);
 
 export const PluginLockEntrySchema = z

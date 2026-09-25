@@ -5,79 +5,195 @@ import * as os from 'node:os';
 import { readEnvironmentInventory } from '../../src/inventory/profile-reader.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 
+function writeJson(filePath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+}
+
+function writeProfile(
+  home: string,
+  profileName: string,
+  input: {
+    bundles?: string[];
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+  }
+): string {
+  const profileDir = path.join(home, 'profiles', profileName);
+  fs.mkdirSync(profileDir, { recursive: true });
+  writeJson(path.join(profileDir, 'package.json'), {
+    name: `dsh-profile-${profileName}`,
+    private: true,
+    dependencies: input.dependencies ?? {},
+    ...(input.optionalDependencies ? { optionalDependencies: input.optionalDependencies } : {}),
+    dsh: {
+      profile: {
+        bundles: input.bundles ?? []
+      }
+    }
+  });
+  return profileDir;
+}
+
 describe('readEnvironmentInventory', () => {
   let tempHome: string;
 
   beforeEach(() => {
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-inv-test-'));
-    const webProfile = path.join(tempHome, 'profiles', 'web');
-    fs.mkdirSync(path.join(webProfile, 'node_modules', '@nanmicoder', 'dsh-agent-teams'), { recursive: true });
-
-    // Write profile.json
-    fs.writeFileSync(
-      path.join(webProfile, 'profile.json'),
-      JSON.stringify({
-        name: 'web',
-        plugins: {
-          '@nanmicoder/dsh-agent-teams': {
-            enabled: true
-          },
-          'missing-plugin': {
-            enabled: true
-          }
-        }
-      })
-    );
-
-    // Write package.json for @nanmicoder/dsh-agent-teams
-    fs.writeFileSync(
-      path.join(webProfile, 'node_modules', '@nanmicoder', 'dsh-agent-teams', 'package.json'),
-      JSON.stringify({
-        name: '@nanmicoder/dsh-agent-teams',
-        version: '0.1.21',
-        _resolved: 'https://registry.npmjs.org/@nanmicoder/dsh-agent-teams/-/dsh-agent-teams-0.1.21.tgz'
-      })
-    );
   });
 
   afterEach(() => {
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
-  it('should inventory profiles and classify sources without network', async () => {
-    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-    const inventory = await readEnvironmentInventory(paths);
-
-    expect(inventory.profiles.web).toBeDefined();
-    const web = inventory.profiles.web;
-    expect(web.plugins['@nanmicoder/dsh-agent-teams']).toBeDefined();
-    expect(web.plugins['@nanmicoder/dsh-agent-teams'].installed).toBe(true);
-    expect(web.plugins['@nanmicoder/dsh-agent-teams'].version).toBe('0.1.21');
-    expect(web.plugins['@nanmicoder/dsh-agent-teams'].sourceType).toBe('npm');
-
-    expect(web.plugins['missing-plugin']).toBeDefined();
-    expect(web.plugins['missing-plugin'].installed).toBe(false);
-  });
-
-  it('should detect symlinks and classify local links safely', async () => {
-    const localDir = path.join(tempHome, 'local-pkg');
-    fs.mkdirSync(localDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(localDir, 'package.json'),
-      JSON.stringify({ name: 'my-local-pkg', version: '1.0.0' })
+  it('should read dsh.profile.bundles and dependencies from package.json, not profile.json', async () => {
+    const profileDir = writeProfile(tempHome, 'web', {
+      bundles: ['@deepseek-ai/dsh-base', '@nanmicoder/dsh-agent-teams'],
+      dependencies: {
+        '@nanmicoder/dsh-agent-teams': '0.1.21'
+      }
+    });
+    writeJson(path.join(profileDir, 'profile.json'), {
+      plugins: {
+        'should-not-appear': { enabled: true }
+      }
+    });
+    writeJson(
+      path.join(profileDir, 'node_modules', '@nanmicoder', 'dsh-agent-teams', 'package.json'),
+      { name: '@nanmicoder/dsh-agent-teams', version: '0.1.21' }
     );
 
-    const webProfile = path.join(tempHome, 'profiles', 'web');
-    fs.symlinkSync(localDir, path.join(webProfile, 'node_modules', 'my-local-pkg'), 'dir');
+    const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
+    const web = inventory.profiles.web;
+    expect(web).toBeDefined();
+    expect(web.plugins['should-not-appear']).toBeUndefined();
+    expect(web.plugins['@deepseek-ai/dsh-base']?.sourceType).toBe('in-box');
+    expect(web.plugins['@deepseek-ai/dsh-base']?.enabled).toBe(true);
+    expect(web.plugins['@nanmicoder/dsh-agent-teams']?.sourceType).toBe('npm');
+    expect(web.plugins['@nanmicoder/dsh-agent-teams']?.version).toBe('0.1.21');
+    expect(web.plugins['@nanmicoder/dsh-agent-teams']?.enabled).toBe(true);
+  });
 
-    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-    const inventory = await readEnvironmentInventory(paths);
+  it('should classify pnpm-style in-profile symlinks as npm when the dependency spec is a version', async () => {
+    const profileDir = writeProfile(tempHome, 'web', {
+      bundles: ['@nanmicoder/dsh-agent-teams'],
+      dependencies: { '@nanmicoder/dsh-agent-teams': '0.1.21' }
+    });
+    const realPkg = path.join(
+      profileDir,
+      'node_modules',
+      '.pnpm',
+      '@nanmicoder+dsh-agent-teams@0.1.21',
+      'node_modules',
+      '@nanmicoder',
+      'dsh-agent-teams'
+    );
+    writeJson(path.join(realPkg, 'package.json'), {
+      name: '@nanmicoder/dsh-agent-teams',
+      version: '0.1.21'
+    });
+    const linkParent = path.join(profileDir, 'node_modules', '@nanmicoder');
+    fs.mkdirSync(linkParent, { recursive: true });
+    fs.symlinkSync(realPkg, path.join(linkParent, 'dsh-agent-teams'));
 
-    const pkg = inventory.profiles.web.plugins['my-local-pkg'];
-    expect(pkg).toBeDefined();
-    expect(pkg.installed).toBe(true);
+    const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
+    const pkg = inventory.profiles.web.plugins['@nanmicoder/dsh-agent-teams'];
+    expect(pkg.sourceType).toBe('npm');
+    expect(pkg.version).toBe('0.1.21');
     expect(pkg.isSymlink).toBe(true);
-    expect(pkg.isExternalSymlink).toBe(true);
+    expect(pkg.isExternalSymlink).toBe(false);
+  });
+
+  it('should not treat transitive node_modules packages as plugins', async () => {
+    const profileDir = writeProfile(tempHome, 'web', {
+      bundles: ['@deepseek-ai/dsh-base'],
+      dependencies: {}
+    });
+    writeJson(path.join(profileDir, 'node_modules', 'lodash', 'package.json'), {
+      name: 'lodash',
+      version: '4.17.21'
+    });
+
+    const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
+    expect(inventory.profiles.web.plugins.lodash).toBeUndefined();
+  });
+
+  it('should mark dependencies absent from bundles as installed but disabled', async () => {
+    const profileDir = writeProfile(tempHome, 'web', {
+      bundles: ['@deepseek-ai/dsh-base'],
+      dependencies: { 'dsh-hello-plugin': '0.1.0' }
+    });
+    writeJson(path.join(profileDir, 'node_modules', 'dsh-hello-plugin', 'package.json'), {
+      name: 'dsh-hello-plugin',
+      version: '0.1.0'
+    });
+
+    const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
+    const pkg = inventory.profiles.web.plugins['dsh-hello-plugin'];
+    expect(pkg.installed).toBe(true);
+    expect(pkg.enabled).toBe(false);
+    expect(pkg.sourceType).toBe('npm');
+  });
+
+  it('should classify git, file, and link specs from package.json, not from symlink type', async () => {
+    const localDir = path.join(tempHome, 'local-pkg');
+    writeJson(path.join(localDir, 'package.json'), { name: 'my-local-pkg', version: '1.0.0' });
+    const fileDir = path.join(tempHome, 'file-pkg');
+    writeJson(path.join(fileDir, 'package.json'), { name: 'my-file-pkg', version: '2.0.0' });
+
+    const profileDir = writeProfile(tempHome, 'web', {
+      bundles: ['my-local-pkg', 'my-file-pkg', 'my-git-pkg'],
+      dependencies: {
+        'my-local-pkg': `link:${localDir}`,
+        'my-file-pkg': `file:${fileDir}`,
+        'my-git-pkg': 'github:example/my-git-pkg#abcdef1'
+      }
+    });
+    writeJson(path.join(profileDir, 'node_modules', 'my-git-pkg', 'package.json'), {
+      name: 'my-git-pkg',
+      version: '0.0.0'
+    });
+    fs.symlinkSync(localDir, path.join(profileDir, 'node_modules', 'my-local-pkg'));
+    fs.symlinkSync(fileDir, path.join(profileDir, 'node_modules', 'my-file-pkg'));
+
+    const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
+    const plugins = inventory.profiles.web.plugins;
+    expect(plugins['my-local-pkg'].sourceType).toBe('local-link');
+    expect(plugins['my-local-pkg'].resolvedSource).toBe(localDir);
+    expect(plugins['my-file-pkg'].sourceType).toBe('local-file');
+    expect(plugins['my-git-pkg'].sourceType).toBe('git');
+    expect(plugins['my-git-pkg'].resolvedSource).toBe('github:example/my-git-pkg#abcdef1');
+  });
+
+  it('should not read package metadata through an external symlink', async () => {
+    const outsideDir = path.join(tempHome, 'outside-pkg');
+    writeJson(path.join(outsideDir, 'package.json'), {
+      name: 'evil',
+      version: '99.99.99-pwned'
+    });
+    const profileDir = writeProfile(tempHome, 'web', {
+      bundles: ['evil'],
+      dependencies: { evil: `link:${outsideDir}` }
+    });
+    fs.mkdirSync(path.join(profileDir, 'node_modules'), { recursive: true });
+    fs.symlinkSync(outsideDir, path.join(profileDir, 'node_modules', 'evil'));
+
+    const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
+    const pkg = inventory.profiles.web.plugins.evil;
     expect(pkg.sourceType).toBe('local-link');
+    expect(pkg.isExternalSymlink).toBe(true);
+    expect(pkg.version).toBeUndefined();
+    expect(pkg.rawPackageJson).toBeUndefined();
+    expect(pkg.installed).toBe(true);
+  });
+
+  it('should skip directories that are not DSH profiles', async () => {
+    writeProfile(tempHome, 'web', { bundles: ['@deepseek-ai/dsh-base'] });
+    const other = path.join(tempHome, 'profiles', 'random-dir');
+    fs.mkdirSync(other, { recursive: true });
+    writeJson(path.join(other, 'package.json'), { name: 'not-a-profile' });
+
+    const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
+    expect(Object.keys(inventory.profiles)).toEqual(['web']);
   });
 });

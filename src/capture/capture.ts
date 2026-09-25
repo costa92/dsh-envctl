@@ -59,7 +59,11 @@ export function captureEnvironment(
       const isEnabled = plugin.enabled ?? true;
 
       if (plugin.sourceType === 'npm') {
-        const version = plugin.version || '0.0.0';
+        const version = plugin.version || (plugin.resolvedSource && !plugin.resolvedSource.startsWith('http') ? plugin.resolvedSource : '0.0.0');
+        const resolvedFrom =
+          typeof plugin.rawPackageJson?._resolved === 'string'
+            ? plugin.rawPackageJson._resolved
+            : undefined;
         profileManifestPlugins[alias] = {
           package: pkgName,
           enabled: isEnabled,
@@ -73,7 +77,7 @@ export function captureEnvironment(
           source: {
             type: 'npm',
             resolvedVersion: version,
-            resolvedFrom: plugin.resolvedSource
+            ...(resolvedFrom ? { resolvedFrom } : {})
           }
         };
       } else if (plugin.sourceType === 'git') {
@@ -94,7 +98,7 @@ export function captureEnvironment(
           }
         };
       } else if (plugin.sourceType === 'local-link') {
-        const targetPath = plugin.targetPath || '';
+        const targetPath = plugin.resolvedSource || plugin.targetPath || '';
         profileManifestPlugins[alias] = {
           package: pkgName,
           enabled: isEnabled,
@@ -111,7 +115,7 @@ export function captureEnvironment(
           }
         };
       } else if (plugin.sourceType === 'local-file') {
-        const targetPath = plugin.targetPath || '';
+        const targetPath = plugin.resolvedSource || plugin.targetPath || '';
         profileManifestPlugins[alias] = {
           package: pkgName,
           enabled: isEnabled,
@@ -125,6 +129,20 @@ export function captureEnvironment(
           source: {
             type: 'local-file',
             path: targetPath
+          }
+        };
+      } else if (plugin.sourceType === 'in-box') {
+        profileManifestPlugins[alias] = {
+          package: pkgName,
+          enabled: isEnabled,
+          source: {
+            type: 'in-box'
+          }
+        };
+        profileLockPlugins[alias] = {
+          package: pkgName,
+          source: {
+            type: 'in-box'
           }
         };
       } else {

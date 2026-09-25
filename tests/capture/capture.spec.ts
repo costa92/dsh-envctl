@@ -15,11 +15,17 @@ describe('captureEnvironment and initEnvironment', () => {
     fs.mkdirSync(path.join(webProfile, 'node_modules', '@nanmicoder', 'dsh-agent-teams'), { recursive: true });
 
     fs.writeFileSync(
-      path.join(webProfile, 'profile.json'),
+      path.join(webProfile, 'package.json'),
       JSON.stringify({
-        name: 'web',
-        plugins: {
-          '@nanmicoder/dsh-agent-teams': { enabled: true }
+        name: 'dsh-profile-web',
+        private: true,
+        dependencies: {
+          '@nanmicoder/dsh-agent-teams': '0.1.21'
+        },
+        dsh: {
+          profile: {
+            bundles: ['@nanmicoder/dsh-agent-teams']
+          }
         }
       })
     );

@@ -37,20 +37,23 @@ describe('resolveEnvironmentPaths', () => {
     expect(paths.profilesDir).toBe('/custom/env-dsh/profiles');
   });
 
-  it('should reject non-absolute explicit dshHome path', () => {
-    expect(() => {
-      resolveEnvironmentPaths({
-        cliDshHome: 'relative/path',
-        userHome
-      });
-    }).toThrow(/absolute/i);
+  it('should resolve relative dsh-home against cwd into an absolute path', () => {
+    const paths = resolveEnvironmentPaths({
+      cliDshHome: 'relative/path',
+      cwd: '/work/dir',
+      userHome
+    });
+    expect(paths.home).toBe('/work/dir/relative/path');
+    expect(paths.profilesDir).toBe('/work/dir/relative/path/profiles');
+  });
 
-    expect(() => {
-      resolveEnvironmentPaths({
-        envDshHome: 'relative/env/path',
-        userHome
-      });
-    }).toThrow(/absolute/i);
+  it('should resolve relative DSH_HOME against cwd', () => {
+    const paths = resolveEnvironmentPaths({
+      envDshHome: './env-dsh',
+      cwd: '/work/dir',
+      userHome
+    });
+    expect(paths.home).toBe('/work/dir/env-dsh');
   });
 
   it('should reject empty explicit path', () => {

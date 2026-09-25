@@ -30,6 +30,13 @@ export interface EnvironmentInventory {
 
 const MAX_JSON_SIZE = 1024 * 1024; // 1 MiB
 
+const GIT_SPEC_RE =
+  /^(github:|gitlab:|bitbucket:|gist:|git\+|git:\/\/|git@)/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function safeReadJson(filePath: string): unknown | null {
   try {
     const stat = fs.statSync(filePath);
@@ -43,41 +50,135 @@ function safeReadJson(filePath: string): unknown | null {
   }
 }
 
-function classifySource(
-  isSymlink: boolean,
-  isExternalSymlink: boolean,
-  targetPath: string | undefined,
-  pkgJson: Record<string, unknown> | null
+function isPathInside(root: string, candidate: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const resolvedCandidate = path.resolve(candidate);
+  const relative = path.relative(resolvedRoot, resolvedCandidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === 'string' && PackageNameRegex.test(key)) {
+      result[key] = entry;
+    }
+  }
+  return result;
+}
+
+export function classifyDependencySpec(
+  spec: string,
+  profileDir: string
 ): { sourceType: SourceType; resolvedSource?: string } {
-  if (isSymlink || isExternalSymlink) {
-    if (targetPath) {
-      try {
-        const stat = fs.statSync(targetPath);
-        if (stat.isDirectory()) {
-          return { sourceType: 'local-link', resolvedSource: targetPath };
-        }
-        return { sourceType: 'local-file', resolvedSource: targetPath };
-      } catch {
-        return { sourceType: 'local-link', resolvedSource: targetPath };
+  const trimmed = spec.trim();
+  if (trimmed.startsWith('link:')) {
+    const rawPath = trimmed.slice('link:'.length);
+    const resolved = path.isAbsolute(rawPath) ? path.normalize(rawPath) : path.resolve(profileDir, rawPath);
+    return { sourceType: 'local-link', resolvedSource: resolved };
+  }
+  if (trimmed.startsWith('file:')) {
+    const rawPath = trimmed.slice('file:'.length);
+    const resolved = path.isAbsolute(rawPath) ? path.normalize(rawPath) : path.resolve(profileDir, rawPath);
+    return { sourceType: 'local-file', resolvedSource: resolved };
+  }
+  if (GIT_SPEC_RE.test(trimmed)) {
+    return { sourceType: 'git', resolvedSource: trimmed };
+  }
+  if (/^https?:\/\//i.test(trimmed) && /(github\.com|gitlab\.com|bitbucket\.org|\.git(?:$|[?#]))/i.test(trimmed)) {
+    return { sourceType: 'git', resolvedSource: trimmed };
+  }
+  return { sourceType: 'npm', resolvedSource: trimmed };
+}
+
+interface InstallInspection {
+  present: boolean;
+  isSymlink: boolean;
+  isExternalSymlink: boolean;
+  targetPath?: string;
+  version?: string;
+  rawPackageJson?: Record<string, unknown>;
+}
+
+async function inspectInstallPath(pkgPath: string, profileDir: string): Promise<InstallInspection> {
+  const empty: InstallInspection = {
+    present: false,
+    isSymlink: false,
+    isExternalSymlink: false
+  };
+
+  try {
+    const lstat = await fs.promises.lstat(pkgPath);
+    const isSymlink = lstat.isSymbolicLink();
+    let targetPath: string | undefined;
+    let isExternalSymlink = false;
+
+    try {
+      targetPath = await fs.promises.realpath(pkgPath);
+      const profileReal = await fs.promises.realpath(profileDir);
+      isExternalSymlink = !isPathInside(profileReal, targetPath);
+    } catch {
+      if (isSymlink) {
+        return {
+          present: true,
+          isSymlink: true,
+          isExternalSymlink: true
+        };
       }
+      return { present: true, isSymlink: false, isExternalSymlink: false };
     }
-    return { sourceType: 'local-link' };
-  }
 
-  if (pkgJson) {
-    const resolved = (pkgJson._resolved as string) || (pkgJson._from as string) || '';
-    if (resolved.startsWith('git+') || resolved.startsWith('git://') || resolved.includes('github.com')) {
-      return { sourceType: 'git', resolvedSource: resolved };
+    if (isExternalSymlink) {
+      return {
+        present: true,
+        isSymlink,
+        isExternalSymlink: true,
+        targetPath
+      };
     }
-    if (resolved.startsWith('file:')) {
-      return { sourceType: 'local-file', resolvedSource: resolved };
-    }
-    if (pkgJson.version && typeof pkgJson.version === 'string') {
-      return { sourceType: 'npm', resolvedSource: resolved || undefined };
-    }
-  }
 
-  return { sourceType: 'unknown' };
+    const packageJsonPath = path.join(pkgPath, 'package.json');
+    try {
+      const metaReal = await fs.promises.realpath(packageJsonPath);
+      const profileReal = await fs.promises.realpath(profileDir);
+      if (!isPathInside(profileReal, metaReal)) {
+        return {
+          present: true,
+          isSymlink,
+          isExternalSymlink: true,
+          targetPath
+        };
+      }
+    } catch {
+      return {
+        present: true,
+        isSymlink,
+        isExternalSymlink: false,
+        targetPath
+      };
+    }
+
+    const pkgJson = safeReadJson(packageJsonPath) as Record<string, unknown> | null;
+    const version = pkgJson?.version && typeof pkgJson.version === 'string' ? pkgJson.version : undefined;
+
+    return {
+      present: true,
+      isSymlink,
+      isExternalSymlink: false,
+      targetPath,
+      version,
+      rawPackageJson: pkgJson || undefined
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function nodeModulesPackagePath(profileDir: string, packageName: string): string {
+  return path.join(profileDir, 'node_modules', ...packageName.split('/'));
 }
 
 export async function readEnvironmentInventory(
@@ -100,139 +201,54 @@ export async function readEnvironmentInventory(
 
     const profileName = entry.name;
     const profilePath = path.join(paths.profilesDir, profileName);
-    const profileJsonPath = path.join(profilePath, 'profile.json');
-
-    let rawProfile: Record<string, unknown> | undefined;
-    const profileData = safeReadJson(profileJsonPath);
-    if (profileData && typeof profileData === 'object') {
-      rawProfile = profileData as Record<string, unknown>;
+    const packageJsonPath = path.join(profilePath, 'package.json');
+    const rawProfileData = safeReadJson(packageJsonPath);
+    if (!isRecord(rawProfileData) || !isRecord(rawProfileData.dsh) || !isRecord(rawProfileData.dsh.profile)) {
+      continue;
     }
 
+    const bundlesRaw = rawProfileData.dsh.profile.bundles;
+    const bundleNames = Array.isArray(bundlesRaw)
+      ? bundlesRaw.filter((name): name is string => typeof name === 'string' && PackageNameRegex.test(name))
+      : [];
+
+    const dependencies = {
+      ...stringRecord(rawProfileData.optionalDependencies),
+      ...stringRecord(rawProfileData.dependencies)
+    };
+
+    const names = new Set<string>([...Object.keys(dependencies), ...bundleNames]);
     const plugins: Record<string, InstalledPluginInfo> = {};
 
-    // 1. Check profile.json declared plugins
-    if (rawProfile && rawProfile.plugins && typeof rawProfile.plugins === 'object') {
-      for (const [key, val] of Object.entries(rawProfile.plugins)) {
-        if (!PackageNameRegex.test(key)) continue;
-        const isEnabled = typeof val === 'object' && val !== null ? (val as { enabled?: boolean }).enabled ?? true : true;
-        plugins[key] = {
-          name: key,
-          installed: false,
-          sourceType: 'unknown',
-          isSymlink: false,
-          isExternalSymlink: false,
-          enabled: isEnabled
-        };
-      }
-    }
+    for (const pkgName of names) {
+      const spec = dependencies[pkgName];
+      const classified = spec
+        ? classifyDependencySpec(spec, profilePath)
+        : { sourceType: 'in-box' as const };
+      const inspection = await inspectInstallPath(nodeModulesPackagePath(profilePath, pkgName), profilePath);
+      const installed = classified.sourceType === 'in-box' || inspection.present;
 
-    // 2. Discover node_modules packages
-    const nodeModulesPath = path.join(profilePath, 'node_modules');
-    if (fs.existsSync(nodeModulesPath)) {
-      await scanNodeModules(nodeModulesPath, profilePath, plugins);
+      plugins[pkgName] = {
+        name: pkgName,
+        installed,
+        version: inspection.version,
+        sourceType: classified.sourceType,
+        resolvedSource: classified.resolvedSource,
+        isSymlink: inspection.isSymlink,
+        isExternalSymlink: inspection.isExternalSymlink,
+        targetPath: inspection.targetPath,
+        rawPackageJson: inspection.rawPackageJson,
+        enabled: bundleNames.includes(pkgName)
+      };
     }
 
     result.profiles[profileName] = {
       name: profileName,
       path: profilePath,
       plugins,
-      rawProfile
+      rawProfile: rawProfileData
     };
   }
 
   return result;
-}
-
-async function scanNodeModules(
-  nodeModulesDir: string,
-  profileDir: string,
-  plugins: Record<string, InstalledPluginInfo>
-): Promise<void> {
-  let entries: fs.Dirent[] = [];
-  try {
-    entries = await fs.promises.readdir(nodeModulesDir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue;
-
-    if (entry.name.startsWith('@')) {
-      // Scoped package directory
-      const scopeDir = path.join(nodeModulesDir, entry.name);
-      let scopeEntries: fs.Dirent[] = [];
-      try {
-        scopeEntries = await fs.promises.readdir(scopeDir, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const sub of scopeEntries) {
-        if (sub.name.startsWith('.')) continue;
-        const pkgName = `${entry.name}/${sub.name}`;
-        if (!PackageNameRegex.test(pkgName)) continue;
-        const pkgPath = path.join(scopeDir, sub.name);
-        await inspectPackage(pkgName, pkgPath, profileDir, plugins);
-      }
-    } else {
-      const pkgName = entry.name;
-      if (!PackageNameRegex.test(pkgName)) continue;
-      const pkgPath = path.join(nodeModulesDir, pkgName);
-      await inspectPackage(pkgName, pkgPath, profileDir, plugins);
-    }
-  }
-}
-
-async function inspectPackage(
-  pkgName: string,
-  pkgPath: string,
-  profileDir: string,
-  plugins: Record<string, InstalledPluginInfo>
-): Promise<void> {
-  try {
-    const lstat = await fs.promises.lstat(pkgPath);
-    let isSymlink = lstat.isSymbolicLink();
-    let isExternalSymlink = false;
-    let targetPath: string | undefined;
-
-    if (isSymlink) {
-      try {
-        targetPath = await fs.promises.realpath(pkgPath);
-        // Check if target is outside profileDir
-        const relative = path.relative(profileDir, targetPath);
-        if (relative.startsWith('..') || path.isAbsolute(relative)) {
-          isExternalSymlink = true;
-        }
-      } catch {
-        // broken symlink
-      }
-    }
-
-    const packageJsonPath = path.join(pkgPath, 'package.json');
-    const pkgJson = safeReadJson(packageJsonPath) as Record<string, unknown> | null;
-    const version = pkgJson?.version && typeof pkgJson.version === 'string' ? pkgJson.version : undefined;
-
-    const { sourceType, resolvedSource } = classifySource(
-      isSymlink,
-      isExternalSymlink,
-      targetPath,
-      pkgJson
-    );
-
-    const existing = plugins[pkgName];
-    plugins[pkgName] = {
-      name: pkgName,
-      installed: true,
-      version,
-      sourceType,
-      resolvedSource,
-      isSymlink,
-      isExternalSymlink,
-      targetPath,
-      rawPackageJson: pkgJson || undefined,
-      enabled: existing?.enabled ?? true
-    };
-  } catch {
-    // ignore read failures
-  }
 }
