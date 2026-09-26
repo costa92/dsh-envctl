@@ -3,6 +3,7 @@ import { applyEnvironment } from '../apply/apply.js';
 import { rollbackEnvironment } from '../rollback/rollback.js';
 import { gcEnvironment } from '../gc/gc.js';
 import { purgePlugin } from '../purge/purge.js';
+import { markRestarted } from '../restart/restart.js';
 import { renderPlan } from '../output/render.js';
 import { ValidationError } from '../errors.js';
 import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
@@ -134,6 +135,20 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         for (const item of result.deleted) {
           writeOut(`  - ${item}\n`);
         }
+      }
+    });
+
+  program
+    .command('restarted')
+    .description('Record that DSH was restarted, clearing restart-required')
+    .option('-p, --profile <name>', 'only clear this profile')
+    .action(async (cmdOpts) => {
+      const opts = program.opts();
+      const result = await markRestarted(resolveCliPaths(opts), cmdOpts.profile);
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'restarted', cleared: result.cleared }, null, 2) + '\n');
+      } else {
+        writeOut(`Cleared restart-required for ${result.cleared.length} plugin(s).\n`);
       }
     });
 }
