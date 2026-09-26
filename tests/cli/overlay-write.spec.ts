@@ -85,7 +85,7 @@ describe('CLI writes with an active overlay', () => {
     });
 
     expect((await run(['install', 'shared-plugin@1.5.0', '--profile', 'web', '--as', 'shared', '--layer', 'overlay'])).code).toBe(0);
-    expect(overlay().profiles?.web.plugins?.shared).toEqual({ enabled: true, source: { type: 'npm', version: '1.5.0' } });
+    expect(overlay().profiles?.web.plugins?.shared).toEqual({ source: { type: 'npm', version: '1.5.0' } });
 
     const clash = await run(['install', 'other-plugin@1.0.0', '--profile', 'web', '--as', 'shared', '--layer', 'overlay']);
     expect(clash.code).toBe(3);

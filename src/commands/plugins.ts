@@ -184,9 +184,14 @@ export function registerPluginCommands(ctx: CommandContext): void {
                 `Alias '${next.alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`
               );
             }
-            setOverlayPluginFields(doc, profile, next.alias, baseEntry
-              ? { enabled: true, source: next.source }
-              : { package: next.packageName, enabled: true, source: next.source });
+            const overlayEntry = doc.profiles?.[profile]?.plugins?.[next.alias];
+            // Reinstalling a plugin the effective manifest already has only moves its source, as in the base.
+            const exists = overlayEntry ? !overlayEntry.remove : Boolean(baseEntry);
+            setOverlayPluginFields(doc, profile, next.alias, exists
+              ? { source: next.source }
+              : baseEntry
+                ? { enabled: true, source: next.source }
+                : { package: next.packageName, enabled: true, source: next.source });
             return next;
           })
         : await writeBase(paths, selection, (manifest) => {
@@ -194,11 +199,11 @@ export function registerPluginCommands(ctx: CommandContext): void {
               manifest.profiles[profile] = { plugins: {} };
             }
             const next = parsePluginSpec(spec, cmdOpts.as);
-            manifest.profiles[profile].plugins[next.alias] = {
-              package: next.packageName,
-              enabled: true,
-              source: next.source
-            };
+            const current = manifest.profiles[profile].plugins[next.alias];
+            // Reinstalling the same package only moves its source; patches and the enabled state are kept.
+            manifest.profiles[profile].plugins[next.alias] = current?.package === next.packageName
+              ? { ...current, source: next.source }
+              : { package: next.packageName, enabled: true, source: next.source };
             return next;
           });
 
