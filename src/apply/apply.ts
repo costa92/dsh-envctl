@@ -195,6 +195,7 @@ async function executeWithDsh(
 function markRestartRequired(
   profiles: EnvironmentState['profiles'] | undefined,
   plan: EnvironmentPlan,
+  verifiedInventory: EnvironmentInventory,
   timestamp: string
 ): EnvironmentState['profiles'] {
   const next: EnvironmentState['profiles'] = {};
@@ -214,9 +215,11 @@ function markRestartRequired(
     if (!next[operation.profile]) {
       next[operation.profile] = { plugins: {} };
     }
+    const installedVersion = verifiedInventory.profiles[operation.profile]?.plugins[operation.package]?.version;
     next[operation.profile].plugins[operation.package] = {
       package: operation.package,
       status: 'restart-required',
+      ...(installedVersion ? { installedVersion } : {}),
       lastVerified: timestamp
     };
   }
@@ -376,7 +379,7 @@ async function planAndApply(
       apiVersion: 'dshenv-state/v1',
       lastApplied: now,
       appliedLockHash: lockHash,
-      profiles: markRestartRequired(state?.profiles, plan, now),
+      profiles: markRestartRequired(state?.profiles, plan, verifiedInventory, now),
       ownership: pruneOwnership(state?.ownership, manifest)
     };
 

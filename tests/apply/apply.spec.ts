@@ -188,6 +188,39 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     expect(profile.dependencies).toEqual({ '@nanmicoder/dsh-agent-teams': '0.1.21' });
     const appliedState = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
     expect(appliedState.profiles.web.plugins['@nanmicoder/dsh-agent-teams'].status).toBe('restart-required');
+    expect(appliedState.profiles.web.plugins['@nanmicoder/dsh-agent-teams'].installedVersion).toBe('0.1.21');
+  });
+
+  it('should record the verified installed version instead of dropping it when marking restart-required', async () => {
+    installDeclaredPlugin();
+    const manifestPath = path.join(tempHome, 'envctl', 'manifest.yaml');
+    fs.writeFileSync(manifestPath, fs.readFileSync(manifestPath, 'utf8').replace('enabled: true', 'enabled: false'));
+    const statePath = path.join(tempHome, 'envctl', 'state.json');
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8')) as {
+      profiles: Record<string, { plugins: Record<string, unknown> }>;
+    };
+    state.profiles = {
+      web: {
+        plugins: {
+          '@nanmicoder/dsh-agent-teams': {
+            package: '@nanmicoder/dsh-agent-teams',
+            status: 'healthy',
+            installedVersion: '0.1.20',
+            lastVerified: '2026-01-01T00:00:00.000Z'
+          }
+        }
+      }
+    };
+    fs.writeFileSync(statePath, JSON.stringify(state));
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const result = await applyEnvironment(paths);
+    expect(result.plan.operations.map((op) => op.kind)).toEqual(['disable']);
+
+    const entry = loadState(fs.readFileSync(paths.stateFile, 'utf8')).profiles.web.plugins['@nanmicoder/dsh-agent-teams'];
+    expect(entry.status).toBe('restart-required');
+    expect(entry.installedVersion).toBe('0.1.21');
+    expect(entry.lastVerified).not.toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('should refuse install when the DSH runtime version is unsupported', async () => {
