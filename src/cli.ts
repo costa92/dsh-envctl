@@ -154,9 +154,14 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       const paths = resolveCliPaths(opts);
       const allowUntested = Boolean(opts.allowUntestedDsh);
 
+      if (!cmdOpts.dryRun && !cmdOpts.yes) {
+        throw new ValidationError('Refusing to apply without --yes. Preview with --dry-run, then re-run with --yes.');
+      }
+
       const res = await applyEnvironment(paths, {
         dryRun: Boolean(cmdOpts.dryRun),
-        allowUntested
+        allowUntested,
+        harnessSource: opts.harnessSource
       });
 
       if (opts.json) {

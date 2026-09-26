@@ -8,8 +8,10 @@ import { loadState, loadLock } from '../../src/manifest/files.js';
 
 describe('applyEnvironment', () => {
   let tempHome: string;
+  let previousDshCli: string | undefined;
 
   beforeEach(() => {
+    previousDshCli = process.env.DSH_CLI;
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-apply-test-'));
     const managerDir = path.join(tempHome, 'envctl');
     fs.mkdirSync(managerDir, { recursive: true });
@@ -74,8 +76,29 @@ profiles:
   });
 
   afterEach(() => {
+    if (previousDshCli === undefined) delete process.env.DSH_CLI;
+    else process.env.DSH_CLI = previousDshCli;
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
+
+  function installDeclaredPlugin(): void {
+    const profileDir = path.join(tempHome, 'profiles', 'web');
+    const packageDir = path.join(profileDir, 'node_modules', '@nanmicoder', 'dsh-agent-teams');
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(profileDir, 'package.json'),
+      JSON.stringify({
+        name: 'dsh-profile-web',
+        private: true,
+        dependencies: { '@nanmicoder/dsh-agent-teams': '0.1.21' },
+        dsh: { profile: { bundles: ['@nanmicoder/dsh-agent-teams'] } }
+      })
+    );
+    fs.writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.21' })
+    );
+  }
 
   it('should perform dry-run apply without modifying state', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
@@ -94,7 +117,7 @@ profiles:
     const res = await applyEnvironment(paths, {
       dryRun: false,
       executor: async () => {
-        // mock successful execution of operations
+        installDeclaredPlugin();
         return { success: true };
       }
     });
@@ -117,5 +140,71 @@ profiles:
     expect(fs.existsSync(journalFile)).toBe(true);
     const journalContent = fs.readFileSync(journalFile, 'utf8');
     expect(journalContent).toContain('apply-completed');
+  });
+
+  it('should reject a successful executor when the environment remains drifted', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+
+    await expect(applyEnvironment(paths, {
+      executor: async () => ({ success: true })
+    })).rejects.toThrow('environment still has pending operations');
+
+    const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
+    expect(state.lastApplied).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('should execute install operations through the configured DSH CLI by default', async () => {
+    const fakeDsh = path.join(tempHome, 'fake-dsh.mjs');
+    fs.writeFileSync(fakeDsh, `
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+const profile = args[args.indexOf('--profile') + 1];
+const spec = args.at(-1);
+const packageName = spec.startsWith('@') ? spec.slice(0, spec.indexOf('@', 1)) : spec.split('@')[0];
+const version = spec.slice(packageName.length + 1);
+const profileDir = path.join(process.env.DSH_HOME, 'profiles', profile);
+const packageDir = path.join(profileDir, 'node_modules', ...packageName.split('/'));
+fs.mkdirSync(packageDir, { recursive: true });
+fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+  name: 'dsh-profile-' + profile,
+  private: true,
+  dependencies: { [packageName]: version },
+  dsh: { profile: { bundles: [packageName] } }
+}));
+fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName, version }));
+`);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const result = await applyEnvironment(paths);
+
+    expect(result.applied).toBe(true);
+    const profile = JSON.parse(fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), 'utf8'));
+    expect(profile.dependencies).toEqual({ '@nanmicoder/dsh-agent-teams': '0.1.21' });
+  });
+
+  it('should reject enable/disable before invoking the DSH CLI', async () => {
+    installDeclaredPlugin();
+    const profileJson = path.join(tempHome, 'profiles', 'web', 'package.json');
+    const profile = JSON.parse(fs.readFileSync(profileJson, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } };
+    };
+    profile.dsh.profile.bundles = [];
+    fs.writeFileSync(profileJson, JSON.stringify(profile));
+
+    let executed = false;
+    const fakeDsh = path.join(tempHome, 'must-not-run.mjs');
+    fs.writeFileSync(fakeDsh, 'process.exit(1)');
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    await expect(applyEnvironment(paths, {
+      executor: async () => {
+        executed = true;
+        return { success: true };
+      }
+    })).rejects.toThrow(/enable|not supported/i);
+    expect(executed).toBe(false);
   });
 });

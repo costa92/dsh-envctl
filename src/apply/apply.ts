@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
+import { execa } from 'execa';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type {
   EnvironmentManifest,
@@ -14,10 +15,12 @@ import { createEnvironmentSnapshot, restoreEnvironmentSnapshot, type Environment
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
+import { resolveDshCommand } from '../dsh/command.js';
 
 export interface ApplyOptions {
   dryRun?: boolean;
   allowUntested?: boolean;
+  harnessSource?: string;
   executor?: (plan: EnvironmentPlan, paths: EnvironmentPaths) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -28,6 +31,92 @@ export interface ApplyResult {
   plan: EnvironmentPlan;
   message?: string;
   snapshotId?: string;
+}
+
+function packageSpec(
+  manifest: EnvironmentManifest,
+  lock: EnvironmentLock | null,
+  operation: EnvironmentPlan['operations'][number]
+): string {
+  const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
+  if (!plugin) {
+    throw new ValidationError(`Plugin '${operation.alias}' is missing from profile '${operation.profile}'`);
+  }
+
+  const lockedSource = lock?.profiles[operation.profile]?.plugins[operation.alias]?.source;
+  switch (plugin.source.type) {
+    case 'npm': {
+      const version = lockedSource?.type === 'npm'
+        ? lockedSource.resolvedVersion
+        : plugin.source.version;
+      return `${plugin.package}@${version}`;
+    }
+    case 'git': {
+      const commit = lockedSource?.type === 'git' ? lockedSource.commit : plugin.source.commit;
+      if (!commit) throw new ValidationError(`Git plugin '${plugin.package}' has no locked commit`);
+      return `${plugin.source.url}#${commit}`;
+    }
+    case 'local-link':
+      return `link:${plugin.source.path}`;
+    case 'local-file':
+      return `file:${plugin.source.path}`;
+    case 'in-box':
+      return plugin.package;
+  }
+}
+
+async function executeWithDsh(
+  plan: EnvironmentPlan,
+  paths: EnvironmentPaths,
+  manifest: EnvironmentManifest,
+  lock: EnvironmentLock | null,
+  options?: ApplyOptions
+): Promise<{ success: boolean; error?: string }> {
+  const command = resolveDshCommand({
+    cliHarnessSource: options?.harnessSource,
+    manifestHarnessSource: manifest.environment?.harness?.sourceDir
+  });
+  if (!command) {
+    throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
+  }
+
+  assertSupportedPlan(plan);
+
+  for (const operation of plan.operations) {
+    const result = await execa(
+      command.file,
+      [...command.args, 'plugin', '--profile', operation.profile, 'add', packageSpec(manifest, lock, operation)],
+      {
+        cwd: command.cwd,
+        env: { ...process.env, DSH_HOME: paths.home },
+        shell: false,
+        reject: false
+      }
+    );
+    if (result.exitCode !== 0) {
+      return { success: false, error: `DSH plugin command exited with code ${String(result.exitCode)}` };
+    }
+  }
+
+  return { success: true };
+}
+
+function assertSupportedPlan(plan: EnvironmentPlan): void {
+  const blocked = plan.operations.find((operation) => operation.kind === 'blocked');
+  if (blocked) {
+    throw new DegradedError(
+      `Apply is blocked: ${blocked.blockedReason ?? blocked.reason}`
+    );
+  }
+
+  const unsupported = plan.operations.find(
+    (operation) => operation.kind !== 'install' && operation.kind !== 'update'
+  );
+  if (unsupported) {
+    throw new CapabilityError(
+      `Apply operation '${unsupported.kind}' is not supported by the DSH CLI adapter`
+    );
+  }
 }
 
 export async function applyEnvironment(
@@ -67,6 +156,8 @@ export async function applyEnvironment(
     };
   }
 
+  assertSupportedPlan(plan);
+
   const operationId = `apply-${crypto.randomBytes(6).toString('hex')}`;
   const now = new Date().toISOString();
 
@@ -91,12 +182,19 @@ export async function applyEnvironment(
       }
     });
 
-    // 4. Execute operations via executor (or default executor)
-    if (options?.executor) {
-      const execRes = await options.executor(plan, paths);
-      if (!execRes.success) {
-        throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
-      }
+    // 4. Execute operations via executor (or the DSH CLI adapter)
+    const execRes = options?.executor
+      ? await options.executor(plan, paths)
+      : await executeWithDsh(plan, paths, manifest, lock, options);
+    if (!execRes.success) {
+      throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
+    }
+
+    // Never commit successful state until the actual environment converges.
+    const verifiedInventory = await readEnvironmentInventory(paths);
+    const remainingPlan = buildPlan(manifest, lock, verifiedInventory);
+    if (remainingPlan.hasChanges) {
+      throw new DegradedError('Apply execution finished but the environment still has pending operations');
     }
 
     // 5. Update state.json
