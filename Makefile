@@ -1,4 +1,4 @@
-.PHONY: help install build typecheck test test-watch check clean demo-init demo-status demo-plan demo-doctor demo-capture demo-apply
+.PHONY: help install build typecheck test test-watch check clean demo-init demo-status demo-plan demo-doctor demo-capture demo-apply demo-list
 
 SHELL := /bin/bash
 DEMO_HOME ?= /Users/costalong/code/dsh/dsh-demo
@@ -22,6 +22,7 @@ help:
 	@echo "  make demo-doctor  - Probe DSH runtime in demo directory"
 	@echo "  make demo-capture - Capture existing profiles into a candidate manifest"
 	@echo "  make demo-apply   - Apply plan to demo directory (dry-run)"
+	@echo "  make demo-list    - List declared plugins in demo directory"
 
 install:
 	pnpm install
@@ -62,3 +63,6 @@ demo-capture: build
 
 demo-apply: build
 	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js apply --dry-run
+
+demo-list: build
+	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js list

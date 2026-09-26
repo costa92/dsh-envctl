@@ -63,4 +63,26 @@ describe('CLI source clone --profile', () => {
     expect(plan.operations.some((op) => op.kind === 'blocked')).toBe(false);
     expect(plan.operations.some((op) => op.kind === 'install' && op.alias === 'demo')).toBe(true);
   });
+
+  it('should update the lock commit on source pull --profile', async () => {
+    await runCli([
+      'source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome
+    ]);
+    fs.writeFileSync(path.join(upstream, 'extra.txt'), 'second');
+    await execa('git', ['add', '.'], { cwd: upstream });
+    await execa('git', ['commit', '-m', 'second'], { cwd: upstream });
+    const newHead = (await execa('git', ['rev-parse', 'HEAD'], { cwd: upstream })).stdout.trim();
+    const branch = (await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: upstream })).stdout.trim();
+
+    const code = await runCli([
+      'source', 'pull', '--profile', 'web', '--as', 'demo', '--ref', `origin/${branch}`, '--dsh-home', tempHome
+    ]);
+    expect(code).toBe(0);
+    const lock = loadLock(fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8'));
+    const gitLock = lock.profiles.web.plugins.demo.source;
+    expect(gitLock.type).toBe('git');
+    if (gitLock.type === 'git') {
+      expect(gitLock.commit).toBe(newHead);
+    }
+  });
 });

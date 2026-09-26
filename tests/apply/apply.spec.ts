@@ -186,6 +186,8 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     expect(result.applied).toBe(true);
     const profile = JSON.parse(fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), 'utf8'));
     expect(profile.dependencies).toEqual({ '@nanmicoder/dsh-agent-teams': '0.1.21' });
+    const appliedState = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
+    expect(appliedState.profiles.web.plugins['@nanmicoder/dsh-agent-teams'].status).toBe('restart-required');
   });
 
   it('should refuse install when the DSH runtime version is unsupported', async () => {

@@ -42,6 +42,7 @@
 - [x] 受管 YAML Patch 块插入、提取、校验与移除适配器 (`src/patch/patch.ts`)
 - [x] 便捷插件管理命令：`install`、`update --to`、`enable`、`disable`、`remove`、`list`、`config get|validate|set`、`source status|clone|pull` (`src/cli.ts`)
 - [x] `source clone --profile` 写入 `envctl/sources` 并锁定 commit，plan/apply 可安装 git 插件
+- [x] `source pull --profile` 更新 lock commit；apply 成功后标记 `restart-required`
 - [x] 全量测试套件覆盖（25 个测试文件，178 项测试全部通过）
 
 ### Phase 4: 事务日志、回滚与垃圾清理

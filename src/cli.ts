@@ -855,14 +855,71 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     });
 
   sourceCmd
-    .command('pull <targetDir> <targetRef>')
-    .description('Fast-forward update a managed Git plugin repository')
-    .action(async (targetDir: string, targetRef: string) => {
+    .command('pull [targetDir] [targetRef]')
+    .description('Fast-forward a Git checkout; with --profile, also update the lock commit')
+    .option('-p, --profile <name>', 'managed profile whose envctl/sources clone should be updated')
+    .option('--as <alias>', 'manifest alias when --profile is set')
+    .option('--ref <ref>', 'commit or ref to fast-forward to')
+    .action(async (targetDir: string | undefined, targetRef: string | undefined, cmdOpts) => {
       const opts = program.opts();
-      const resolvedTarget = path.resolve(process.cwd(), targetDir);
-      const res = await safeFastForwardManagedGit(resolvedTarget, targetRef);
+      const paths = resolveCliPaths(opts);
+      const ref = cmdOpts.ref || targetRef;
+      if (!ref) {
+        throw new ValidationError('source pull requires a ref (--ref or positional targetRef)');
+      }
+
+      let resolvedTarget: string;
+      let alias: string | undefined;
+      let packageName: string | undefined;
+      if (cmdOpts.profile) {
+        if (!fs.existsSync(paths.manifestFile)) {
+          throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+        }
+        const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        alias = cmdOpts.as;
+        if (!alias) {
+          const plugins = manifest.profiles[cmdOpts.profile]?.plugins ?? {};
+          const gitAliases = Object.entries(plugins)
+            .filter(([, plugin]) => plugin.source.type === 'git')
+            .map(([name]) => name);
+          if (gitAliases.length !== 1) {
+            throw new ValidationError('source pull --profile requires --as when the profile does not have exactly one git plugin');
+          }
+          alias = gitAliases[0];
+        }
+        const plugin = manifest.profiles[cmdOpts.profile]?.plugins[alias];
+        if (!plugin || plugin.source.type !== 'git') {
+          throw new ValidationError(`Git plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+        }
+        packageName = plugin.package;
+        resolvedTarget = targetDir
+          ? path.resolve(process.cwd(), targetDir)
+          : managedGitSourceDir(paths.managerDir, cmdOpts.profile, packageName);
+      } else if (targetDir) {
+        resolvedTarget = path.resolve(process.cwd(), targetDir);
+      } else {
+        throw new ValidationError('source pull requires <targetDir> or --profile');
+      }
+
+      const res = await safeFastForwardManagedGit(resolvedTarget, ref);
+
+      if (cmdOpts.profile && alias && fs.existsSync(paths.lockFile)) {
+        const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
+        const lockPlugin = lock.profiles[cmdOpts.profile]?.plugins[alias];
+        if (lockPlugin?.source.type === 'git') {
+          lockPlugin.source = { ...lockPlugin.source, commit: res.newCommit };
+          await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
+        }
+      }
+
       if (opts.json) {
-        writeOut(JSON.stringify({ status: 'pulled', target: resolvedTarget, ...res }, null, 2) + '\n');
+        writeOut(JSON.stringify({
+          status: 'pulled',
+          target: resolvedTarget,
+          profile: cmdOpts.profile,
+          alias,
+          ...res
+        }, null, 2) + '\n');
       } else {
         writeOut(`Updated ${resolvedTarget} from ${res.previousCommit} to ${res.newCommit}\n`);
       }

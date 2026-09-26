@@ -172,6 +172,37 @@ async function executeWithDsh(
   return { success: true };
 }
 
+function markRestartRequired(
+  profiles: EnvironmentState['profiles'] | undefined,
+  plan: EnvironmentPlan,
+  timestamp: string
+): EnvironmentState['profiles'] {
+  const next: EnvironmentState['profiles'] = {};
+  for (const [profileName, profile] of Object.entries(profiles ?? {})) {
+    next[profileName] = { plugins: { ...profile.plugins } };
+  }
+  for (const operation of plan.operations) {
+    if (
+      operation.kind !== 'install' &&
+      operation.kind !== 'update' &&
+      operation.kind !== 'enable' &&
+      operation.kind !== 'disable' &&
+      operation.kind !== 'remove'
+    ) {
+      continue;
+    }
+    if (!next[operation.profile]) {
+      next[operation.profile] = { plugins: {} };
+    }
+    next[operation.profile].plugins[operation.package] = {
+      package: operation.package,
+      status: 'restart-required',
+      lastVerified: timestamp
+    };
+  }
+  return next;
+}
+
 function pruneOwnership(
   ownership: EnvironmentState['ownership'],
   manifest: EnvironmentManifest
@@ -308,7 +339,7 @@ export async function applyEnvironment(
       apiVersion: 'dshenv-state/v1',
       lastApplied: now,
       appliedLockHash: lockHash,
-      profiles: state?.profiles ?? {},
+      profiles: markRestartRequired(state?.profiles, plan, now),
       ownership: pruneOwnership(state?.ownership, manifest)
     };
 
