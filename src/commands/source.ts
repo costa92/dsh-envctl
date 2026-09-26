@@ -14,6 +14,7 @@ import { ValidationError } from '../errors.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { acquireEnvironmentLock, withEnvironmentLock } from '../io/lock.js';
+import { hasEmbeddedCredentials } from '../manifest/schema.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
@@ -96,6 +97,10 @@ export function registerSourceCommands(ctx: CommandContext): void {
     .action(async (url: string, targetDir: string | undefined, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+      // git would also keep such a URL in the clone's .git/config, so refuse it even without --profile.
+      if (hasEmbeddedCredentials(url)) {
+        throw new ValidationError('Git URL must not embed credentials; use SSH or a git credential helper');
+      }
       const packageName = packageNameFromGitUrl(url);
       const alias = cmdOpts.as || packageName;
       let resolvedTarget: string;

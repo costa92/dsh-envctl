@@ -17,10 +17,23 @@ export const NpmSourceSchema = z
   })
   .strict();
 
+// Manifest and lock are meant to be shared, so a URL may not carry a password or token: any userinfo on
+// http(s), or user:password on other schemes (scp-style and ssh://git@ URLs stay allowed).
+export function hasEmbeddedCredentials(url: string): boolean {
+  const match = url.match(/^(?:git\+)?([a-z][a-z0-9+.-]*):\/\/([^/@]*)@/i);
+  if (!match) return false;
+  const scheme = match[1].toLowerCase();
+  return scheme === 'http' || scheme === 'https' ? match[2].length > 0 : match[2].includes(':');
+}
+
+const gitUrlSchema = z.string().min(1).refine((url) => !hasEmbeddedCredentials(url), {
+  message: 'Git URL must not embed credentials; use SSH or a git credential helper'
+});
+
 export const GitSourceSchema = z
   .object({
     type: z.literal('git'),
-    url: z.string().min(1),
+    url: gitUrlSchema,
     ref: z.string().optional(),
     commit: z.string().optional()
   })
@@ -133,7 +146,7 @@ export const NpmLockSourceSchema = z
 export const GitLockSourceSchema = z
   .object({
     type: z.literal('git'),
-    url: z.string().min(1),
+    url: gitUrlSchema,
     commit: z.string().min(1)
   })
   .strict();

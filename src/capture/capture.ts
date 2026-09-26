@@ -15,7 +15,7 @@ import {
 } from '../manifest/files.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
-import { ExactVersionRegex } from '../manifest/schema.js';
+import { ExactVersionRegex, hasEmbeddedCredentials } from '../manifest/schema.js';
 
 const GIT_COMMIT_RE = /^[0-9a-f]{7,40}$/i;
 
@@ -112,6 +112,12 @@ export function captureEnvironment(
         };
       } else if (plugin.sourceType === 'git') {
         const parsed = parseGitSpec(plugin.resolvedSource || '');
+        if (hasEmbeddedCredentials(parsed.url)) {
+          warnings.push(
+            `Package ${pkgName} in profile ${profileName} was skipped: its git URL embeds credentials; reinstall it over SSH or a git credential helper`
+          );
+          continue;
+        }
         profileManifestPlugins[alias] = {
           package: pkgName,
           enabled: isEnabled,
