@@ -28,6 +28,7 @@
 - [x] 确立所有权 Schema（`ownership` 字典记录 `adoptedAt`、`adoptedBy` 与 `lockedVersion`）
 - [x] 实现 `adopt --from <candidate>` 命令：校验候选事实一致性，生成所有权记录
 - [x] 实现独占写锁（`acquireEnvironmentLock`）、快照备份（`backups/`）与操作日志（`logs/journal.jsonl`）
+- [x] 正式 `apply` 先加锁再读取清单、盘点与计划，避免 rollback/purge 间隙导致执行过期计划；`--dry-run` 不加锁
 - [x] 实现 `apply` 状态机执行器（支持 `--dry-run`、能力检查与异常自动快照回滚）
 - [x] `apply` 通过 DSH CLI 执行 `install/update`，执行后复盘；正式 apply 需要 `--yes`
 - [x] `apply` 按 `dsh.profile.bundles` 执行 `enable/disable`（禁用保留依赖）
@@ -45,7 +46,7 @@
 - [x] `source clone --profile` 写入 `envctl/sources` 并锁定 commit，plan/apply 可安装 git 插件
 - [x] `source pull --profile` 更新 lock commit；apply 成功后标记 `restart-required`
 - [x] plan 比对 Profile 依赖 spec 的 `#<commit>` 与 lock commit，不一致时 `update` 重装锁定 commit（无 commit 证据不猜）
-- [x] 全量测试套件覆盖（当前 34 个测试文件，216 项测试全部通过）
+- [x] 全量测试套件覆盖（当前 35 个测试文件，218 项测试全部通过）
 
 ### Phase 4: 事务日志、回滚与垃圾清理（已实现）
 - [x] 操作日志写入 `journal.jsonl`（apply/rollback/gc）
