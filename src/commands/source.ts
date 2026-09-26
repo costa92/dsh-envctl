@@ -129,20 +129,23 @@ export function registerSourceCommands(ctx: CommandContext): void {
             if (baseEntry && baseEntry.package !== packageName) {
               throw new ValidationError(`Alias '${alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`);
             }
-            setOverlayPluginFields(overlayDoc, cmdOpts.profile, alias, baseEntry
-              ? { enabled: true, source: { type: 'git', url } }
-              : { package: packageName, enabled: true, source: { type: 'git', url } });
+            const overlayEntry = overlayDoc.profiles?.[cmdOpts.profile]?.plugins?.[alias];
+            const exists = overlayEntry ? !overlayEntry.remove : Boolean(baseEntry);
+            setOverlayPluginFields(overlayDoc, cmdOpts.profile, alias, exists
+              ? { source: { type: 'git', url } }
+              : baseEntry
+                ? { enabled: true, source: { type: 'git', url } }
+                : { package: packageName, enabled: true, source: { type: 'git', url } });
             mergeManifest(base, overlayDoc, selection.name);
             writeManifest = () => saveOverlay(paths, selection.name, base, overlayDoc);
           } else {
             if (!base.profiles[cmdOpts.profile]) {
               base.profiles[cmdOpts.profile] = { plugins: {} };
             }
-            base.profiles[cmdOpts.profile].plugins[alias] = {
-              package: packageName,
-              enabled: true,
-              source: { type: 'git', url }
-            };
+            const current = base.profiles[cmdOpts.profile].plugins[alias];
+            base.profiles[cmdOpts.profile].plugins[alias] = current?.package === packageName
+              ? { ...current, source: { type: 'git', url } }
+              : { package: packageName, enabled: true, source: { type: 'git', url } };
             assertBaseMergesWithOverlay(paths, selection, base);
             writeManifest = () => writeAtomic(paths.manifestFile, serializeManifest(base), 'overwrite');
           }

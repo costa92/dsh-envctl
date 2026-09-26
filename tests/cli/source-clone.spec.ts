@@ -133,4 +133,17 @@ describe('CLI source clone --profile', () => {
     expect(code).toBe(3);
     expect(stderr).toContain('requires --as');
   });
+
+  it('keeps patches and the enabled state when cloning over an existing alias', async () => {
+    const run = (args: string[]) => runCli([...args, '--dsh-home', tempHome], { stdout: () => {}, stderr: () => {} });
+    await run(['install', 'demo-plugin@1.0.0', '--profile', 'web', '--as', 'demo']);
+    await run(['config', 'set', 'demo', 'mode', 'fast', '--profile', 'web']);
+    await run(['disable', 'demo', '--profile', 'web']);
+
+    expect(await run(['source', 'clone', upstream, '--profile', 'web', '--as', 'demo'])).toBe(0);
+    const demo = loadManifest(fs.readFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'utf8')).profiles.web.plugins.demo;
+    expect(demo.source.type).toBe('git');
+    expect(demo.enabled).toBe(false);
+    expect(demo.patches).toEqual([{ id: 'demo', config: { mode: 'fast' } }]);
+  });
 });
