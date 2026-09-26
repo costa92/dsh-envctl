@@ -1,0 +1,26 @@
+{
+  "name": "{{package}}",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH tool plugin: {{name}}",
+  "type": "module",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "{{peerRange}}"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-tools": "{{peerRange}}",
+    "@deepseek-ai/cordis": "^4.0.0",
+    "typescript": "^6.0.0"
+  }
+}
