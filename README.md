@@ -84,7 +84,7 @@ dshenv doctor --json
 
 对已验证的 DSH `0.1.7-rc.2` 源码，`discovery` 与 `packageOperations` 为 `available`，`bundleSelection` 与 `entryToggle` 为 `requires-live-service`，`configurationValidation` 与 `environmentMutation` 为 `disabled`。`packageOperations` 需要官方 operations export 的声明及目标文件均通过只读探测；只通过 DSH 命令探测、缺少可验证源码时，该项为 `disabled`。
 
-`runtime.mutationsSupported=false`（能力矩阵中的 `mutations=false`）表示通用、完整的环境写能力仍未开放。它不代表 `apply` 命令不存在：当前 `apply` 通过 DSH CLI 执行 `install/update/remove`，并通过 Profile `dsh.profile.bundles` 执行 `enable/disable`。配置补丁和完整环境变更仍不受支持。
+`runtime.mutationsSupported=false`（能力矩阵中的 `mutations=false`）表示通用、完整的环境写能力仍未开放。它不代表 `apply` 命令不存在：当前 `apply` 通过 DSH CLI 执行 `install/update/remove`，通过 Profile `dsh.profile.bundles` 执行 `enable/disable`，并对 `configure` 写入 `cordis.patch.yml` 受管块。计划之外的通用环境变更仍不受支持。
 
 ### 2. `dshenv init`
 在 `$DSH_HOME/envctl/` 下初始化空的清单、锁文件与初始状态。
@@ -246,6 +246,5 @@ dshenv plan --no-overlay       # 单次命令只用 base
 ## 后续路线图
 
 见 `docs/roadmap.md`。后续版本计划交付：
-- Base + Overlay 清单合并与配置出处追踪
 - 配置补丁之外的 live manager 写能力
 - 细粒度 live manager service 双向通讯
