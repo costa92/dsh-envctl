@@ -290,4 +290,20 @@ fs.rmSync(packageDir, { recursive: true, force: true });
     const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeUndefined();
   });
+
+  it('should restore management files when apply execution fails', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const original = fs.readFileSync(paths.manifestFile, 'utf8');
+
+    await expect(
+      applyEnvironment(paths, {
+        executor: async () => {
+          fs.writeFileSync(paths.manifestFile, 'corrupted\n');
+          return { success: false, error: 'injected failure' };
+        }
+      })
+    ).rejects.toThrow(/injected failure/);
+
+    expect(fs.readFileSync(paths.manifestFile, 'utf8')).toBe(original);
+  });
 });

@@ -137,7 +137,25 @@ dshenv apply --yes
 
 当前执行计划中的 `install/update/enable/disable/remove`。没有所有权记录的实际插件只标为 `unmanaged`，不会卸载。
 
-### 7. `dshenv status`
+### 7. `dshenv rollback`
+从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照。只恢复 `manifest.yaml` / `lock.json` / `state.json`，不撤销已经发生的 DSH 包安装。
+
+```bash
+dshenv rollback --dry-run
+dshenv rollback --yes
+dshenv rollback apply-abc123 --yes
+```
+
+### 8. `dshenv gc`
+删除 `envctl/trash/` 中超过保留期的条目。默认 7 天。不会删除 trash 目录之外的路径。
+
+```bash
+dshenv gc --dry-run
+dshenv gc --yes
+dshenv gc --older-than 3 --yes
+```
+
+### 9. `dshenv status`
 显示当前环境状态摘要与操作统计。
 
 ```bash
@@ -173,6 +191,6 @@ dshenv status --json
 
 见 `docs/roadmap.md`。后续版本计划交付：
 - 将 Git 源准备、锁定与 `apply` 生命周期完整串联
-- Profile 级 `rollback` 与垃圾回收（`gc` / `purge`）
+- `purge`（把受管资源移入 trash）
 - 配置补丁执行适配
 - 细粒度 live manager service 双向通讯

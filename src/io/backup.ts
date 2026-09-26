@@ -44,3 +44,46 @@ export async function restoreEnvironmentSnapshot(
     await fs.promises.copyFile(src, dest);
   }
 }
+
+export async function listEnvironmentSnapshots(paths: EnvironmentPaths): Promise<EnvironmentSnapshot[]> {
+  if (!fs.existsSync(paths.backupsDir)) {
+    return [];
+  }
+
+  const entries = await fs.promises.readdir(paths.backupsDir, { withFileTypes: true });
+  const snapshots: EnvironmentSnapshot[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    snapshots.push({
+      snapshotId: entry.name,
+      snapshotDir: path.join(paths.backupsDir, entry.name),
+      timestamp: entry.name
+    });
+  }
+  snapshots.sort((a, b) => b.snapshotId.localeCompare(a.snapshotId));
+  return snapshots;
+}
+
+export async function findEnvironmentSnapshot(
+  paths: EnvironmentPaths,
+  operationId?: string
+): Promise<EnvironmentSnapshot> {
+  const snapshots = await listEnvironmentSnapshots(paths);
+  if (snapshots.length === 0) {
+    throw new Error('No environment snapshots found');
+  }
+
+  if (!operationId) {
+    return snapshots[0];
+  }
+
+  const match = snapshots.find(
+    (snapshot) => snapshot.snapshotId === operationId || snapshot.snapshotId.endsWith(`-${operationId}`)
+  );
+  if (!match) {
+    throw new Error(`Snapshot not found for operation: ${operationId}`);
+  }
+  return match;
+}

@@ -43,10 +43,11 @@
 - [x] 全量测试套件覆盖（25 个测试文件，178 项测试全部通过）
 
 ### Phase 4: 事务日志、回滚与垃圾清理
-- [ ] 操作级事务日志回放 (`$DSH_HOME/envctl/logs/`)
-- [ ] `rollback` 命令：状态秒级回退与快照恢复补偿机制
-- [ ] 受管资源软删除与垃圾回收 (`trash/` & `gc`)
-- [ ] 异常失败注入测试与自愈机制
+- [x] 操作日志写入 `journal.jsonl`（apply/rollback/gc）
+- [x] `rollback`：从 `envctl/backups/` 恢复管理文件；需要 `--yes`；不撤销 DSH 包变更
+- [x] `gc`：只删除 `envctl/trash` 内过期项；需要 `--yes`
+- [x] apply 执行失败时恢复管理文件快照
+- [ ] `purge`：把有独占证据的受管资源移入 trash
 
 ## 延后能力
 
