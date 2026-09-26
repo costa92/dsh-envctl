@@ -1,3 +1,4 @@
+import { assertNotReservedKey } from '../manifest/schema.js';
 import type { Command } from 'commander';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../environment/paths.js';
 import { resolveOverlaySelection, type OverlaySelection } from '../overlay/selection.js';
@@ -24,3 +25,6 @@ export function resolveCliOverlay(opts: { overlay?: string | false }, paths: Env
 export function overlayBanner(selection: OverlaySelection): string {
   return `overlay: ${selection.name} (${selection.via})\n`;
 }
+
+export const profileOption = (value: string): string => assertNotReservedKey('Profile name', value);
+export const aliasOption = (value: string): string => assertNotReservedKey('Plugin alias', value);

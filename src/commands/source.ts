@@ -18,7 +18,7 @@ import { acquireEnvironmentLock, withEnvironmentLock } from '../io/lock.js';
 import { hasEmbeddedCredentials } from '../manifest/schema.js';
 import { readPackageJsonName } from '../source/local.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
-import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, profileOption, aliasOption, type CommandContext } from './context.js';
 
 function overlaySuffix(name: string): string {
   return ` (overlay '${name}')`;
@@ -32,8 +32,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
   sourceCmd
     .command('status [sourcePath]')
     .description('Inspect working tree and digest status of a source directory')
-    .option('-p, --profile <name>', 'inspect the managed clone for this profile')
-    .option('--as <alias>', 'manifest alias when --profile is set')
+    .option('-p, --profile <name>', 'inspect the managed clone for this profile', profileOption)
+    .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
     .action(async (sourcePath?: string, cmdOpts?: { profile?: string; as?: string }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -93,8 +93,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
     .command('clone <url> [targetDir]')
     .description('Clone a Git plugin repository; with --profile, store under envctl/sources and lock the commit')
     .option('--ref <ref>', 'branch or tag to clone')
-    .option('-p, --profile <name>', 'record the clone as a managed git plugin for this profile')
-    .option('--as <alias>', 'manifest alias when --profile is set')
+    .option('-p, --profile <name>', 'record the clone as a managed git plugin for this profile', profileOption)
+    .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
     .option('--package <name>', 'package name when --profile is set; defaults to the cloned package.json name')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (url: string, targetDir: string | undefined, cmdOpts) => {
@@ -218,8 +218,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
   sourceCmd
     .command('pull [targetDir] [targetRef]')
     .description('Fast-forward a Git checkout; with --profile, also update the lock commit')
-    .option('-p, --profile <name>', 'managed profile whose envctl/sources clone should be updated')
-    .option('--as <alias>', 'manifest alias when --profile is set')
+    .option('-p, --profile <name>', 'managed profile whose envctl/sources clone should be updated', profileOption)
+    .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
     .option('--ref <ref>', 'commit or ref to fast-forward to')
     .action(async (targetDir: string | undefined, targetRef: string | undefined, cmdOpts) => {
       const opts = program.opts();

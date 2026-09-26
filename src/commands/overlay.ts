@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import { ValidationError } from '../errors.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import { isValidOverlayName, validateOverlayName, writeSelectionFile } from '../overlay/selection.js';
-import { overlayBanner, resolveCliOverlay, resolveCliPaths, type CommandContext } from './context.js';
+import { overlayBanner, resolveCliOverlay, resolveCliPaths, profileOption, type CommandContext } from './context.js';
 
 export function registerOverlayCommands(ctx: CommandContext): void {
   const { program, writeOut, writeErr } = ctx;
@@ -64,7 +64,7 @@ export function registerOverlayCommands(ctx: CommandContext): void {
   overlayCmd
     .command('show')
     .description('Show the merged manifest and where each plugin comes from')
-    .option('-p, --profile <name>', 'limit to one profile')
+    .option('-p, --profile <name>', 'limit to one profile', profileOption)
     .action(async (cmdOpts: { profile?: string }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);

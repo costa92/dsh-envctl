@@ -9,7 +9,7 @@ import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
 import type { CaptureDocument } from '../domain.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write.js';
-import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, profileOption, type CommandContext } from './context.js';
 
 export function registerSetupCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -32,7 +32,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
     .command('capture')
     .description('Capture existing DSH environment into reviewable candidate manifest')
     .option('-o, --output <file>', 'output candidate manifest file')
-    .option('--profile <name>', 'capture a single profile')
+    .option('--profile <name>', 'capture a single profile', profileOption)
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);

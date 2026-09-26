@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ValidationError } from '../errors.js';
 import * as path from 'node:path';
 
 // A leading dot is refused so '.' and '..' can never name a directory outside the package's own.
@@ -71,8 +72,24 @@ export const PluginSourceSchema = z.discriminatedUnion('type', [
   InBoxSourceSchema
 ]);
 
+// Profiles and aliases are object keys; these would resolve to inherited properties instead of entries.
+const ReservedKeys = new Set(['__proto__', 'constructor', 'prototype']);
+
+export function assertNotReservedKey(kind: string, name: string): string {
+  if (ReservedKeys.has(name)) {
+    throw new ValidationError(`${kind} '${name}' is reserved`);
+  }
+  return name;
+}
+
+const notReserved = (name: string) => !ReservedKeys.has(name);
+const ProfileNameKeySchema = z.string().refine(notReserved, { message: 'Profile name is reserved' });
+
 // Aliases appear in single-line patch markers, so whitespace would break or inject into them.
-export const PluginAliasSchema = z.string().regex(/^\S+$/, { message: 'Plugin alias must not contain whitespace' });
+export const PluginAliasSchema = z
+  .string()
+  .regex(/^\S+$/, { message: 'Plugin alias must not contain whitespace' })
+  .refine(notReserved, { message: 'Plugin alias is reserved' });
 
 export const PatchEntrySchema = z
   .object({
@@ -130,7 +147,7 @@ export const ManifestSchema = z
   .object({
     apiVersion: z.literal('dshenv/v1'),
     environment: EnvironmentConfigSchema.optional(),
-    profiles: z.record(z.string(), ProfileManifestEntrySchema).default({})
+    profiles: z.record(ProfileNameKeySchema, ProfileManifestEntrySchema).default({})
   })
   .strict();
 

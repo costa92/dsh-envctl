@@ -13,7 +13,7 @@ import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { assertBaseMergesWithOverlay, removeOverlayPlugin, resolveWriteLayer, saveOverlay, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
-import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, aliasOption, type CommandContext } from './context.js';
 import { withEnvironmentLock } from '../io/lock.js';
 import { readPackageJsonName } from '../source/local.js';
 
@@ -177,8 +177,8 @@ export function registerPluginCommands(ctx: CommandContext): void {
   program
     .command('install <spec>')
     .description('Install a plugin into the manifest for a profile')
-    .requiredOption('-p, --profile <name>', 'target profile')
-    .option('--as <alias>', 'custom alias name for the plugin')
+    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .option('--as <alias>', 'custom alias name for the plugin', aliasOption)
     .option('--package <name>', 'package name for a git or local source; defaults to its package.json name')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (spec: string, cmdOpts) => {
@@ -231,7 +231,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
   program
     .command('update <alias>')
     .description('Update the declared npm version for a plugin in the manifest')
-    .requiredOption('-p, --profile <name>', 'target profile')
+    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
     .requiredOption('--to <version>', 'exact version to declare; does not float to latest')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
@@ -269,7 +269,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
   program
     .command('list')
     .description('List declared and unmanaged plugins')
-    .option('-p, --profile <name>', 'limit to one profile')
+    .option('-p, --profile <name>', 'limit to one profile', profileOption)
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -327,7 +327,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
   const configCmd = program.command('config').description('Read or update declared plugin configuration');
   configCmd
     .command('get <alias>')
-    .requiredOption('-p, --profile <name>', 'target profile')
+    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
     .option('--path <dottedPath>', 'return a nested field')
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
@@ -343,7 +343,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
     });
   configCmd
     .command('validate <alias>')
-    .requiredOption('-p, --profile <name>', 'target profile')
+    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -361,7 +361,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
     });
   configCmd
     .command('set <alias> <dottedPath> <value>')
-    .requiredOption('-p, --profile <name>', 'target profile')
+    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, dottedPath: string, value: string, cmdOpts) => {
       const opts = program.opts();
@@ -395,7 +395,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
     program
       .command(`${toggle.name} <alias>`)
       .description(toggle.description)
-      .requiredOption('-p, --profile <name>', 'target profile')
+      .requiredOption('-p, --profile <name>', 'target profile', profileOption)
       .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
       .action(async (alias: string, cmdOpts) => {
         const opts = program.opts();
@@ -420,7 +420,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
   program
     .command('remove <alias>')
     .description('Remove an installed plugin from a profile')
-    .requiredOption('-p, --profile <name>', 'target profile')
+    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
     .option('-y, --yes', 'skip confirmation')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
