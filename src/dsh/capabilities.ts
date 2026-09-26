@@ -2,7 +2,7 @@ import { isCompatibleDshVersion, type CompatibilityCheckOptions } from './versio
 import type { CapabilityDetail, RuntimeCapabilityEvidence } from './capability-types.js';
 import { OFFICIAL_OPERATIONS_EXPORT } from './constants.js';
 
-const liveServiceReason = 'Requires an explicitly configured, authenticated live service adapter; Phase 2A does not enable live service operations';
+const liveServiceReason = 'Requires an explicitly configured, authenticated live service adapter; dshenv has none, so apply edits Profile bundles instead';
 
 // Only these fixed messages may be derived from probe diagnostics; never echo unknown evidence.
 const operationsReasons = new Map<string, string>([
@@ -48,12 +48,12 @@ export function capabilityTemplateFor(
       configurationValidation: {
         status: 'disabled',
         source: 'static-matrix',
-        reason: 'Configuration validation is disabled in Phase 2A; a verified validation adapter is required before applying changes'
+        reason: 'No verified DSH configuration validation adapter; dshenv only checks managed patch digests, not plugin config schemas'
       },
       environmentMutation: {
         status: 'disabled',
         source: 'dshenv',
-        reason: 'Environment mutation is disabled in Phase 2A; ownership and transaction safeguards are required before applying changes'
+        reason: 'General environment mutation is not exposed; apply performs only planned install/update/enable/disable/remove/configure steps'
       },
       operationsExport: OFFICIAL_OPERATIONS_EXPORT,
       mutations: false

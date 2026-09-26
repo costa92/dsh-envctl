@@ -58,18 +58,18 @@ describe('evaluateCapabilities', () => {
     expect(JSON.stringify(caps)).not.toMatch(/doctor-secret|Authorization|\/private/);
   });
 
-  it('explains every unavailable Phase 2A capability without promoting it', () => {
+  it('explains every unavailable capability without promoting it', () => {
     const caps = evaluateCapabilities('0.1.7', evidence({ liveService: { configured: true, reachable: true } }));
-    const liveReason = 'Requires an explicitly configured, authenticated live service adapter; Phase 2A does not enable live service operations';
+    const liveReason = 'Requires an explicitly configured, authenticated live service adapter; dshenv has none, so apply edits Profile bundles instead';
     expect(caps.bundleSelection).toEqual({ status: 'requires-live-service', source: 'live-service', reason: liveReason });
     expect(caps.entryToggle).toEqual({ status: 'requires-live-service', source: 'live-service', reason: liveReason });
     expect(caps.configurationValidation).toEqual({
       status: 'disabled', source: 'static-matrix',
-      reason: 'Configuration validation is disabled in Phase 2A; a verified validation adapter is required before applying changes'
+      reason: 'No verified DSH configuration validation adapter; dshenv only checks managed patch digests, not plugin config schemas'
     });
     expect(caps.environmentMutation).toEqual({
       status: 'disabled', source: 'dshenv',
-      reason: 'Environment mutation is disabled in Phase 2A; ownership and transaction safeguards are required before applying changes'
+      reason: 'General environment mutation is not exposed; apply performs only planned install/update/enable/disable/remove/configure steps'
     });
     expect(caps.mutations).toBe(false);
   });
