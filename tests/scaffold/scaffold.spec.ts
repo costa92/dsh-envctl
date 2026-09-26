@@ -89,8 +89,21 @@ describe('scaffoldComponent', () => {
   it('rejects a dangling symlink as --dir without deleting it on cleanup failure', () => {
     const target = path.join(work, 'echo');
     fs.symlinkSync(path.join(work, 'nonexistent-target'), target);
-    expect(() => scaffoldComponent(opts({ kind: 'tool', name: 'echo', dir: 'echo' }))).toThrow(`Target is not a directory: ${target}`);
+    expect(() => scaffoldComponent(opts({ kind: 'tool', name: 'echo', dir: 'echo' }))).toThrow(
+      `Target is a symbolic link; pass the real directory path: ${target}`
+    );
     expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+  });
+
+  it('rejects a symlink to a real directory without writing through it', () => {
+    const real = path.join(work, 'real');
+    fs.mkdirSync(real);
+    const target = path.join(work, 'echo');
+    fs.symlinkSync(real, target);
+    expect(() => scaffoldComponent(opts({ kind: 'tool', name: 'echo', dir: 'echo' }))).toThrow(
+      `Target is a symbolic link; pass the real directory path: ${target}`
+    );
+    expect(fs.readdirSync(real)).toEqual([]);
   });
 
   it('rejects an existing file as --dir', () => {

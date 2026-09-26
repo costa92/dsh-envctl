@@ -69,6 +69,9 @@ export function scaffoldComponent(options: ScaffoldOptions): ScaffoldResult {
   } else {
     dir = path.resolve(options.cwd, options.dir ?? options.name);
     const stat = fs.lstatSync(dir, { throwIfNoEntry: false });
+    if (stat?.isSymbolicLink()) {
+      throw new ValidationError(`Target is a symbolic link; pass the real directory path: ${dir}`);
+    }
     if (stat && !stat.isDirectory()) {
       throw new ValidationError(`Target is not a directory: ${dir}`);
     }
