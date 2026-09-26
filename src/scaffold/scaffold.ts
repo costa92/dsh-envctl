@@ -58,7 +58,8 @@ export function scaffoldComponent(options: ScaffoldOptions): ScaffoldResult {
   let files: RenderedFile[];
   if (options.loose) {
     dir = path.join(options.dshHome, 'skills', options.name);
-    if (fs.existsSync(dir)) {
+    const stat = fs.lstatSync(dir, { throwIfNoEntry: false });
+    if (stat) {
       throw new ValidationError(`Skill directory already exists: ${dir}`);
     }
     // A loose skill is the bundle's SKILL.md written straight into a default skill root.
@@ -67,17 +68,38 @@ export function scaffoldComponent(options: ScaffoldOptions): ScaffoldResult {
       .map((file) => ({ ...file, path: 'SKILL.md' }));
   } else {
     dir = path.resolve(options.cwd, options.dir ?? options.name);
-    if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
+    const stat = fs.lstatSync(dir, { throwIfNoEntry: false });
+    if (stat && !stat.isDirectory()) {
+      throw new ValidationError(`Target is not a directory: ${dir}`);
+    }
+    if (stat && fs.readdirSync(dir).length > 0) {
       throw new ValidationError(`Target directory is not empty: ${dir}`);
     }
     const variant: TemplateVariant = options.typescript ? 'tool-ts' : options.kind;
     files = renderTemplate(templateDir(variant), vars);
   }
 
-  const created = !fs.existsSync(dir);
+  // Find the topmost ancestor of dir (including dir itself) that doesn't exist yet,
+  // so cleanup can remove exactly what this run created, not just the leaf.
+  let createdRoot: string | undefined;
+  {
+    let current = dir;
+    for (;;) {
+      if (fs.lstatSync(current, { throwIfNoEntry: false })) {
+        break;
+      }
+      createdRoot = current;
+      const parent = path.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+
   const cleanup = (): void => {
-    if (created) {
-      fs.rmSync(dir, { recursive: true, force: true });
+    if (createdRoot) {
+      fs.rmSync(createdRoot, { recursive: true, force: true });
       return;
     }
     for (const top of new Set(files.map((file) => file.path.split(path.sep)[0]))) {
