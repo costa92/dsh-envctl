@@ -27,7 +27,7 @@ export function managedGitSourceDir(
     throw new ValidationError(`Invalid profile name: ${profileName}`);
   }
   const safePackage = packageName.replaceAll('/', '_').replaceAll('\\', '_');
-  if (!/^[-A-Za-z0-9._@]+$/.test(safePackage)) {
+  if (!/^[-A-Za-z0-9._@]+$/.test(safePackage) || safePackage.startsWith('.')) {
     throw new ValidationError(`Invalid package name for managed source: ${packageName}`);
   }
   const dir = path.join(path.resolve(managerDir), 'sources', profileName, safePackage);

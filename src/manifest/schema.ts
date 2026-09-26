@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import * as path from 'node:path';
 
-export const PackageNameRegex = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/;
+// A leading dot is refused so '.' and '..' can never name a directory outside the package's own.
+export const PackageNameRegex = /^(?:@[a-z0-9_-][a-z0-9._-]*\/)?[a-z0-9_-][a-z0-9._-]*$/;
 
 // dshenv pins exact npm versions; ranges and tags would never compare equal to an installed version.
 export const ExactVersionRegex = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
