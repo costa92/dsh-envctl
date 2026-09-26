@@ -44,7 +44,8 @@
 - [x] 便捷插件管理命令：`install`、`update --to`、`enable`、`disable`、`remove`、`list`、`config get|validate|set`、`source status|clone|pull` (`src/cli.ts`)
 - [x] `source clone --profile` 写入 `envctl/sources` 并锁定 commit，plan/apply 可安装 git 插件
 - [x] `source pull --profile` 更新 lock commit；apply 成功后标记 `restart-required`
-- [x] 全量测试套件覆盖（当前 34 个测试文件，212 项测试全部通过）
+- [x] plan 比对 Profile 依赖 spec 的 `#<commit>` 与 lock commit，不一致时 `update` 重装锁定 commit（无 commit 证据不猜）
+- [x] 全量测试套件覆盖（当前 34 个测试文件，216 项测试全部通过）
 
 ### Phase 4: 事务日志、回滚与垃圾清理（已实现）
 - [x] 操作日志写入 `journal.jsonl`（apply/rollback/gc）
