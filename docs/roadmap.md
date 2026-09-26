@@ -70,13 +70,14 @@
 - [x] npm 版本只允许精确版本（schema、`install`、`update --to`、`capture`），避免范围与已装版本永远不一致
 - [x] git 清单声明的 `commit` 与 lock 缺失或不一致时 `blocked` 并给出处理指引，不再静默以 lock 为准
 - [x] 选了 overlay 但 base 清单不存在时 `doctor` 照常出报告（`manifestExists: false`），overlay 文件仍单独校验
-- [x] 全量测试套件覆盖（当前 56 个测试文件，404 项测试全部通过）
+- [x] 全量测试套件覆盖（当前 57 个测试文件，413 项测试全部通过）
 
 ### 审查修复（2026-09-26 第二轮）
 - [x] A 批（数据安全）：`purge` 拒绝移走有未提交改动的受管克隆；包名不得以 `.` 开头；每次写 base 清单前做 schema 校验；`adopt` 遇到不可读的现有文件报错而不覆盖，并沿用清单已有别名
 - [x] B 批（配置 patch）：同插件多个 patch 各占一块并整体收敛；`enabled: false` 与删掉的 patch 会被清除；写入不再展开 `$` 模式；别名按字面匹配且不得含空白；删除块不再压缩块外空行
 - [x] C 批（收敛）：in-box 插件不在 bundles 视为禁用；来源类型切换触发重装；无变更的 apply 也记录当前 overlay，`adopt` 保留该记录（禁用插件升级、capture 本地 digest 两条经核对为预期行为，不改）
 - [x] D 批（按用户选定方案）：新增 `restarted` 清除 `restart-required`；拒绝带凭据的 git URL；所有写管理文件的命令加环境锁；rollback 先存当前文件快照再原子恢复；原子写经软链接写目标并保留权限；本地目录与 source clone 取 `package.json` 包名、git URL 支持 `--package`；重复 install / source clone 只替换来源
+- [x] 低优先级：`__proto__`/`constructor`/`prototype` 不得作 profile 名或别名；plan 不再显示 `-> latest`、`? -> ?`；README 更正 `adopt --yes`；其他用户进程持有的锁（EPERM）不再被当作失效
 
 ## 延后能力
 
