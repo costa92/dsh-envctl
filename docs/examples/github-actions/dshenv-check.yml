@@ -1,0 +1,91 @@
+# Example workflow for a repository that holds a dshenv configuration:
+#   envctl/manifest.yaml and envctl/overlays/*.yaml at the repository root.
+# Copy it to .github/workflows/ in that repository.
+#
+# validate: on every push and pull request, checks that the base manifest is valid and that every
+#           overlay merges onto it (dshenv exits 3 otherwise). Needs no DSH installation.
+# drift:    on a schedule or on demand, runs `dshenv plan` on a self-hosted runner whose DSH_HOME
+#           holds the real profiles, and fails when the environment drifted from its manifest.
+name: dshenv
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+
+env:
+  # dshenv is not published to npm yet; pin this to a costa92/dsh-envctl commit you have reviewed.
+  DSHENV_REF: master
+
+jobs:
+  validate:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: costa92/dsh-envctl
+          ref: ${{ env.DSHENV_REF }}
+          path: .dshenv-tool
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build dshenv
+        working-directory: .dshenv-tool
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Validate the base manifest and every overlay
+        id: validate
+        env:
+          DSHENV: node ${{ github.workspace }}/.dshenv-tool/bin/dshenv.js
+          CONFIG_HOME: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          $DSHENV --dsh-home "$CONFIG_HOME" list --no-overlay
+          shopt -s nullglob
+          for file in "$CONFIG_HOME"/envctl/overlays/*.yaml; do
+            name="$(basename "$file" .yaml)"
+            echo "::group::overlay $name"
+            $DSHENV --dsh-home "$CONFIG_HOME" overlay show --overlay "$name"
+            echo "::endgroup::"
+          done
+
+  drift:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    # A runner registered on the machine whose DSH environment should be checked, labelled "dsh".
+    runs-on: [self-hosted, dsh]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: costa92/dsh-envctl
+          ref: ${{ env.DSHENV_REF }}
+          path: .dshenv-tool
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build dshenv
+        working-directory: .dshenv-tool
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Fail when the environment drifted from its manifest
+        id: drift
+        env:
+          DSHENV: node ${{ github.workspace }}/.dshenv-tool/bin/dshenv.js
+        run: |
+          set -uo pipefail
+          # dshenv plan exits 0 when in sync, 2 on drift, 3 on an invalid manifest,
+          # 4 when DSH is unsupported and 5 when the environment is degraded.
+          status=0
+          $DSHENV plan || status=$?
+          case "$status" in
+            0) echo "Environment matches its manifest." ;;
+            2) echo "::error::Environment drifted from its manifest; review the plan above and run dshenv apply --yes."; exit 1 ;;
+            *) echo "::error::dshenv plan failed with exit code $status"; exit "$status" ;;
+          esac
