@@ -114,10 +114,9 @@ dshenv capture --output my-dsh-backup.yaml
 ```bash
 # 校验候选事实一致性并接管所有权
 dshenv adopt --from my-candidate.yaml
-
-# 跳过交互确认
-dshenv adopt --from my-candidate.yaml --yes
 ```
+
+`adopt` 没有交互确认，会直接写入清单、锁文件和状态；`--yes` 为兼容保留，不改变行为。执行前请先审阅候选文件。
 
 ### 5. `dshenv plan`
 比对期望清单与当前 Profile 实际安装状态，计算变更计划。
