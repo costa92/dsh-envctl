@@ -25,7 +25,7 @@ describe('Lock, Backup and Journal IO', () => {
     expect(lockHandle).toBeDefined();
 
     // Trying to acquire second lock should fail
-    await expect(acquireEnvironmentLock(paths)).rejects.toThrow(/already held/i);
+    await expect(acquireEnvironmentLock(paths, 50)).rejects.toThrow(/already held/i);
 
     // Release lock
     await lockHandle.release();
@@ -33,6 +33,25 @@ describe('Lock, Backup and Journal IO', () => {
     // Now acquiring should succeed again
     const lockHandle2 = await acquireEnvironmentLock(paths);
     await lockHandle2.release();
+  });
+
+  it('should wait for a held lock to be released within the timeout', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const holder = await acquireEnvironmentLock(paths);
+    setTimeout(() => void holder.release(), 150);
+
+    const waiter = await acquireEnvironmentLock(paths, 2000);
+    await waiter.release();
+  });
+
+  it('should give up once the timeout elapses', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const holder = await acquireEnvironmentLock(paths);
+    const started = Date.now();
+
+    await expect(acquireEnvironmentLock(paths, 300)).rejects.toThrow(/already held/i);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+    await holder.release();
   });
 
   it('should create and restore snapshot', async () => {

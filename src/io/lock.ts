@@ -9,6 +9,51 @@ export interface LockHandle {
   release: () => Promise<void>;
 }
 
+const LOCK_RETRY_MS = 100;
+
+async function tryCreateLock(lockFilePath: string, lockContent: string): Promise<boolean> {
+  try {
+    const handle = await fs.promises.open(lockFilePath, 'wx', 0o600);
+    await handle.writeFile(lockContent);
+    await handle.close();
+    return true;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw err;
+    }
+  }
+
+  // Check if stale lock
+  let isStale = false;
+  try {
+    const raw = await fs.promises.readFile(lockFilePath, 'utf8');
+    const info = JSON.parse(raw);
+    if (info.pid && info.hostname === os.hostname()) {
+      try {
+        // Check if process is still alive
+        process.kill(info.pid, 0);
+      } catch {
+        isStale = true;
+      }
+    }
+  } catch {
+    isStale = true;
+  }
+
+  if (!isStale) {
+    return false;
+  }
+  try {
+    await fs.promises.unlink(lockFilePath);
+    const handle = await fs.promises.open(lockFilePath, 'wx', 0o600);
+    await handle.writeFile(lockContent);
+    await handle.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function acquireEnvironmentLock(
   paths: EnvironmentPaths,
   timeoutMs = 5000
@@ -23,44 +68,13 @@ export async function acquireEnvironmentLock(
     createdAt: new Date().toISOString()
   });
 
-  try {
-    const handle = await fs.promises.open(lockFilePath, 'wx', 0o600);
-    await handle.writeFile(lockContent);
-    await handle.close();
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-      // Check if stale lock
-      let isStale = false;
-      try {
-        const raw = await fs.promises.readFile(lockFilePath, 'utf8');
-        const info = JSON.parse(raw);
-        if (info.pid && info.hostname === os.hostname()) {
-          try {
-            // Check if process is still alive
-            process.kill(info.pid, 0);
-          } catch {
-            isStale = true;
-          }
-        }
-      } catch {
-        isStale = true;
-      }
-
-      if (isStale) {
-        try {
-          await fs.promises.unlink(lockFilePath);
-          const handle = await fs.promises.open(lockFilePath, 'wx', 0o600);
-          await handle.writeFile(lockContent);
-          await handle.close();
-        } catch {
-          throw new DshError(`Environment lock is already held at ${lockFilePath}`, 1);
-        }
-      } else {
-        throw new DshError(`Environment lock is already held at ${lockFilePath}`, 1);
-      }
-    } else {
-      throw err;
+  const deadline = Date.now() + timeoutMs;
+  while (!(await tryCreateLock(lockFilePath, lockContent))) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new DshError(`Environment lock is already held at ${lockFilePath}`, 1);
     }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(LOCK_RETRY_MS, remaining)));
   }
 
   return {
