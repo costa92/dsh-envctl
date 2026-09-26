@@ -15,6 +15,10 @@ import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
+function overlaySuffix(name: string): string {
+  return ` (overlay '${name}')`;
+}
+
 export function registerSourceCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
 
@@ -145,6 +149,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
         await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
       }
 
+      const wroteOverlay = Boolean(cmdOpts.profile) && layer === 'overlay' && Boolean(selection);
       if (opts.json) {
         writeOut(JSON.stringify({
           status: 'cloned',
@@ -152,10 +157,11 @@ export function registerSourceCommands(ctx: CommandContext): void {
           target: resolvedTarget,
           commit: res.commit,
           profile: cmdOpts.profile,
-          alias
+          alias,
+          ...(wroteOverlay && selection ? { layer: 'overlay', overlay: selection.name } : {})
         }, null, 2) + '\n');
       } else {
-        writeOut(`Cloned ${url} to ${resolvedTarget} (HEAD at ${res.commit})\n`);
+        writeOut(`Cloned ${url} to ${resolvedTarget} (HEAD at ${res.commit})${wroteOverlay && selection ? overlaySuffix(selection.name) : ''}\n`);
       }
     });
 

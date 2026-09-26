@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { execa } from 'execa';
 import { runCli } from '../../src/cli.js';
 import { loadLock, loadManifest, parseOverlay } from '../../src/manifest/files.js';
 import { writeOverlayFixture } from '../helpers/overlay-fixture.js';
@@ -15,6 +16,15 @@ describe('CLI writes with an active overlay', () => {
     let stderr = '';
     const code = await runCli([...args, '--dsh-home', tempHome], { stdout: () => {}, stderr: (chunk) => { stderr += chunk; } });
     return { code, stderr };
+  };
+  const runOut = async (args: string[]) => {
+    let stdout = '';
+    let stderr = '';
+    const code = await runCli([...args, '--dsh-home', tempHome], {
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: (chunk) => { stderr += chunk; }
+    });
+    return { code, stdout, stderr };
   };
 
   beforeEach(async () => {
@@ -94,6 +104,61 @@ describe('CLI writes with an active overlay', () => {
     expect(overlay().profiles?.web.plugins?.shared).toEqual({ source: { type: 'npm', version: '1.1.0' } });
     const lock = loadLock(fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8'));
     expect(lock.profiles.web.plugins.shared.source).toMatchObject({ resolvedVersion: '1.1.0' });
+  });
+
+  it('source clone --profile --layer overlay writes the overlay, not the base, and reports the layer', async () => {
+    const upstream = path.join(tempHome, 'upstream', 'demo-plugin');
+    fs.mkdirSync(upstream, { recursive: true });
+    await execa('git', ['init'], { cwd: upstream });
+    await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream });
+    await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream });
+    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0' }));
+    await execa('git', ['add', '.'], { cwd: upstream });
+    await execa('git', ['commit', '-m', 'init'], { cwd: upstream });
+
+    const cloneDir = path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin');
+    const baseBefore = fs.readFileSync(manifestFile(), 'utf8');
+
+    const noLayer = await run(['source', 'clone', upstream, '--profile', 'web', '--as', 'demo']);
+    expect(noLayer.code).toBe(3);
+    expect(fs.existsSync(cloneDir)).toBe(false);
+
+    const { code, stdout } = await runOut([
+      'source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--layer', 'overlay', '--json'
+    ]);
+    expect(code).toBe(0);
+    expect(fs.existsSync(path.join(cloneDir, 'package.json'))).toBe(true);
+
+    const parsed = JSON.parse(stdout) as { layer: string; overlay: string };
+    expect(parsed.layer).toBe('overlay');
+    expect(parsed.overlay).toBe('laptop');
+
+    expect(overlay().profiles?.web.plugins?.demo).toEqual({
+      package: 'demo-plugin',
+      enabled: true,
+      source: { type: 'git', url: upstream }
+    });
+    expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(baseBefore);
+
+    const lock = loadLock(fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8'));
+    const gitSource = lock.profiles.web.plugins.demo.source;
+    expect(gitSource.type).toBe('git');
+
+    const upstream2 = path.join(tempHome, 'upstream', 'demo-plugin-2');
+    fs.mkdirSync(upstream2, { recursive: true });
+    await execa('git', ['init'], { cwd: upstream2 });
+    await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream2 });
+    await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream2 });
+    fs.writeFileSync(path.join(upstream2, 'package.json'), JSON.stringify({ name: 'demo-plugin-2', version: '1.0.0' }));
+    await execa('git', ['add', '.'], { cwd: upstream2 });
+    await execa('git', ['commit', '-m', 'init'], { cwd: upstream2 });
+
+    const { code: textCode, stdout: textOut, stderr: textErr } = await runOut([
+      'source', 'clone', upstream2, '--profile', 'web', '--as', 'demo2', '--layer', 'overlay'
+    ]);
+    expect(textCode).toBe(0);
+    expect(textErr).toBe('');
+    expect(textOut).toMatch(/\(overlay 'laptop'\)/);
   });
 
   it('rejects --layer overlay without an active overlay and adopt into an overlay', async () => {
