@@ -1,6 +1,7 @@
+import * as crypto from 'node:crypto';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
-import { findEnvironmentSnapshot, restoreEnvironmentSnapshot } from '../io/backup.js';
+import { createEnvironmentSnapshot, findEnvironmentSnapshot, restoreEnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { ValidationError } from '../errors.js';
 
@@ -14,6 +15,8 @@ export interface RollbackResult {
   dryRun: boolean;
   snapshotId: string;
   operationId?: string;
+  // Snapshot of the files the rollback replaced; rolling back to it undoes the rollback.
+  backupSnapshotId?: string;
   message: string;
 }
 
@@ -48,6 +51,8 @@ export async function rollbackEnvironment(
       timestamp: new Date().toISOString(),
       details: { snapshotId: snapshot.snapshotId, targetOperationId: options?.operationId }
     });
+    // A fresh id, so lookups by the restored snapshot's operation id never match this backup.
+    const backup = await createEnvironmentSnapshot(paths, `pre-rollback-${crypto.randomBytes(6).toString('hex')}`);
     await restoreEnvironmentSnapshot(snapshot, paths);
     await appendJournalEntry(paths, {
       operationId,
@@ -60,7 +65,8 @@ export async function rollbackEnvironment(
       dryRun: false,
       snapshotId: snapshot.snapshotId,
       operationId: options?.operationId,
-      message: `Restored snapshot ${snapshot.snapshotId}`
+      backupSnapshotId: backup.snapshotId,
+      message: `Restored snapshot ${snapshot.snapshotId}; replaced files saved as snapshot ${backup.snapshotId}`
     };
   } finally {
     await lockHandle.release();

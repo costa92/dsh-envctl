@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
+import { writeAtomic } from './atomic-file.js';
 
 export interface EnvironmentSnapshot {
   snapshotId: string;
@@ -37,11 +38,14 @@ export async function restoreEnvironmentSnapshot(
   snapshot: EnvironmentSnapshot,
   paths: EnvironmentPaths
 ): Promise<void> {
-  const files = await fs.promises.readdir(snapshot.snapshotDir);
-  for (const file of files) {
-    const src = path.join(snapshot.snapshotDir, file);
-    const dest = path.join(paths.managerDir, file);
-    await fs.promises.copyFile(src, dest);
+  // A file absent from the snapshot did not exist then, so it must not survive the restore either.
+  for (const file of [paths.manifestFile, paths.lockFile, paths.stateFile]) {
+    const saved = path.join(snapshot.snapshotDir, path.basename(file));
+    if (fs.existsSync(saved)) {
+      await writeAtomic(file, await fs.promises.readFile(saved), 'overwrite');
+    } else {
+      await fs.promises.rm(file, { force: true });
+    }
   }
 }
 
