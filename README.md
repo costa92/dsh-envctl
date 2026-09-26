@@ -230,6 +230,6 @@ dshenv source clone https://github.com/ex/plugin.git ./external-checkout
 ## 后续路线图
 
 见 `docs/roadmap.md`。后续版本计划交付：
-- 将 Git 源准备、锁定与 `apply` 生命周期完整串联
+- Base + Overlay 清单合并与配置出处追踪
 - 配置补丁之外的 live manager 写能力
 - 细粒度 live manager service 双向通讯
