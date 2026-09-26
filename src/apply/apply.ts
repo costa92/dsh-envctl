@@ -342,6 +342,12 @@ async function planAndApply(
   const plan = buildPlan(manifest, lock, inventory, state, localDigests);
 
   if (!plan.hasChanges) {
+    // Record the overlay even without operations, otherwise the switch warning never clears.
+    if (!options?.dryRun && state && state.appliedOverlay !== options?.overlay?.name) {
+      const { appliedOverlay: _previous, ...rest } = state;
+      const nextState: EnvironmentState = options?.overlay ? { ...rest, appliedOverlay: options.overlay.name } : rest;
+      await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');
+    }
     return {
       applied: false,
       dryRun: Boolean(options?.dryRun),

@@ -93,4 +93,17 @@ process.exit(1);
     }
     expect(JSON.parse(fs.readFileSync(argsFile, 'utf8'))).toContain('extra-plugin@2.0.0');
   });
+
+  it('records a newly selected overlay even when there is nothing to apply', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.copyFileSync(path.join(tempHome, 'envctl', 'overlays', 'laptop.yaml'), path.join(tempHome, 'envctl', 'overlays', 'desk.yaml'));
+    await applyEnvironment(paths, { overlay: { name: 'laptop', via: 'flag' } });
+
+    const noop = await applyEnvironment(paths, { overlay: { name: 'desk', via: 'flag' } });
+    expect(noop.applied).toBe(false);
+    expect(loadState(fs.readFileSync(paths.stateFile, 'utf8')).appliedOverlay).toBe('desk');
+
+    await applyEnvironment(paths, { overlay: { name: 'laptop', via: 'flag' }, dryRun: true });
+    expect(loadState(fs.readFileSync(paths.stateFile, 'utf8')).appliedOverlay).toBe('desk');
+  });
 });

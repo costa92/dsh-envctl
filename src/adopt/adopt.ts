@@ -192,7 +192,8 @@ export async function adoptEnvironment(
     lastApplied: now,
     appliedLockHash: lockHash,
     profiles: existingState.profiles ?? {},
-    ownership
+    ownership,
+    ...(existingState.appliedOverlay ? { appliedOverlay: existingState.appliedOverlay } : {})
   };
 
   options?.validateManifest?.(mergedManifest);
