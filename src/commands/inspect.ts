@@ -6,11 +6,12 @@ import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from '../ou
 import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, type RuntimeCapabilityEvidence } from '../dsh/index.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError, CapabilityError } from '../errors.js';
-import type { EnvironmentManifest, EnvironmentLock, EnvironmentState } from '../domain.js';
-import { resolveCliPaths, type CommandContext } from './context.js';
+import type { EnvironmentLock, EnvironmentManifest, EnvironmentState } from '../domain.js';
+import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
 
 export function registerInspectCommands(ctx: CommandContext): void {
-  const { program, writeOut, setExitCode } = ctx;
+  const { program, writeOut, writeErr, setExitCode } = ctx;
 
   program
     .command('plan')
@@ -19,15 +20,9 @@ export function registerInspectCommands(ctx: CommandContext): void {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
-      let manifest: EnvironmentManifest | null = null;
+      const selection = resolveCliOverlay(opts, paths);
+      const manifest = loadEffectiveManifest(paths, selection).manifest;
       let lock: EnvironmentLock | null = null;
-
-      if (fs.existsSync(paths.manifestFile)) {
-        const content = fs.readFileSync(paths.manifestFile, 'utf8');
-        manifest = loadManifest(content);
-      } else {
-        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
-      }
 
       if (fs.existsSync(paths.lockFile)) {
         const content = fs.readFileSync(paths.lockFile, 'utf8');
@@ -42,9 +37,17 @@ export function registerInspectCommands(ctx: CommandContext): void {
       const inventory = await readEnvironmentInventory(paths);
       const plan = buildPlan(manifest, lock, inventory, planState, await readLocalSourceDigests(manifest));
 
+      const warning = overlaySwitchWarning(planState, selection);
+      if (warning) {
+        writeErr(`${warning}\n`);
+      }
+
       if (opts.json) {
-        writeOut(JSON.stringify(plan, null, 2) + '\n');
+        writeOut(JSON.stringify(selection ? { ...plan, overlay: selection } : plan, null, 2) + '\n');
       } else {
+        if (selection) {
+          writeOut(overlayBanner(selection));
+        }
         writeOut(renderPlan(plan));
       }
 
@@ -57,14 +60,14 @@ export function registerInspectCommands(ctx: CommandContext): void {
     .action(async (plugin?: string) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+      const selection = resolveCliOverlay(opts, paths);
 
       let manifest: EnvironmentManifest | null = null;
       let lock: EnvironmentLock | null = null;
       let state: EnvironmentState | null = null;
 
       if (fs.existsSync(paths.manifestFile)) {
-        const content = fs.readFileSync(paths.manifestFile, 'utf8');
-        manifest = loadManifest(content);
+        manifest = loadEffectiveManifest(paths, selection).manifest;
       }
       if (fs.existsSync(paths.lockFile)) {
         const content = fs.readFileSync(paths.lockFile, 'utf8');
@@ -88,8 +91,11 @@ export function registerInspectCommands(ctx: CommandContext): void {
       }
 
       if (opts.json) {
-        writeOut(JSON.stringify(summary, null, 2) + '\n');
+        writeOut(JSON.stringify(selection ? { ...summary, overlay: selection } : summary, null, 2) + '\n');
       } else {
+        if (selection) {
+          writeOut(overlayBanner(selection));
+        }
         writeOut(renderStatus(summary));
       }
 

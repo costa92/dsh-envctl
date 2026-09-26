@@ -8,7 +8,8 @@ import { writeAtomic } from '../io/atomic-file.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError } from '../errors.js';
 import type { PluginSource } from '../domain.js';
-import { resolveCliPaths, type CommandContext } from './context.js';
+import { loadEffectiveManifest } from '../overlay/effective.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
 
 export function registerPluginCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -154,10 +155,8 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
-      if (!fs.existsSync(paths.manifestFile)) {
-        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
-      }
-      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const selection = resolveCliOverlay(opts, paths);
+      const { manifest, provenance } = loadEffectiveManifest(paths, selection);
       const lock = fs.existsSync(paths.lockFile) ? loadLock(fs.readFileSync(paths.lockFile, 'utf8')) : null;
       const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
       const inventory = await readEnvironmentInventory(paths);
@@ -175,7 +174,8 @@ export function registerPluginCommands(ctx: CommandContext): void {
             enabled: plugin.enabled ?? true,
             source: plugin.source.type,
             installed: Boolean(installed?.installed),
-            actualVersion: installed?.version
+            actualVersion: installed?.version,
+            origin: provenance[profileName]?.[alias]?.origin ?? null
           });
         }
       }
@@ -189,14 +189,19 @@ export function registerPluginCommands(ctx: CommandContext): void {
           package: unmanaged.package,
           enabled: inventory.profiles[unmanaged.profile]?.plugins[unmanaged.package]?.enabled,
           source: 'unmanaged',
-          installed: true
+          installed: true,
+          origin: null
         });
       }
       if (opts.json) {
         writeOut(JSON.stringify({ plugins: rows }, null, 2) + '\n');
       } else {
+        if (selection) {
+          writeOut(overlayBanner(selection));
+        }
         for (const row of rows) {
-          writeOut(`${row.profile} ${row.alias ?? '-'} ${row.package} ${row.source} installed=${String(row.installed)}\n`);
+          const origin = selection ? ` origin=${String(row.origin ?? '-')}` : '';
+          writeOut(`${row.profile} ${row.alias ?? '-'} ${row.package} ${row.source} installed=${String(row.installed)}${origin}\n`);
         }
       }
     });

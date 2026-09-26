@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { DshError } from './errors.js';
+import { DshError, ValidationError } from './errors.js';
 import type { CommandContext } from './commands/context.js';
 import { registerSetupCommands } from './commands/setup.js';
 import { registerLifecycleCommands } from './commands/lifecycle.js';
@@ -27,6 +27,8 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .option('--harness-source <path>', 'custom DSH source directory')
     .option('--allow-untested-dsh', 'allow untested or experimental DSH runtime versions')
     .option('--json', 'output in structured JSON format')
+    .option('--overlay <name>', 'merge envctl/overlays/<name>.yaml over the base manifest for this command')
+    .option('--no-overlay', 'use only the base manifest for this command')
     .configureOutput({
       writeOut: (str) => writeOut(str),
       writeErr: (str) => writeErr(str)
@@ -36,6 +38,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   const ctx: CommandContext = {
     program,
     writeOut,
+    writeErr,
     setExitCode: (code) => {
       exitCodeToReturn = code;
     }
@@ -47,6 +50,10 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   registerSourceCommands(ctx);
 
   try {
+    // commander keeps only the last of the two flags, so a conflict must be detected on argv.
+    if (argv.includes('--no-overlay') && argv.some((arg) => arg === '--overlay' || arg.startsWith('--overlay='))) {
+      throw new ValidationError('--overlay and --no-overlay cannot be used together');
+    }
     await program.parseAsync(argv, { from: 'user' });
     return exitCodeToReturn;
   } catch (err: unknown) {
