@@ -30,6 +30,7 @@
 - [x] 实现独占写锁（`acquireEnvironmentLock`）、快照备份（`backups/`）与操作日志（`logs/journal.jsonl`）
 - [x] 正式 `apply` 先加锁再读取清单、盘点与计划，避免 rollback/purge 间隙导致执行过期计划；`--dry-run` 不加锁
 - [x] 锁被占用时每 100ms 重试直至 `timeoutMs`（默认 5 秒）；无法解析的锁文件超过 5 秒才视为陈旧，避免抢走正在写入的锁
+- [x] 陈旧锁接管经 `mkdir` 守卫串行化，并发等待方不会同时接管；守卫残留时报错提示手工删除，不自动回收
 - [x] 实现 `apply` 状态机执行器（支持 `--dry-run`、能力检查与异常自动快照回滚）
 - [x] `apply` 通过 DSH CLI 执行 `install/update`，执行后复盘；正式 apply 需要 `--yes`
 - [x] `apply` 按 `dsh.profile.bundles` 执行 `enable/disable`（禁用保留依赖）
@@ -48,7 +49,7 @@
 - [x] `source pull --profile` 更新 lock commit；apply 成功后标记 `restart-required`
 - [x] 标记 `restart-required` 时写入复盘得到的 `installedVersion`，不再丢弃该字段
 - [x] plan 比对 Profile 依赖 spec 的 `#<commit>` 与 lock commit，不一致时 `update` 重装锁定 commit（无 commit 证据不猜）
-- [x] 全量测试套件覆盖（当前 36 个测试文件，226 项测试全部通过）
+- [x] 全量测试套件覆盖（当前 36 个测试文件，228 项测试全部通过）
 
 ### Phase 4: 事务日志、回滚与垃圾清理（已实现）
 - [x] 操作日志写入 `journal.jsonl`（apply/rollback/gc）
