@@ -2,10 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { adoptEnvironment, checkCandidateFreshness } from '../../src/adopt/adopt.js';
+import { adoptEnvironment } from '../../src/adopt/adopt.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
-import { readEnvironmentInventory } from '../../src/inventory/profile-reader.js';
-import { loadManifest, loadLock, loadState } from '../../src/manifest/files.js';
+import { loadState } from '../../src/manifest/files.js';
 import type { CaptureDocument } from '../../src/domain.js';
 
 describe('adoptEnvironment', () => {

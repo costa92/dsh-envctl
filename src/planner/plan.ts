@@ -361,7 +361,6 @@ export function buildPlan(
 
 export function buildStatus(
   manifest: EnvironmentManifest | null,
-  lock: EnvironmentLock | null,
   state: EnvironmentState | null,
   inventory: EnvironmentInventory,
   plan: EnvironmentPlan

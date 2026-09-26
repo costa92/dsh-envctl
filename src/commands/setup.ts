@@ -37,7 +37,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const inventory = await readEnvironmentInventory(paths);
-      const captureDoc = captureEnvironment(paths, inventory, {
+      const captureDoc = captureEnvironment(inventory, {
         profile: cmdOpts.profile
       });
 

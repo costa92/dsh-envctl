@@ -3,7 +3,6 @@ import {
   loadManifest,
   parseYamlStrict,
   serializeManifest,
-  ManifestSchema,
   CaptureDocumentSchema
 } from '../../src/manifest/index.js';
 import { ValidationError } from '../../src/errors.js';

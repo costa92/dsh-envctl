@@ -3,8 +3,7 @@ import { ValidationError } from '../errors.js';
 import {
   ManifestSchema,
   LockSchema,
-  StateSchema,
-  CaptureDocumentSchema
+  StateSchema
 } from './schema.js';
 import { OverlaySchema } from '../overlay/schema.js';
 import type {

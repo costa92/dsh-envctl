@@ -1,6 +1,5 @@
 import * as crypto from 'node:crypto';
 import * as YAML from 'yaml';
-import { ValidationError } from '../errors.js';
 
 export interface ExtractedPatch {
   profile: string;

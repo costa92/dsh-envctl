@@ -567,14 +567,14 @@ describe('buildStatus', () => {
     const manifest: EnvironmentManifest = { apiVersion: 'dshenv/v1', profiles: {} };
     const inventory: EnvironmentInventory = { profiles: {} };
     const plan = buildPlan(manifest, emptyLock, inventory);
-    const summary = buildStatus(manifest, emptyLock, null, inventory, plan);
+    const summary = buildStatus(manifest, null, inventory, plan);
     expect(summary.status).toBe('healthy');
   });
 
   it('should map missing manifest to degraded', () => {
     const inventory: EnvironmentInventory = { profiles: {} };
     const plan = buildPlan(null, null, inventory);
-    const summary = buildStatus(null, null, null, inventory, plan);
+    const summary = buildStatus(null, null, inventory, plan);
     expect(summary.status).toBe('degraded');
   });
 
@@ -599,7 +599,7 @@ describe('buildStatus', () => {
       }
     };
     const plan = buildPlan(manifest, emptyLock, inventory);
-    const summary = buildStatus(manifest, emptyLock, null, inventory, plan);
+    const summary = buildStatus(manifest, null, inventory, plan);
     expect(summary.status).toBe('unmanaged');
     expect(summary.plugins.some((p) => p.status === 'unmanaged' && p.package === 'extra')).toBe(true);
   });
@@ -640,7 +640,7 @@ describe('buildStatus', () => {
       }
     };
     const plan = buildPlan(manifest, emptyLock, inventory);
-    const summary = buildStatus(manifest, emptyLock, null, inventory, plan);
+    const summary = buildStatus(manifest, null, inventory, plan);
     expect(summary.status).toBe('drifted');
   });
 });

@@ -47,7 +47,6 @@ function getAliasFromPackageName(pkgName: string, usedKeys: Set<string>): string
 }
 
 export function captureEnvironment(
-  paths: EnvironmentPaths,
   inventory: EnvironmentInventory,
   options?: { profile?: string }
 ): CaptureDocument {

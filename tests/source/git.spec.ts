@@ -10,7 +10,6 @@ import {
   managedGitSourceDir,
   packageNameFromGitUrl
 } from '../../src/source/git.js';
-import { ValidationError } from '../../src/errors.js';
 
 describe('Managed Git Source Lifecycle', () => {
   let tempDir: string;

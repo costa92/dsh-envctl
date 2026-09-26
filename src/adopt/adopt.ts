@@ -46,7 +46,7 @@ export function checkCandidateFreshness(
       throw new ValidationError(`Candidate refers to profile "${profileName}" which does not exist in live environment`);
     }
 
-    for (const [alias, plugin] of Object.entries(profileManifest.plugins)) {
+    for (const plugin of Object.values(profileManifest.plugins)) {
       const livePlugin = liveProfile.plugins[plugin.package];
       if (!livePlugin || !livePlugin.installed) {
         throw new ValidationError(

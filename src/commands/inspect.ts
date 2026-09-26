@@ -80,7 +80,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
 
       const inventory = await readEnvironmentInventory(paths);
       const plan = buildPlan(manifest, lock, inventory, state, await readLocalSourceDigests(manifest));
-      const summary = buildStatus(manifest, lock, state, inventory, plan);
+      const summary = buildStatus(manifest, state, inventory, plan);
       if (plugin) {
         summary.plugins = summary.plugins.filter(
           (entry) => entry.package === plugin || entry.package.endsWith(`/${plugin}`)

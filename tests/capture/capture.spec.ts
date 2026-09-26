@@ -47,7 +47,7 @@ describe('captureEnvironment and initEnvironment', () => {
   it('should capture environment accurately without creating state.json', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const inventory = await readEnvironmentInventory(paths);
-    const doc = captureEnvironment(paths, inventory);
+    const doc = captureEnvironment(inventory);
 
     expect(doc.apiVersion).toBe('dshenv-capture/v1');
     expect(doc.manifest.apiVersion).toBe('dshenv/v1');
@@ -76,8 +76,7 @@ describe('captureEnvironment and initEnvironment', () => {
   });
 
   it('should warn on unknown sources instead of inventing npm@0.0.0', () => {
-    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-    const doc = captureEnvironment(paths, {
+    const doc = captureEnvironment({
       profiles: {
         web: {
           name: 'web',
@@ -102,8 +101,7 @@ describe('captureEnvironment and initEnvironment', () => {
   });
 
   it('should lock a git commit from the spec and not invent HEAD', () => {
-    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-    const doc = captureEnvironment(paths, {
+    const doc = captureEnvironment({
       profiles: {
         web: {
           name: 'web',
@@ -162,7 +160,7 @@ describe('captureEnvironment and initEnvironment', () => {
     );
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const inventory = await readEnvironmentInventory(paths);
-    const doc = captureEnvironment(paths, inventory, { profile: 'web' });
+    const doc = captureEnvironment(inventory, { profile: 'web' });
     expect(Object.keys(doc.manifest.profiles)).toEqual(['web']);
     expect(doc.manifest.profiles.tui).toBeUndefined();
   });

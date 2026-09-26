@@ -1,4 +1,4 @@
-import type { EnvironmentPlan, PlanOperation, EnvironmentStatusSummary } from '../planner/plan.js';
+import type { EnvironmentPlan, EnvironmentStatusSummary } from '../planner/plan.js';
 import type { DshCapabilities } from '../dsh/capabilities.js';
 
 export function renderPlan(plan: EnvironmentPlan): string {
