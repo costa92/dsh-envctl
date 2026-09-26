@@ -2,7 +2,7 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type { EnvironmentManifest, EnvironmentOverlay, OverlayPatchEntry, OverlayPluginEntry } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
-import { serializeOverlay } from '../manifest/files.js';
+import { loadManifest, serializeManifest, serializeOverlay } from '../manifest/files.js';
 import { setAtPath } from '../config/config.js';
 import { mergeManifest } from './merge.js';
 import { readOverlay } from './effective.js';
@@ -99,6 +99,8 @@ export function assertBaseMergesWithOverlay(
   selection: OverlaySelection | null,
   newBase: EnvironmentManifest
 ): void {
+  // Edits are made on parsed objects, so re-validate before a write could leave a base no command can load.
+  loadManifest(serializeManifest(newBase));
   if (selection) {
     mergeManifest(newBase, readOverlay(paths, selection.name), selection.name);
   }
