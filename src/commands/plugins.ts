@@ -17,7 +17,26 @@ import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, alias
 import { withEnvironmentLock } from '../io/lock.js';
 import { readPackageJsonName } from '../source/local.js';
 
-export function registerPluginCommands(ctx: CommandContext): void {
+export interface InstallPluginRequest {
+  spec: string;
+  profile: string;
+  alias?: string;
+  packageName?: string;
+  layer?: string;
+}
+
+export interface InstallPluginResult {
+  alias: string;
+  packageName: string;
+  source: PluginSource;
+  overlay: OverlaySelection | null;
+}
+
+export interface PluginCommands {
+  installPlugin: (opts: { dshHome?: string; overlay?: string | false }, request: InstallPluginRequest) => Promise<InstallPluginResult>;
+}
+
+export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   const { program, writeOut } = ctx;
 
   function parsePluginSpec(spec: string, optsAlias?: string, optsPackage?: string): { alias: string; packageName: string; source: PluginSource } {
@@ -174,6 +193,48 @@ export function registerPluginCommands(ctx: CommandContext): void {
     });
   }
 
+  async function installPlugin(
+    opts: { dshHome?: string; overlay?: string | false },
+    request: InstallPluginRequest
+  ): Promise<InstallPluginResult> {
+    const paths = resolveCliPaths(opts);
+    const { profile } = request;
+    const { selection, overlay } = resolveWrite(opts, paths, request.layer, '. Run dshenv init first.');
+
+    const parsed = overlay
+      ? await writeOverlay(paths, overlay, (doc, base) => {
+          const next = parsePluginSpec(request.spec, request.alias, request.packageName);
+          const baseEntry = base.profiles[profile]?.plugins[next.alias];
+          if (baseEntry && baseEntry.package !== next.packageName) {
+            throw new ValidationError(
+              `Alias '${next.alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`
+            );
+          }
+          const overlayEntry = doc.profiles?.[profile]?.plugins?.[next.alias];
+          // Reinstalling a plugin the effective manifest already has only moves its source, as in the base.
+          const exists = overlayEntry ? !overlayEntry.remove : Boolean(baseEntry);
+          setOverlayPluginFields(doc, profile, next.alias, exists
+            ? { source: next.source }
+            : baseEntry
+              ? { enabled: true, source: next.source }
+              : { package: next.packageName, enabled: true, source: next.source });
+          return next;
+        })
+      : await writeBase(paths, selection, (manifest) => {
+          if (!manifest.profiles[profile]) {
+            manifest.profiles[profile] = { plugins: {} };
+          }
+          const next = parsePluginSpec(request.spec, request.alias, request.packageName);
+          const current = manifest.profiles[profile].plugins[next.alias];
+          // Reinstalling the same package only moves its source; patches and the enabled state are kept.
+          manifest.profiles[profile].plugins[next.alias] = current?.package === next.packageName
+            ? { ...current, source: next.source }
+            : { package: next.packageName, enabled: true, source: next.source };
+          return next;
+        });
+    return { ...parsed, overlay };
+  }
+
   program
     .command('install <spec>')
     .description('Install a plugin into the manifest for a profile')
@@ -183,48 +244,19 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (spec: string, cmdOpts) => {
       const opts = program.opts();
-      const paths = resolveCliPaths(opts);
-      const profile: string = cmdOpts.profile;
-      const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer, '. Run dshenv init first.');
-
-      const parsed = overlay
-        ? await writeOverlay(paths, overlay, (doc, base) => {
-            const next = parsePluginSpec(spec, cmdOpts.as, cmdOpts.package);
-            const baseEntry = base.profiles[profile]?.plugins[next.alias];
-            if (baseEntry && baseEntry.package !== next.packageName) {
-              throw new ValidationError(
-                `Alias '${next.alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`
-              );
-            }
-            const overlayEntry = doc.profiles?.[profile]?.plugins?.[next.alias];
-            // Reinstalling a plugin the effective manifest already has only moves its source, as in the base.
-            const exists = overlayEntry ? !overlayEntry.remove : Boolean(baseEntry);
-            setOverlayPluginFields(doc, profile, next.alias, exists
-              ? { source: next.source }
-              : baseEntry
-                ? { enabled: true, source: next.source }
-                : { package: next.packageName, enabled: true, source: next.source });
-            return next;
-          })
-        : await writeBase(paths, selection, (manifest) => {
-            if (!manifest.profiles[profile]) {
-              manifest.profiles[profile] = { plugins: {} };
-            }
-            const next = parsePluginSpec(spec, cmdOpts.as, cmdOpts.package);
-            const current = manifest.profiles[profile].plugins[next.alias];
-            // Reinstalling the same package only moves its source; patches and the enabled state are kept.
-            manifest.profiles[profile].plugins[next.alias] = current?.package === next.packageName
-              ? { ...current, source: next.source }
-              : { package: next.packageName, enabled: true, source: next.source };
-            return next;
-          });
-
+      const result = await installPlugin(opts, {
+        spec,
+        profile: cmdOpts.profile,
+        alias: cmdOpts.as,
+        packageName: cmdOpts.package,
+        layer: cmdOpts.layer
+      });
       reportWrite(
         opts,
-        overlay,
+        result.overlay,
         'installed',
-        { profile, alias: parsed.alias, package: parsed.packageName, source: parsed.source },
-        `Installed ${parsed.packageName} (${parsed.alias}) in profile '${profile}'`
+        { profile: cmdOpts.profile, alias: result.alias, package: result.packageName, source: result.source },
+        `Installed ${result.packageName} (${result.alias}) in profile '${cmdOpts.profile}'`
       );
     });
 
@@ -440,4 +472,6 @@ export function registerPluginCommands(ctx: CommandContext): void {
       });
       reportWrite(opts, null, 'removed', { profile, alias }, `Removed plugin '${alias}' from profile '${profile}'`);
     });
+
+  return { installPlugin };
 }
