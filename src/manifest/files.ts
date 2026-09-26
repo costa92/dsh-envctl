@@ -56,7 +56,10 @@ export function loadManifest(content: string): EnvironmentManifest {
   const raw = parseYamlStrict(content);
   const res = ManifestSchema.safeParse(raw);
   if (!res.success) {
-    const issues = res.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+    // Record key failures only say "Invalid key in record"; the reason lives in the nested issues.
+    const issues = res.error.issues
+      .map((i) => `${i.path.join('.')}: ${i.code === 'invalid_key' ? i.issues.map((nested) => nested.message).join(', ') : i.message}`)
+      .join(', ');
     throw new ValidationError(`Invalid manifest schema: ${issues}`);
   }
   return res.data as EnvironmentManifest;

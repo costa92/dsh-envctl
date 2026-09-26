@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { applyEnvironment } from '../../src/apply/apply.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 import { extractManagedPatches } from '../../src/patch/patch.js';
+import { loadManifest } from '../../src/manifest/files.js';
 
 describe('apply managed patches', () => {
   let tempHome: string;
@@ -76,5 +77,19 @@ ${patches}`
     expect(plan.operations.map((operation) => operation.kind)).toEqual(['configure']);
     await applyEnvironment(paths);
     expect(livePatchIds()).toEqual([]);
+  });
+});
+
+describe('plugin alias format', () => {
+  it.each(['has space', 'line\nbreak'])('rejects alias %j, which cannot round-trip through a patch marker', (alias) => {
+    const manifest = `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      ${JSON.stringify(alias)}:
+        package: demo-plugin
+        source: { type: npm, version: "1.0.0" }
+`;
+    expect(() => loadManifest(manifest)).toThrow(/alias/i);
   });
 });

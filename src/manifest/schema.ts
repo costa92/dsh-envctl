@@ -58,6 +58,9 @@ export const PluginSourceSchema = z.discriminatedUnion('type', [
   InBoxSourceSchema
 ]);
 
+// Aliases appear in single-line patch markers, so whitespace would break or inject into them.
+export const PluginAliasSchema = z.string().regex(/^\S+$/, { message: 'Plugin alias must not contain whitespace' });
+
 export const PatchEntrySchema = z
   .object({
     id: z.string().min(1),
@@ -79,7 +82,7 @@ export const PluginManifestEntrySchema = z
 
 export const ProfileManifestEntrySchema = z
   .object({
-    plugins: z.record(z.string(), PluginManifestEntrySchema).default({})
+    plugins: z.record(PluginAliasSchema, PluginManifestEntrySchema).default({})
   })
   .strict()
   .superRefine((val, ctx) => {
