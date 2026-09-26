@@ -4,6 +4,7 @@ import type {
   EnvironmentState
 } from '../domain.js';
 import type { EnvironmentInventory } from '../inventory/profile-reader.js';
+import { computePatchDigest } from '../patch/patch.js';
 
 export type OperationKind =
   | 'install'
@@ -171,16 +172,28 @@ export function buildPlan(
           targetEnabled
         });
       } else if (pluginManifest.patches && pluginManifest.patches.length > 0) {
-        operations.push({
-          kind: 'blocked',
-          profile: profName,
-          alias,
-          package: pkgName,
-          reason: 'Configuration patches cannot be verified in the read-only prototype',
-          blockedReason: 'Configuration patches cannot be verified in the read-only prototype',
-          currentEnabled,
-          targetEnabled
+        const actualPatches = profInv?.managedPatches ?? [];
+        const needsConfigure = pluginManifest.patches.some((expected) => {
+          const digest = computePatchDigest(expected.config);
+          return !actualPatches.some(
+            (actual) =>
+              actual.plugin === alias &&
+              actual.id === expected.id &&
+              actual.isDigestValid &&
+              actual.digest === digest
+          );
         });
+        if (needsConfigure) {
+          operations.push({
+            kind: 'configure',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: 'Managed configuration patch is missing or digest does not match',
+            currentEnabled,
+            targetEnabled
+          });
+        }
       }
     }
   }
@@ -269,7 +282,8 @@ export function buildStatus(
       operationCounts.update +
       operationCounts.enable +
       operationCounts.disable +
-      operationCounts.remove >
+      operationCounts.remove +
+      operationCounts.configure >
     0
   ) {
     status = 'drifted';
@@ -305,7 +319,8 @@ function collectPluginStatuses(
           op.kind === 'update' ||
           op.kind === 'enable' ||
           op.kind === 'disable' ||
-          op.kind === 'remove'
+          op.kind === 'remove' ||
+          op.kind === 'configure'
       )
       .map((op) => `${op.profile}\0${op.package}`)
   );

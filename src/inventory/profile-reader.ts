@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { SourceType } from '../domain.js';
 import { PackageNameRegex } from '../manifest/schema.js';
+import { extractManagedPatches, type ExtractedPatch } from '../patch/patch.js';
 
 export interface InstalledPluginInfo {
   name: string;
@@ -22,6 +23,7 @@ export interface ProfileInventory {
   path: string;
   plugins: Record<string, InstalledPluginInfo>;
   rawProfile?: Record<string, unknown>;
+  managedPatches?: ExtractedPatch[];
 }
 
 export interface EnvironmentInventory {
@@ -242,11 +244,23 @@ export async function readEnvironmentInventory(
       };
     }
 
+    const patchFile = path.join(profilePath, 'cordis.patch.yml');
+    let managedPatches: ExtractedPatch[] = [];
+    try {
+      const patchStat = fs.statSync(patchFile);
+      if (patchStat.size <= MAX_JSON_SIZE) {
+        managedPatches = extractManagedPatches(fs.readFileSync(patchFile, 'utf8'), profileName);
+      }
+    } catch {
+      managedPatches = [];
+    }
+
     result.profiles[profileName] = {
       name: profileName,
       path: profilePath,
       plugins,
-      rawProfile: rawProfileData
+      rawProfile: rawProfileData,
+      managedPatches
     };
   }
 

@@ -17,6 +17,7 @@ import { writeAtomic } from '../io/atomic-file.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
 import { resolveDshCommand } from '../dsh/command.js';
 import { setProfileBundleEnabled } from './bundles.js';
+import { clearManagedPatches, writeManagedPatches } from './patches.js';
 
 export interface ApplyOptions {
   dryRun?: boolean;
@@ -106,7 +107,17 @@ async function executeWithDsh(
       continue;
     }
 
+    if (operation.kind === 'configure') {
+      const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
+      if (!plugin?.patches?.length) {
+        throw new ValidationError(`No patches declared for ${operation.alias} in ${operation.profile}`);
+      }
+      await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches);
+      continue;
+    }
+
     if (operation.kind === 'remove') {
+      await clearManagedPatches(paths, operation.profile, operation.alias);
       await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
       const sourceType = inventory.profiles[operation.profile]?.plugins[operation.package]?.sourceType;
       if (sourceType === 'in-box') {
@@ -193,7 +204,8 @@ function assertSupportedPlan(plan: EnvironmentPlan): void {
       operation.kind !== 'update' &&
       operation.kind !== 'enable' &&
       operation.kind !== 'disable' &&
-      operation.kind !== 'remove'
+      operation.kind !== 'remove' &&
+      operation.kind !== 'configure'
   );
   if (unsupported) {
     throw new CapabilityError(

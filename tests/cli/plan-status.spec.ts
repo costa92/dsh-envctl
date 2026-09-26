@@ -105,6 +105,6 @@ profiles:
     );
 
     const code = await runCli(['plan', '--dsh-home', tempHome], io);
-    expect(code).toBe(5);
+    expect(code).toBe(2);
   });
 });

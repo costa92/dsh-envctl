@@ -8,6 +8,7 @@ import { adoptEnvironment } from './adopt/adopt.js';
 import { applyEnvironment } from './apply/apply.js';
 import { rollbackEnvironment } from './rollback/rollback.js';
 import { gcEnvironment } from './gc/gc.js';
+import { purgePlugin } from './purge/purge.js';
 import {
   loadManifest,
   loadLock,
@@ -199,6 +200,31 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
         writeOut(JSON.stringify(result, null, 2) + '\n');
       } else {
         writeOut(`${result.message}\n`);
+      }
+    });
+
+  program
+    .command('purge <plugin>')
+    .description('Move owned managed patch (and envctl/sources clone) into trash')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .option('--dry-run', 'list resources that would be moved')
+    .option('-y, --yes', 'confirm moving owned resources into trash')
+    .action(async (plugin: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      if (!cmdOpts.dryRun && !cmdOpts.yes) {
+        throw new ValidationError('Refusing to purge without --yes. Preview with --dry-run, then re-run with --yes.');
+      }
+      const result = await purgePlugin(paths, cmdOpts.profile, plugin, {
+        dryRun: Boolean(cmdOpts.dryRun)
+      });
+      if (opts.json) {
+        writeOut(JSON.stringify(result, null, 2) + '\n');
+      } else {
+        writeOut(`${result.message}\n`);
+        for (const item of result.moved) {
+          writeOut(`  -> ${item}\n`);
+        }
       }
     });
 

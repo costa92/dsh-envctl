@@ -135,7 +135,7 @@ dshenv apply --dry-run
 dshenv apply --yes
 ```
 
-当前执行计划中的 `install/update/enable/disable/remove`。没有所有权记录的实际插件只标为 `unmanaged`，不会卸载。
+当前执行计划中的 `install/update/enable/disable/remove/configure`。`configure` 只写入 Profile `cordis.patch.yml` 的受管块。没有所有权记录的实际插件只标为 `unmanaged`，不会卸载。
 
 ### 7. `dshenv rollback`
 从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照。只恢复 `manifest.yaml` / `lock.json` / `state.json`，不撤销已经发生的 DSH 包安装。
@@ -155,7 +155,15 @@ dshenv gc --yes
 dshenv gc --older-than 3 --yes
 ```
 
-### 9. `dshenv status`
+### 9. `dshenv purge`
+把有所有权的受管 patch（以及 `envctl/sources/<profile>/<package>` 下的 clone）移入 `envctl/trash/<operation-id>`。不删除外部 Git 目录、Profile 根或凭据。
+
+```bash
+dshenv purge agent-teams --profile web --dry-run
+dshenv purge agent-teams --profile web --yes
+```
+
+### 10. `dshenv status`
 显示当前环境状态摘要与操作统计。
 
 ```bash
@@ -191,6 +199,6 @@ dshenv status --json
 
 见 `docs/roadmap.md`。后续版本计划交付：
 - 将 Git 源准备、锁定与 `apply` 生命周期完整串联
-- `purge`（把受管资源移入 trash）
-- 配置补丁执行适配
+- 将 Git 源准备、锁定与 `apply` 生命周期完整串联
+- 配置补丁之外的 live manager 写能力
 - 细粒度 live manager service 双向通讯

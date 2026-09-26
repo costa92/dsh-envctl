@@ -261,7 +261,7 @@ describe('buildPlan', () => {
     expect(plan.operations.map((op) => op.kind).sort()).toEqual(['disable', 'enable']);
   });
 
-  it('should block unverifiable patches instead of emitting configure', () => {
+  it('should plan configure when managed patch digest is missing', () => {
     const manifest: EnvironmentManifest = {
       apiVersion: 'dshenv/v1',
       profiles: {
@@ -299,8 +299,7 @@ describe('buildPlan', () => {
 
     const plan = buildPlan(manifest, null, inventory);
     expect(plan.operations).toHaveLength(1);
-    expect(plan.operations[0].kind).toBe('blocked');
-    expect(plan.operations.some((op) => op.kind === 'configure')).toBe(false);
+    expect(plan.operations[0].kind).toBe('configure');
   });
 
   it('should block git plugins whose lock has no commit', () => {
@@ -387,7 +386,7 @@ describe('buildStatus', () => {
     expect(summary.plugins.some((p) => p.status === 'unmanaged' && p.package === 'extra')).toBe(true);
   });
 
-  it('should map blocked operations to degraded', () => {
+  it('should map configure operations to drifted', () => {
     const manifest: EnvironmentManifest = {
       apiVersion: 'dshenv/v1',
       profiles: {
@@ -424,6 +423,6 @@ describe('buildStatus', () => {
     };
     const plan = buildPlan(manifest, emptyLock, inventory);
     const summary = buildStatus(manifest, emptyLock, null, inventory, plan);
-    expect(summary.status).toBe('degraded');
+    expect(summary.status).toBe('drifted');
   });
 });

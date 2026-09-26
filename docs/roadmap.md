@@ -32,6 +32,7 @@
 - [x] `apply` 通过 DSH CLI 执行 `install/update`，执行后复盘；正式 apply 需要 `--yes`
 - [x] `apply` 按 `dsh.profile.bundles` 执行 `enable/disable`（禁用保留依赖）
 - [x] 受管插件 `remove`：仅 `state.ownership` 中且已离开清单的包，先改 bundles 再 `dsh plugin remove`
+- [x] `configure`：digest 不一致时写入 `cordis.patch.yml` 受管块
 - [x] 全量测试套件覆盖率（21 个测试文件，163 项测试全部通过）
 
 ### Phase 3: 受管 Git、Patch 管理器与便捷 CLI 命令（已实现）
@@ -47,7 +48,7 @@
 - [x] `rollback`：从 `envctl/backups/` 恢复管理文件；需要 `--yes`；不撤销 DSH 包变更
 - [x] `gc`：只删除 `envctl/trash` 内过期项；需要 `--yes`
 - [x] apply 执行失败时恢复管理文件快照
-- [ ] `purge`：把有独占证据的受管资源移入 trash
+- [x] `purge`：有 ownership 的受管 patch（及 `envctl/sources` clone）移入 trash；外部路径拒绝
 
 ## 延后能力
 

@@ -306,4 +306,39 @@ fs.rmSync(packageDir, { recursive: true, force: true });
 
     expect(fs.readFileSync(paths.manifestFile, 'utf8')).toBe(original);
   });
+
+  it('should write managed patches during apply configure', async () => {
+    installDeclaredPlugin();
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      agent-teams:
+        package: "@nanmicoder/dsh-agent-teams"
+        enabled: true
+        source:
+          type: npm
+          version: "0.1.21"
+        patches:
+          - id: agent-teams
+            config:
+              taskPlanning: captain
+`
+    );
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const result = await applyEnvironment(paths);
+    expect(result.applied).toBe(true);
+    expect(result.plan.operations[0]?.kind).toBe('configure');
+    const patchFile = path.join(tempHome, 'profiles', 'web', 'cordis.patch.yml');
+    const content = fs.readFileSync(patchFile, 'utf8');
+    expect(content).toContain('# dshenv:begin profile=web plugin=agent-teams');
+    expect(content).toContain('taskPlanning: captain');
+
+    const second = await applyEnvironment(paths);
+    expect(second.applied).toBe(false);
+    expect(second.plan.hasChanges).toBe(false);
+  });
 });
