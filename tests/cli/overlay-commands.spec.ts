@@ -83,4 +83,37 @@ describe('CLI overlay commands', () => {
     const text = await run(['overlay', 'show', '--overlay', 'laptop', '--profile', 'web']);
     expect(text.stdout).toBe('overlay: laptop (flag)\nweb extra extra-plugin origin=overlay:laptop\nweb shared shared-plugin origin=base\n');
   });
+
+  it('marks overlay files whose names cannot be selected', async () => {
+    fs.writeFileSync(path.join(tempHome, 'envctl', 'overlays', 'has space.yaml'), 'apiVersion: dshenv-overlay/v1\n');
+    const text = await run(['overlay', 'list']);
+    expect(text.stdout).toBe('  has space (invalid name)\n  laptop\n');
+    const json = await run(['overlay', 'list', '--json']);
+    expect(JSON.parse(json.stdout).overlays).toEqual([
+      { name: 'has space', active: false, invalid: true },
+      { name: 'laptop', active: false }
+    ]);
+  });
+
+  it('reports the selection in the same shape as list and show', async () => {
+    const selected = await run(['overlay', 'use', 'laptop', '--json']);
+    expect(JSON.parse(selected.stdout)).toEqual({ status: 'selected', overlay: { name: 'laptop', via: 'file' } });
+    const cleared = await run(['overlay', 'use', '--none', '--json']);
+    expect(JSON.parse(cleared.stdout)).toEqual({ status: 'selected', overlay: null });
+  });
+
+  it('warns that DSHENV_OVERLAY still wins after overlay use', async () => {
+    const previous = process.env.DSHENV_OVERLAY;
+    fs.writeFileSync(path.join(tempHome, 'envctl', 'overlays', 'server.yaml'), 'apiVersion: dshenv-overlay/v1\n');
+    process.env.DSHENV_OVERLAY = 'server';
+    try {
+      const result = await run(['overlay', 'use', 'laptop']);
+      expect(result.code).toBe(0);
+      expect(JSON.parse(fs.readFileSync(selectionFile(), 'utf8')).overlay).toBe('laptop');
+      expect(result.stderr).toContain("DSHENV_OVERLAY=server takes precedence over the saved overlay in this shell");
+    } finally {
+      if (previous === undefined) delete process.env.DSHENV_OVERLAY;
+      else process.env.DSHENV_OVERLAY = previous;
+    }
+  });
 });

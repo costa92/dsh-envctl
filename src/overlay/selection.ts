@@ -14,8 +14,12 @@ export interface OverlaySelection {
 
 const OverlayNameRegex = /^[A-Za-z0-9._-]+$/;
 
+export function isValidOverlayName(name: string): boolean {
+  return OverlayNameRegex.test(name) && name !== '.' && name !== '..';
+}
+
 export function validateOverlayName(name: string): string {
-  if (!OverlayNameRegex.test(name) || name === '.' || name === '..') {
+  if (!isValidOverlayName(name)) {
     throw new ValidationError(`Invalid overlay name: '${name}' (allowed: letters, digits, '.', '_', '-')`);
   }
   return name;

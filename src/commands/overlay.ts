@@ -1,11 +1,11 @@
 import * as fs from 'node:fs';
 import { ValidationError } from '../errors.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
-import { validateOverlayName, writeSelectionFile } from '../overlay/selection.js';
+import { isValidOverlayName, validateOverlayName, writeSelectionFile } from '../overlay/selection.js';
 import { overlayBanner, resolveCliOverlay, resolveCliPaths, type CommandContext } from './context.js';
 
 export function registerOverlayCommands(ctx: CommandContext): void {
-  const { program, writeOut } = ctx;
+  const { program, writeOut, writeErr } = ctx;
   const overlayCmd = program.command('overlay').description('Select and inspect per-machine manifest overlays');
 
   overlayCmd
@@ -22,8 +22,11 @@ export function registerOverlayCommands(ctx: CommandContext): void {
         loadEffectiveManifest(paths, { name: validateOverlayName(name), via: 'file' });
       }
       await writeSelectionFile(paths, name ?? null);
+      if (process.env.DSHENV_OVERLAY && process.env.DSHENV_OVERLAY !== name) {
+        writeErr(`DSHENV_OVERLAY=${process.env.DSHENV_OVERLAY} takes precedence over the saved overlay in this shell\n`);
+      }
       if (opts.json) {
-        writeOut(JSON.stringify({ status: 'selected', overlay: name ?? null }, null, 2) + '\n');
+        writeOut(JSON.stringify({ status: 'selected', overlay: name ? { name, via: 'file' } : null }, null, 2) + '\n');
       } else {
         writeOut(name ? `Using overlay '${name}'. Run dshenv plan to review its effect.\n` : 'Cleared the persisted overlay.\n');
       }
@@ -39,9 +42,10 @@ export function registerOverlayCommands(ctx: CommandContext): void {
         ? fs.readdirSync(paths.overlaysDir).filter((file) => file.endsWith('.yaml')).map((file) => file.slice(0, -'.yaml'.length)).sort()
         : [];
       const active = resolveCliOverlay(opts, paths);
-      const overlays: Array<{ name: string; active: boolean; missing?: boolean }> = names.map((name) => ({
+      const overlays: Array<{ name: string; active: boolean; missing?: boolean; invalid?: boolean }> = names.map((name) => ({
         name,
-        active: name === active?.name
+        active: name === active?.name,
+        ...(isValidOverlayName(name) ? {} : { invalid: true })
       }));
       if (active && !names.includes(active.name)) {
         overlays.push({ name: active.name, active: true, missing: true });
@@ -52,7 +56,8 @@ export function registerOverlayCommands(ctx: CommandContext): void {
       }
       for (const entry of overlays) {
         const missing = entry.missing ? ' missing' : '';
-        writeOut(entry.active && active ? `* ${entry.name} (${active.via})${missing}\n` : `  ${entry.name}\n`);
+        const invalid = entry.invalid ? ' (invalid name)' : '';
+        writeOut(entry.active && active ? `* ${entry.name} (${active.via})${missing}\n` : `  ${entry.name}${invalid}\n`);
       }
     });
 
