@@ -71,13 +71,20 @@ async function executeWithDsh(
   paths: EnvironmentPaths,
   manifest: EnvironmentManifest,
   lock: EnvironmentLock | null,
+  inventory: EnvironmentInventory,
   options?: ApplyOptions
 ): Promise<{ success: boolean; error?: string }> {
   assertSupportedPlan(plan);
 
-  const needsCli = plan.operations.some(
-    (operation) => operation.kind === 'install' || operation.kind === 'update'
-  );
+  const needsCli = plan.operations.some((operation) => {
+    if (operation.kind === 'install' || operation.kind === 'update') {
+      return true;
+    }
+    if (operation.kind !== 'remove') {
+      return false;
+    }
+    return inventory.profiles[operation.profile]?.plugins[operation.package]?.sourceType !== 'in-box';
+  });
   const command = needsCli
     ? resolveDshCommand({
         cliHarnessSource: options?.harnessSource,
@@ -96,6 +103,31 @@ async function executeWithDsh(
         operation.package,
         operation.kind === 'enable'
       );
+      continue;
+    }
+
+    if (operation.kind === 'remove') {
+      await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
+      const sourceType = inventory.profiles[operation.profile]?.plugins[operation.package]?.sourceType;
+      if (sourceType === 'in-box') {
+        continue;
+      }
+      if (!command) {
+        throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
+      }
+      const removeResult = await execa(
+        command.file,
+        [...command.args, 'plugin', '--profile', operation.profile, 'remove', operation.package],
+        {
+          cwd: command.cwd,
+          env: { ...process.env, DSH_HOME: paths.home },
+          shell: false,
+          reject: false
+        }
+      );
+      if (removeResult.exitCode !== 0) {
+        return { success: false, error: `DSH plugin command exited with code ${String(removeResult.exitCode)}` };
+      }
       continue;
     }
 
@@ -121,6 +153,32 @@ async function executeWithDsh(
   return { success: true };
 }
 
+function pruneOwnership(
+  ownership: EnvironmentState['ownership'],
+  manifest: EnvironmentManifest
+): EnvironmentState['ownership'] {
+  if (!ownership) {
+    return {};
+  }
+
+  const next: NonNullable<EnvironmentState['ownership']> = {};
+  for (const [profileName, packages] of Object.entries(ownership)) {
+    const expected = new Set(
+      Object.values(manifest.profiles[profileName]?.plugins ?? {}).map((plugin) => plugin.package)
+    );
+    const kept: Record<string, (typeof packages)[string]> = {};
+    for (const [packageName, record] of Object.entries(packages)) {
+      if (expected.has(packageName)) {
+        kept[packageName] = record;
+      }
+    }
+    if (Object.keys(kept).length > 0) {
+      next[profileName] = kept;
+    }
+  }
+  return next;
+}
+
 function assertSupportedPlan(plan: EnvironmentPlan): void {
   const blocked = plan.operations.find((operation) => operation.kind === 'blocked');
   if (blocked) {
@@ -134,7 +192,8 @@ function assertSupportedPlan(plan: EnvironmentPlan): void {
       operation.kind !== 'install' &&
       operation.kind !== 'update' &&
       operation.kind !== 'enable' &&
-      operation.kind !== 'disable'
+      operation.kind !== 'disable' &&
+      operation.kind !== 'remove'
   );
   if (unsupported) {
     throw new CapabilityError(
@@ -160,7 +219,7 @@ export async function applyEnvironment(
     : null;
 
   const inventory = await readEnvironmentInventory(paths);
-  const plan = buildPlan(manifest, lock, inventory);
+  const plan = buildPlan(manifest, lock, inventory, state);
 
   if (!plan.hasChanges) {
     return {
@@ -209,14 +268,14 @@ export async function applyEnvironment(
     // 4. Execute operations via executor (or the DSH CLI adapter)
     const execRes = options?.executor
       ? await options.executor(plan, paths)
-      : await executeWithDsh(plan, paths, manifest, lock, options);
+      : await executeWithDsh(plan, paths, manifest, lock, inventory, options);
     if (!execRes.success) {
       throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
     }
 
     // Never commit successful state until the actual environment converges.
     const verifiedInventory = await readEnvironmentInventory(paths);
-    const remainingPlan = buildPlan(manifest, lock, verifiedInventory);
+    const remainingPlan = buildPlan(manifest, lock, verifiedInventory, state);
     if (remainingPlan.hasChanges) {
       throw new DegradedError('Apply execution finished but the environment still has pending operations');
     }
@@ -230,7 +289,7 @@ export async function applyEnvironment(
       lastApplied: now,
       appliedLockHash: lockHash,
       profiles: state?.profiles ?? {},
-      ownership: state?.ownership ?? {}
+      ownership: pruneOwnership(state?.ownership, manifest)
     };
 
     await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');

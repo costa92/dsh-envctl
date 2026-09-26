@@ -46,7 +46,8 @@ describe('renderStatus', () => {
         enable: 0,
         disable: 0,
         configure: 0,
-        blocked: 0
+        blocked: 0,
+        remove: 0
       },
       unmanagedCount: 0,
       profilesCount: 1,

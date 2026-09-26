@@ -200,8 +200,13 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
         lock = loadLock(content);
       }
 
+      let planState: EnvironmentState | null = null;
+      if (fs.existsSync(paths.stateFile)) {
+        planState = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
+      }
+
       const inventory = await readEnvironmentInventory(paths);
-      const plan = buildPlan(manifest, lock, inventory);
+      const plan = buildPlan(manifest, lock, inventory, planState);
 
       if (opts.json) {
         writeOut(JSON.stringify(plan, null, 2) + '\n');
@@ -237,7 +242,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       }
 
       const inventory = await readEnvironmentInventory(paths);
-      const plan = buildPlan(manifest, lock, inventory);
+      const plan = buildPlan(manifest, lock, inventory, state);
       const summary = buildStatus(manifest, lock, state, inventory, plan);
 
       if (opts.json) {

@@ -243,4 +243,51 @@ profiles:
     expect(next.dsh.profile.bundles).not.toContain('@nanmicoder/dsh-agent-teams');
     expect(next.dependencies['@nanmicoder/dsh-agent-teams']).toBe('0.1.21');
   });
+
+  it('should uninstall an owned plugin removed from the manifest via DSH CLI', async () => {
+    installDeclaredPlugin();
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins: {}
+`
+    );
+
+    const fakeDsh = path.join(tempHome, 'fake-dsh.mjs');
+    fs.writeFileSync(
+      fakeDsh,
+      `
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+if (!args.includes('remove')) process.exit(2);
+const profile = args[args.indexOf('--profile') + 1];
+const packageName = args.at(-1);
+const profileDir = path.join(process.env.DSH_HOME, 'profiles', profile);
+const pkgJsonPath = path.join(profileDir, 'package.json');
+const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+delete pkg.dependencies[packageName];
+fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2));
+const packageDir = path.join(profileDir, 'node_modules', ...packageName.split('/'));
+fs.rmSync(packageDir, { recursive: true, force: true });
+`
+    );
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const result = await applyEnvironment(paths);
+    expect(result.applied).toBe(true);
+    expect(result.plan.operations[0]?.kind).toBe('remove');
+
+    const profile = JSON.parse(
+      fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), 'utf8')
+    ) as { dependencies: Record<string, string>; dsh: { profile: { bundles: string[] } } };
+    expect(profile.dependencies['@nanmicoder/dsh-agent-teams']).toBeUndefined();
+    expect(profile.dsh.profile.bundles).not.toContain('@nanmicoder/dsh-agent-teams');
+
+    const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
+    expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeUndefined();
+  });
 });

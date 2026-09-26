@@ -31,6 +31,7 @@
 - [x] 实现 `apply` 状态机执行器（支持 `--dry-run`、能力检查与异常自动快照回滚）
 - [x] `apply` 通过 DSH CLI 执行 `install/update`，执行后复盘；正式 apply 需要 `--yes`
 - [x] `apply` 按 `dsh.profile.bundles` 执行 `enable/disable`（禁用保留依赖）
+- [x] 受管插件 `remove`：仅 `state.ownership` 中且已离开清单的包，先改 bundles 再 `dsh plugin remove`
 - [x] 全量测试套件覆盖率（21 个测试文件，163 项测试全部通过）
 
 ### Phase 3: 受管 Git、Patch 管理器与便捷 CLI 命令（已实现）

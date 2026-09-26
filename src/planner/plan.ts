@@ -10,6 +10,7 @@ export type OperationKind =
   | 'update'
   | 'enable'
   | 'disable'
+  | 'remove'
   | 'configure'
   | 'blocked';
 
@@ -66,14 +67,16 @@ const KIND_ORDER: Record<OperationKind, number> = {
   update: 2,
   enable: 3,
   disable: 4,
-  configure: 5,
-  blocked: 6
+  remove: 5,
+  configure: 6,
+  blocked: 7
 };
 
 export function buildPlan(
   manifest: EnvironmentManifest | null,
   lock: EnvironmentLock | null,
-  inventory: EnvironmentInventory
+  inventory: EnvironmentInventory,
+  state?: EnvironmentState | null
 ): EnvironmentPlan {
   const operations: PlanOperation[] = [];
   const unmanaged: UnmanagedPlugin[] = [];
@@ -182,7 +185,7 @@ export function buildPlan(
     }
   }
 
-  // Check actual installed plugins not in manifest -> unmanaged (never remove)
+  // Installed plugins not in the manifest: remove only when ownership exists.
   for (const [profName, profInv] of Object.entries(inventory.profiles)) {
     const profManifest = manifestProfiles[profName];
     const expectedPackages = new Set<string>();
@@ -192,8 +195,20 @@ export function buildPlan(
       }
     }
 
-    for (const [pkgName, instInfo] of Object.entries(profInv.plugins)) {
-      if (!expectedPackages.has(pkgName)) {
+    for (const pkgName of Object.keys(profInv.plugins)) {
+      if (expectedPackages.has(pkgName)) {
+        continue;
+      }
+      const owned = state?.ownership?.[profName]?.[pkgName];
+      if (owned && profInv.plugins[pkgName].installed) {
+        operations.push({
+          kind: 'remove',
+          profile: profName,
+          alias: owned.alias || pkgName,
+          package: pkgName,
+          reason: 'Owned plugin is no longer declared in the manifest'
+        });
+      } else {
         unmanaged.push({
           profile: profName,
           package: pkgName
@@ -233,6 +248,7 @@ export function buildStatus(
     update: 0,
     enable: 0,
     disable: 0,
+    remove: 0,
     configure: 0,
     blocked: 0
   };
@@ -249,7 +265,11 @@ export function buildStatus(
   } else if (plugins.some((p) => p.status === 'incompatible')) {
     status = 'incompatible';
   } else if (
-    operationCounts.install + operationCounts.update + operationCounts.enable + operationCounts.disable >
+    operationCounts.install +
+      operationCounts.update +
+      operationCounts.enable +
+      operationCounts.disable +
+      operationCounts.remove >
     0
   ) {
     status = 'drifted';
@@ -279,7 +299,14 @@ function collectPluginStatuses(
   const blocked = new Set(plan.operations.filter((op) => op.kind === 'blocked').map((op) => `${op.profile}\0${op.package}`));
   const drifted = new Set(
     plan.operations
-      .filter((op) => op.kind === 'install' || op.kind === 'update' || op.kind === 'enable' || op.kind === 'disable')
+      .filter(
+        (op) =>
+          op.kind === 'install' ||
+          op.kind === 'update' ||
+          op.kind === 'enable' ||
+          op.kind === 'disable' ||
+          op.kind === 'remove'
+      )
       .map((op) => `${op.profile}\0${op.package}`)
   );
   const unmanaged = new Set(plan.unmanaged.map((u) => `${u.profile}\0${u.package}`));

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPlan, buildStatus } from '../../src/planner/plan.js';
-import type { EnvironmentManifest, EnvironmentLock } from '../../src/domain.js';
+import type { EnvironmentManifest, EnvironmentLock, EnvironmentState } from '../../src/domain.js';
 import type { EnvironmentInventory } from '../../src/inventory/profile-reader.js';
 
 describe('buildPlan', () => {
@@ -88,6 +88,69 @@ describe('buildPlan', () => {
       profile: 'web',
       package: 'unmanaged-pkg'
     });
+  });
+
+  it('should plan remove only for owned plugins missing from the manifest', () => {
+    const manifest: EnvironmentManifest = {
+      apiVersion: 'dshenv/v1',
+      profiles: { web: { plugins: {} } }
+    };
+    const inventory: EnvironmentInventory = {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            'owned-pkg': {
+              name: 'owned-pkg',
+              installed: true,
+              version: '1.0.0',
+              sourceType: 'npm',
+              isSymlink: false,
+              isExternalSymlink: false,
+              enabled: true
+            },
+            'stray-pkg': {
+              name: 'stray-pkg',
+              installed: true,
+              sourceType: 'npm',
+              isSymlink: false,
+              isExternalSymlink: false,
+              enabled: true
+            }
+          }
+        }
+      }
+    };
+    const state: EnvironmentState = {
+      apiVersion: 'dshenv-state/v1',
+      lastApplied: '2026-01-01T00:00:00.000Z',
+      appliedLockHash: '',
+      profiles: {},
+      ownership: {
+        web: {
+          'owned-pkg': {
+            package: 'owned-pkg',
+            alias: 'owned',
+            sourceType: 'npm',
+            lockedVersion: '1.0.0',
+            adoptedAt: '2026-01-01T00:00:00.000Z',
+            adoptedBy: 'test'
+          }
+        }
+      }
+    };
+
+    const plan = buildPlan(manifest, null, inventory, state);
+    expect(plan.operations).toEqual([
+      expect.objectContaining({
+        kind: 'remove',
+        profile: 'web',
+        package: 'owned-pkg',
+        alias: 'owned'
+      })
+    ]);
+    expect(plan.unmanaged).toEqual([{ profile: 'web', package: 'stray-pkg' }]);
   });
 
   it('should plan update when installed version differs from target version', () => {

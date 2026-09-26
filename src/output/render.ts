@@ -19,6 +19,8 @@ export function renderPlan(plan: EnvironmentPlan): string {
         details = `${op.currentVersion ?? '?'} -> ${op.targetVersion ?? '?'}`;
       } else if (op.kind === 'enable' || op.kind === 'disable') {
         details = `enabled: ${op.targetEnabled}`;
+      } else if (op.kind === 'remove') {
+        details = 'uninstall';
       } else if (op.kind === 'blocked') {
         details = `[BLOCKED: ${op.blockedReason ?? op.reason}]`;
       }
@@ -50,6 +52,8 @@ function getOpSymbol(kind: string): string {
       return '^';
     case 'disable':
       return 'v';
+    case 'remove':
+      return '-';
     case 'configure':
       return '*';
     case 'blocked':

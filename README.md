@@ -6,7 +6,7 @@
 
 它构建在 DSH 官方插件管理器协议与能力之上，通过声明式清单（`manifest.yaml`）和精确锁文件（`lock.json`）管理多 Profile 的插件、精确版本与配置补丁。
 
-当前提供环境探测、Profile 盘点、捕获与接管、声明式插件管理、差异比对、健康诊断，以及范围受限的实际应用能力。`apply` 通过 DSH CLI 执行插件 `install/update`，并通过官方 Profile `dsh.profile.bundles` 执行 `enable/disable`（禁用保留依赖）。实际卸载和配置补丁尚未接入执行适配器。
+当前提供环境探测、Profile 盘点、捕获与接管、声明式插件管理、差异比对、健康诊断，以及范围受限的实际应用能力。`apply` 通过 DSH CLI 执行 `install/update/remove`，并通过官方 Profile `dsh.profile.bundles` 执行 `enable/disable`（禁用保留依赖）。`remove` 只卸载 `state.ownership` 中且已从清单删除的插件。配置补丁尚未接入执行适配器。
 
 ---
 
@@ -82,7 +82,7 @@ dshenv doctor --json
 
 对已验证的 DSH `0.1.7-rc.2` 源码，`discovery` 与 `packageOperations` 为 `available`，`bundleSelection` 与 `entryToggle` 为 `requires-live-service`，`configurationValidation` 与 `environmentMutation` 为 `disabled`。`packageOperations` 需要官方 operations export 的声明及目标文件均通过只读探测；只通过 DSH 命令探测、缺少可验证源码时，该项为 `disabled`。
 
-`runtime.mutationsSupported=false`（能力矩阵中的 `mutations=false`）表示通用、完整的环境写能力仍未开放。它不代表 `apply` 命令不存在：当前 `apply` 通过 DSH CLI 执行 `install/update`，并通过 Profile `dsh.profile.bundles` 执行 `enable/disable`。真实卸载、配置补丁和完整环境变更仍不受支持。
+`runtime.mutationsSupported=false`（能力矩阵中的 `mutations=false`）表示通用、完整的环境写能力仍未开放。它不代表 `apply` 命令不存在：当前 `apply` 通过 DSH CLI 执行 `install/update/remove`，并通过 Profile `dsh.profile.bundles` 执行 `enable/disable`。配置补丁和完整环境变更仍不受支持。
 
 ### 2. `dshenv init`
 在 `$DSH_HOME/envctl/` 下初始化空的清单、锁文件与初始状态。
@@ -135,7 +135,7 @@ dshenv apply --dry-run
 dshenv apply --yes
 ```
 
-当前执行计划中的 `install/update/enable/disable`。从清单删除插件不会生成实际卸载操作。
+当前执行计划中的 `install/update/enable/disable/remove`。没有所有权记录的实际插件只标为 `unmanaged`，不会卸载。
 
 ### 7. `dshenv status`
 显示当前环境状态摘要与操作统计。
@@ -174,5 +174,5 @@ dshenv status --json
 见 `docs/roadmap.md`。后续版本计划交付：
 - 将 Git 源准备、锁定与 `apply` 生命周期完整串联
 - Profile 级 `rollback` 与垃圾回收（`gc` / `purge`）
-- 真实卸载适配
+- 配置补丁执行适配
 - 细粒度 live manager service 双向通讯
