@@ -15,7 +15,8 @@ import { createEnvironmentSnapshot, restoreEnvironmentSnapshot, type Environment
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
-import { resolveDshCommand } from '../dsh/command.js';
+import { probeDsh, resolveDshCommand } from '../dsh/command.js';
+import { capabilitiesFor } from '../dsh/capabilities.js';
 import { setProfileBundleEnabled } from './bundles.js';
 import { clearManagedPatches, writeManagedPatches } from './patches.js';
 
@@ -94,6 +95,13 @@ async function executeWithDsh(
     : null;
   if (needsCli && !command) {
     throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
+  }
+  if (needsCli && command) {
+    const probe = await probeDsh(command);
+    const caps = capabilitiesFor(probe.version, { allowUntested: options?.allowUntested });
+    if (caps.discovery.status !== 'available') {
+      throw new CapabilityError('Unsupported DSH version');
+    }
   }
 
   for (const operation of plan.operations) {

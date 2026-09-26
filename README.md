@@ -6,13 +6,13 @@
 
 它构建在 DSH 官方插件管理器协议与能力之上，通过声明式清单（`manifest.yaml`）和精确锁文件（`lock.json`）管理多 Profile 的插件、精确版本与配置补丁。
 
-当前提供环境探测、Profile 盘点、捕获与接管、声明式插件管理、差异比对、健康诊断，以及范围受限的实际应用能力。`apply` 通过 DSH CLI 执行 `install/update/remove`，并通过官方 Profile `dsh.profile.bundles` 执行 `enable/disable`（禁用保留依赖）。`remove` 只卸载 `state.ownership` 中且已从清单删除的插件。配置补丁尚未接入执行适配器。
+当前提供环境探测、Profile 盘点、捕获与接管、声明式插件管理、差异比对、健康诊断，以及范围受限的实际应用能力。`apply` 通过 DSH CLI 执行 `install/update/remove`，通过 Profile `dsh.profile.bundles` 执行 `enable/disable`，并通过 `cordis.patch.yml` 受管块执行 `configure`。调用 DSH CLI 前会用与 `doctor` 相同的版本矩阵做门禁。`remove` 只卸载 `state.ownership` 中且已从清单删除的插件。
 
 ---
 
 ## 核心特性
 
-- **审阅后应用**：`plan` 与 `apply --dry-run` 先展示影响，正式 `apply` 当前仅对 `install/update` 调用 DSH CLI，并在执行后重新盘点确认收敛。
+- **审阅后应用**：`plan` 与 `apply --dry-run` 先展示影响；正式 `apply` 对 `install/update/remove` 调用 DSH CLI，并在执行后重新盘点确认收敛。
 - **声明式漂移检测**：自动计算实际安装态与目标清单差异（`plan` / `status`）。
 - **无损环境捕获与接管**：将现有 DSH Profile 盘点为可审阅的候选清单（`capture`），确认事实未过期后再建立所有权（`adopt`）。
 - **多运行时与能力探测**：无缝支持源码运行模式（`--harness-source`）、环境变量（`DSH_CLI`）及全局 PATH 探测（`doctor`）。

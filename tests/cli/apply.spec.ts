@@ -72,6 +72,10 @@ profiles:
 import fs from 'node:fs';
 import path from 'node:path';
 const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  console.log('0.1.7-rc.2');
+  process.exit(0);
+}
 const profile = args[args.indexOf('--profile') + 1];
 const spec = args.at(-1);
 const packageName = spec.slice(0, spec.indexOf('@', 1));

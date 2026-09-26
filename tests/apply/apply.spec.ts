@@ -159,6 +159,10 @@ profiles:
 import fs from 'node:fs';
 import path from 'node:path';
 const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  console.log('0.1.7-rc.2');
+  process.exit(0);
+}
 const profile = args[args.indexOf('--profile') + 1];
 const spec = args.at(-1);
 const packageName = spec.startsWith('@') ? spec.slice(0, spec.indexOf('@', 1)) : spec.split('@')[0];
@@ -182,6 +186,21 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     expect(result.applied).toBe(true);
     const profile = JSON.parse(fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), 'utf8'));
     expect(profile.dependencies).toEqual({ '@nanmicoder/dsh-agent-teams': '0.1.21' });
+  });
+
+  it('should refuse install when the DSH runtime version is unsupported', async () => {
+    const fakeDsh = path.join(tempHome, 'bad-version-dsh.mjs');
+    fs.writeFileSync(fakeDsh, `
+const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  console.log('0.1.70');
+  process.exit(0);
+}
+process.exit(0);
+`);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    await expect(applyEnvironment(paths)).rejects.toThrow(/Unsupported DSH version/);
   });
 
   it('should enable an installed plugin by updating dsh.profile.bundles without invoking DSH CLI', async () => {
@@ -262,6 +281,10 @@ profiles:
 import fs from 'node:fs';
 import path from 'node:path';
 const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  console.log('0.1.7-rc.2');
+  process.exit(0);
+}
 if (!args.includes('remove')) process.exit(2);
 const profile = args[args.indexOf('--profile') + 1];
 const packageName = args.at(-1);
