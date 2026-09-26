@@ -169,4 +169,13 @@ describe('CLI writes with an active overlay', () => {
     expect(adopt.code).toBe(3);
     expect(adopt.stderr).toMatch(/adopt only writes the base manifest/);
   });
+
+  it('refuses a base write that the active overlay can no longer merge onto', async () => {
+    fs.writeFileSync(overlayFile(), 'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      heavy:\n        enabled: false\n');
+    const before = [fs.readFileSync(manifestFile(), 'utf8'), fs.readFileSync(overlayFile(), 'utf8')];
+    const { code, stderr } = await run(['remove', 'heavy', '--profile', 'web', '--layer', 'base']);
+    expect(code).toBe(3);
+    expect(stderr).toMatch(/must declare package and source/);
+    expect([fs.readFileSync(manifestFile(), 'utf8'), fs.readFileSync(overlayFile(), 'utf8')]).toEqual(before);
+  });
 });

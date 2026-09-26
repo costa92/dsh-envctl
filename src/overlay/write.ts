@@ -5,6 +5,7 @@ import { writeAtomic } from '../io/atomic-file.js';
 import { serializeOverlay } from '../manifest/files.js';
 import { setAtPath } from '../config/config.js';
 import { mergeManifest } from './merge.js';
+import { readOverlay } from './effective.js';
 import { overlayFilePath, type OverlaySelection } from './selection.js';
 
 export type WriteLayer = 'base' | 'overlay';
@@ -90,4 +91,15 @@ export async function saveOverlay(
 ): Promise<void> {
   mergeManifest(base, doc, name);
   await writeAtomic(overlayFilePath(paths, name), serializeOverlay(doc), 'overwrite');
+}
+
+// A base edit must not leave the active overlay unmergeable, or every later command would fail.
+export function assertBaseMergesWithOverlay(
+  paths: EnvironmentPaths,
+  selection: OverlaySelection | null,
+  newBase: EnvironmentManifest
+): void {
+  if (selection) {
+    mergeManifest(newBase, readOverlay(paths, selection.name), selection.name);
+  }
 }

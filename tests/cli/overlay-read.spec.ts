@@ -101,6 +101,8 @@ describe('CLI overlay-aware reads', () => {
     const rows = JSON.parse(json.stdout).plugins as Array<{ alias: string | null; origin: string | null }>;
     expect(rows.find((row) => row.alias === 'shared')?.origin).toBe('base');
     expect(rows.find((row) => row.alias === 'extra')?.origin).toBe('overlay:laptop');
+    expect(JSON.parse(json.stdout).overlay).toEqual({ name: 'laptop', via: 'flag' });
+    expect(JSON.parse((await run(['list', '--json'])).stdout)).not.toHaveProperty('overlay');
 
     const text = await run(['list', '--overlay', 'laptop']);
     expect(text.stdout).toContain('overlay: laptop (flag)');

@@ -9,7 +9,7 @@ import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError } from '../errors.js';
 import type { PluginSource } from '../domain.js';
 import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
-import { removeOverlayPlugin, resolveWriteLayer, saveOverlay, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
+import { assertBaseMergesWithOverlay, removeOverlayPlugin, resolveWriteLayer, saveOverlay, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
 
@@ -146,6 +146,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
         source: parsed.source
       };
 
+      assertBaseMergesWithOverlay(paths, selection, manifest);
       await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
 
       if (opts.json) {
@@ -198,6 +199,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
         throw new ValidationError(`update --to currently supports npm sources only (got ${plugin.source.type})`);
       }
       plugin.source = { ...plugin.source, version: cmdOpts.to };
+      assertBaseMergesWithOverlay(paths, selection, manifest);
       await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
       await pinLockVersion(paths, cmdOpts.profile, alias, cmdOpts.to);
       if (opts.json) {
@@ -253,7 +255,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
         });
       }
       if (opts.json) {
-        writeOut(JSON.stringify({ plugins: rows }, null, 2) + '\n');
+        writeOut(JSON.stringify(selection ? { plugins: rows, overlay: selection } : { plugins: rows }, null, 2) + '\n');
       } else {
         if (selection) {
           writeOut(overlayBanner(selection));
@@ -330,6 +332,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
       }
       const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
       const patch = upsertPluginPatch(manifest, cmdOpts.profile, alias, dottedPath, parseConfigValue(value));
+      assertBaseMergesWithOverlay(paths, selection, manifest);
       await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
       if (opts.json) {
         writeOut(JSON.stringify({ status: 'set', profile: cmdOpts.profile, alias, path: dottedPath, patch }, null, 2) + '\n');
@@ -376,6 +379,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
       }
 
       profile.plugins[alias].enabled = true;
+      assertBaseMergesWithOverlay(paths, selection, manifest);
       await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
 
       if (opts.json) {
@@ -423,6 +427,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
       }
 
       profile.plugins[alias].enabled = false;
+      assertBaseMergesWithOverlay(paths, selection, manifest);
       await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
 
       if (opts.json) {
@@ -468,6 +473,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
       }
 
       delete profile.plugins[alias];
+      assertBaseMergesWithOverlay(paths, selection, manifest);
       await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
 
       if (opts.json) {

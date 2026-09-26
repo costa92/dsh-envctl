@@ -325,4 +325,62 @@ exit 0
       else process.env.DSH_CLI = oldDshCli;
     }
   });
+
+  describe('with overlays', () => {
+    let oldDshCli: string | undefined;
+    let oldOverlayEnv: string | undefined;
+    const run = async (args: string[]) => {
+      let stdout = '';
+      let stderr = '';
+      const code = await runCli([...args, '--dsh-home', tempHome], {
+        stdout: (chunk) => { stdout += chunk; },
+        stderr: (chunk) => { stderr += chunk; }
+      });
+      return { code, stdout, stderr };
+    };
+    const select = (name: string) =>
+      fs.writeFileSync(
+        path.join(tempHome, 'envctl', 'overlay-selection.json'),
+        JSON.stringify({ apiVersion: 'dshenv-overlay-selection/v1', overlay: name })
+      );
+
+    beforeEach(() => {
+      oldDshCli = process.env.DSH_CLI;
+      oldOverlayEnv = process.env.DSHENV_OVERLAY;
+      process.env.DSH_CLI = fakeDsh;
+      delete process.env.DSHENV_OVERLAY;
+      fs.mkdirSync(path.join(tempHome, 'envctl', 'overlays'), { recursive: true });
+      fs.writeFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'apiVersion: dshenv/v1\nprofiles: {}\n');
+      fs.writeFileSync(path.join(tempHome, 'envctl', 'overlays', 'laptop.yaml'), 'apiVersion: dshenv-overlay/v1\n');
+    });
+
+    afterEach(() => {
+      if (oldDshCli === undefined) delete process.env.DSH_CLI;
+      else process.env.DSH_CLI = oldDshCli;
+      if (oldOverlayEnv === undefined) delete process.env.DSHENV_OVERLAY;
+      else process.env.DSHENV_OVERLAY = oldOverlayEnv;
+    });
+
+    it('fails with exit 3 when the selected overlay is missing', async () => {
+      select('ghost');
+      const { code, stderr } = await run(['doctor']);
+      expect(code).toBe(3);
+      expect(stderr).toContain("Overlay 'ghost' not found");
+    });
+
+    it('reports the active overlay in text and JSON', async () => {
+      select('laptop');
+      const text = await run(['doctor']);
+      expect(text.code).toBe(0);
+      expect(text.stdout.startsWith('overlay: laptop (file)\n')).toBe(true);
+      const json = await run(['doctor', '--json']);
+      expect(JSON.parse(json.stdout).overlay).toEqual({ name: 'laptop', via: 'file' });
+    });
+
+    it('omits the overlay when none is active', async () => {
+      const text = await run(['doctor']);
+      expect(text.stdout).not.toContain('overlay:');
+      expect(JSON.parse((await run(['doctor', '--json'])).stdout)).not.toHaveProperty('overlay');
+    });
+  });
 });

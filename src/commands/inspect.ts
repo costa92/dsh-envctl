@@ -113,17 +113,20 @@ export function registerInspectCommands(ctx: CommandContext): void {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
-      let manifestHarnessSource: string | undefined;
-      let manifestAllowUntested: boolean | undefined;
-      if (fs.existsSync(paths.manifestFile)) {
+      const selection = resolveCliOverlay(opts, paths);
+      let manifest: EnvironmentManifest | undefined;
+      if (selection) {
+        // A broken overlay selection is exactly what doctor must surface.
+        manifest = loadEffectiveManifest(paths, selection).manifest;
+      } else if (fs.existsSync(paths.manifestFile)) {
         try {
-          const m = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
-          manifestHarnessSource = m.environment?.harness?.sourceDir;
-          manifestAllowUntested = m.environment?.harness?.allowUntestedVersion;
+          manifest = loadEffectiveManifest(paths, null).manifest;
         } catch {
           // ignore manifest error during doctor probing
         }
       }
+      const manifestHarnessSource = manifest?.environment?.harness?.sourceDir;
+      const manifestAllowUntested = manifest?.environment?.harness?.allowUntestedVersion;
 
       const allowUntested = Boolean(opts.allowUntestedDsh || manifestAllowUntested);
       const compatOpts = { allowUntested };
@@ -175,8 +178,11 @@ export function registerInspectCommands(ctx: CommandContext): void {
       };
 
       if (opts.json) {
-        writeOut(JSON.stringify(report, null, 2) + '\n');
+        writeOut(JSON.stringify(selection ? { ...report, overlay: selection } : report, null, 2) + '\n');
       } else {
+        if (selection) {
+          writeOut(overlayBanner(selection));
+        }
         writeOut(renderDoctor(report));
       }
     });

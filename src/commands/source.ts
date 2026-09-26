@@ -12,7 +12,7 @@ import {
 import { inspectLocalSource } from '../source/local.js';
 import { ValidationError } from '../errors.js';
 import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
-import { resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
+import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
 function overlaySuffix(name: string): string {
@@ -133,6 +133,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
             enabled: true,
             source: { type: 'git', url }
           };
+          assertBaseMergesWithOverlay(paths, selection, manifest);
           await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
         }
 
