@@ -52,4 +52,24 @@ describe('CLI writes never leave an unloadable manifest', () => {
     expect(code).toBe(3);
     expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(before);
   });
+
+  it('refuses to adopt over an existing manifest it cannot read, leaving it untouched', async () => {
+    const captured = path.join(tempHome, 'capture.yaml');
+    expect((await run(['capture', '-o', captured])).code).toBe(0);
+    fs.appendFileSync(manifestFile(), '  other:\n    plugins:\n      x:\n        package: x\n        enabeld: true\n        source: { type: npm, version: "1.0.0" }\n');
+    const before = fs.readFileSync(manifestFile(), 'utf8');
+    const { code, stderr } = await run(['adopt', '--from', captured, '--yes']);
+    expect(code).toBe(3);
+    expect(stderr).toMatch(/existing manifest/);
+    expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(before);
+  });
+
+  it('adopts a package the manifest already declares under its existing alias', async () => {
+    const captured = path.join(tempHome, 'capture.yaml');
+    expect((await run(['capture', '-o', captured])).code).toBe(0);
+    expect((await run(['adopt', '--from', captured, '--yes'])).code).toBe(0);
+    const { code, stdout } = await run(['list', '--json']);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout).plugins.map((plugin: { alias: string }) => plugin.alias)).toEqual(['foo']);
+  });
 });

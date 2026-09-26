@@ -64,6 +64,16 @@ export function checkCandidateFreshness(
   }
 }
 
+// Adopt rewrites these files wholesale, so an unreadable one must stop it rather than be replaced.
+function readExisting<T>(kind: string, file: string, load: (content: string) => T): T {
+  try {
+    return load(fs.readFileSync(file, 'utf8'));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new ValidationError(`Cannot adopt: the existing ${kind} ${file} is invalid (${message}); fix or move it first`);
+  }
+}
+
 export interface AdoptOptions {
   // Runs before anything is written; lets callers reject a base that an active overlay cannot merge onto.
   validateManifest?: (manifest: EnvironmentManifest) => void;
@@ -97,25 +107,13 @@ export async function adoptEnvironment(
   };
 
   if (fs.existsSync(paths.manifestFile)) {
-    try {
-      existingManifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
-    } catch {
-      // ignore
-    }
+    existingManifest = readExisting('manifest', paths.manifestFile, loadManifest);
   }
   if (fs.existsSync(paths.lockFile)) {
-    try {
-      existingLock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
-    } catch {
-      // ignore
-    }
+    existingLock = readExisting('lock', paths.lockFile, loadLock);
   }
   if (fs.existsSync(paths.stateFile)) {
-    try {
-      existingState = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
-    } catch {
-      // ignore
-    }
+    existingState = readExisting('state', paths.stateFile, loadState);
   }
 
   const mergedManifest: EnvironmentManifest = {
@@ -150,10 +148,14 @@ export async function adoptEnvironment(
 
     const candLockProf = candidate.lock.profiles[profileName]?.plugins ?? {};
 
-    for (const [alias, plugin] of Object.entries(candProf.plugins)) {
+    for (const [candidateAlias, plugin] of Object.entries(candProf.plugins)) {
+      // Capture derives its own alias; keep the one the manifest already uses for this package.
+      const existingAlias = Object.entries(mergedManifest.profiles[profileName].plugins)
+        .find(([, entry]) => entry.package === plugin.package)?.[0];
+      const alias = existingAlias ?? candidateAlias;
       mergedManifest.profiles[profileName].plugins[alias] = plugin;
 
-      const lockEntry = candLockProf[alias];
+      const lockEntry = candLockProf[candidateAlias];
       if (lockEntry) {
         mergedLock.profiles[profileName].plugins[alias] = lockEntry;
       }
