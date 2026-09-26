@@ -461,6 +461,37 @@ describe('buildPlan', () => {
       const plan = buildPlan(manifest, lockAt(newCommit), installedFrom('github:example/demo#main'));
       expect(plan.hasChanges).toBe(false);
     });
+
+    const manifestPinning = (commit: string): EnvironmentManifest => {
+      const pinned = structuredClone(manifest);
+      pinned.profiles.web.plugins.demo.source = { type: 'git', url: 'https://example.com/demo.git', commit };
+      return pinned;
+    };
+
+    it('should block with a pointer to the lock when the manifest declares a commit the lock lacks', () => {
+      const plan = buildPlan(manifestPinning(newCommit), null, installedFrom(`https://example.com/demo.git#${oldCommit}`));
+      expect(plan.operations).toEqual([
+        expect.objectContaining({
+          kind: 'blocked',
+          blockedReason: expect.stringMatching(new RegExp(`declares commit ${newCommit}.*only lock\\.json pins`))
+        })
+      ]);
+    });
+
+    it('should block instead of silently using the lock when the manifest commit differs', () => {
+      const plan = buildPlan(manifestPinning(newCommit), lockAt(oldCommit), installedFrom(`https://example.com/demo.git#${oldCommit}`));
+      expect(plan.operations).toEqual([
+        expect.objectContaining({
+          kind: 'blocked',
+          blockedReason: expect.stringMatching(new RegExp(`declares commit ${newCommit}.*locked commit is ${oldCommit}`))
+        })
+      ]);
+    });
+
+    it('should accept a manifest commit that matches the lock, abbreviated or not', () => {
+      const plan = buildPlan(manifestPinning(newCommit.slice(0, 7)), lockAt(newCommit), installedFrom(`https://example.com/demo.git#${newCommit}`));
+      expect(plan.hasChanges).toBe(false);
+    });
   });
 
   describe('local source digest drift', () => {

@@ -103,6 +103,19 @@ function isSameCommit(a: string, b: string): boolean {
   return left.startsWith(right) || right.startsWith(left);
 }
 
+// The lock alone decides the installed commit; a manifest commit it disagrees with must not be silently ignored.
+function gitCommitBlock(declared: string | undefined, locked: string | undefined): string | undefined {
+  if (!locked) {
+    return declared
+      ? `Git source declares commit ${declared} in the manifest, but only lock.json pins git commits; run 'dshenv source clone <url> --profile <profile>' to lock it`
+      : 'Git source has no locked commit; refusing to invent HEAD';
+  }
+  if (declared && !isSameCommit(declared, locked)) {
+    return `Git source declares commit ${declared} in the manifest, but the locked commit is ${locked}; drop the manifest commit or move the lock with 'dshenv source pull --profile <profile> --ref ${declared}'`;
+  }
+  return undefined;
+}
+
 export function buildPlan(
   manifest: EnvironmentManifest | null,
   lock: EnvironmentLock | null,
@@ -144,14 +157,15 @@ export function buildPlan(
       const installed = profInv?.plugins?.[pkgName];
       const gitLockCommit = lockedGitCommit(pluginManifest.source, lockEntry?.source);
 
-      if (pluginManifest.source.type === 'git' && !gitLockCommit) {
+      const gitBlock = pluginManifest.source.type === 'git' ? gitCommitBlock(pluginManifest.source.commit, gitLockCommit) : undefined;
+      if (gitBlock) {
         operations.push({
           kind: 'blocked',
           profile: profName,
           alias,
           package: pkgName,
-          reason: 'Git source has no locked commit; refusing to invent HEAD',
-          blockedReason: 'Git source has no locked commit; refusing to invent HEAD',
+          reason: gitBlock,
+          blockedReason: gitBlock,
           targetEnabled
         });
         continue;
