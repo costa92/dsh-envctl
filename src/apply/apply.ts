@@ -18,7 +18,7 @@ import { DshError, ValidationError, DegradedError, CapabilityError } from '../er
 import { probeDsh, resolveDshCommand } from '../dsh/command.js';
 import { capabilitiesFor } from '../dsh/capabilities.js';
 import { setProfileBundleEnabled } from './bundles.js';
-import { clearManagedPatches, writeManagedPatches } from './patches.js';
+import { clearManagedPatches, snapshotProfilePatchFile, writeManagedPatches } from './patches.js';
 
 export interface ApplyOptions {
   dryRun?: boolean;
@@ -34,6 +34,13 @@ export interface ApplyResult {
   plan: EnvironmentPlan;
   message?: string;
   snapshotId?: string;
+}
+
+interface ProfileRollback {
+  // dshenv's own profile edits, undone in reverse order when apply fails.
+  undo: Array<() => Promise<void>>;
+  // Re-run after undo: edits that belong to a DSH change which cannot be reverted.
+  keep: Array<() => Promise<void>>;
 }
 
 function packageSpec(
@@ -74,6 +81,7 @@ async function executeWithDsh(
   manifest: EnvironmentManifest,
   lock: EnvironmentLock | null,
   inventory: EnvironmentInventory,
+  rollback: ProfileRollback,
   options?: ApplyOptions
 ): Promise<{ success: boolean; error?: string }> {
   assertSupportedPlan(plan);
@@ -106,12 +114,15 @@ async function executeWithDsh(
 
   for (const operation of plan.operations) {
     if (operation.kind === 'enable' || operation.kind === 'disable') {
-      await setProfileBundleEnabled(
+      const previousIndex = await setProfileBundleEnabled(
         paths,
         operation.profile,
         operation.package,
         operation.kind === 'enable'
       );
+      rollback.undo.push(async () => {
+        await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
+      });
       continue;
     }
 
@@ -120,13 +131,19 @@ async function executeWithDsh(
       if (!plugin?.patches?.length) {
         throw new ValidationError(`No patches declared for ${operation.alias} in ${operation.profile}`);
       }
+      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile));
       await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches);
       continue;
     }
 
     if (operation.kind === 'remove') {
+      const undoStart = rollback.undo.length;
+      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile));
       await clearManagedPatches(paths, operation.profile, operation.alias);
-      await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
+      const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
+      rollback.undo.push(async () => {
+        await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
+      });
       const sourceType = inventory.profiles[operation.profile]?.plugins[operation.package]?.sourceType;
       if (sourceType === 'in-box') {
         continue;
@@ -147,6 +164,9 @@ async function executeWithDsh(
       if (removeResult.exitCode !== 0) {
         return { success: false, error: `DSH plugin command exited with code ${String(removeResult.exitCode)}` };
       }
+      // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
+      rollback.undo.length = undoStart;
+      rollback.keep.push(() => clearManagedPatches(paths, operation.profile, operation.alias));
       continue;
     }
 
@@ -316,6 +336,7 @@ async function planAndApply(
   const now = new Date().toISOString();
 
   let snapshot: EnvironmentSnapshot | null = null;
+  const rollback: ProfileRollback = { undo: [], keep: [] };
 
   try {
     // 1. Create snapshot before any modifications
@@ -335,7 +356,7 @@ async function planAndApply(
     // 3. Execute operations via executor (or the DSH CLI adapter)
     const execRes = options?.executor
       ? await options.executor(plan, paths)
-      : await executeWithDsh(plan, paths, manifest, lock, inventory, options);
+      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, options);
     if (!execRes.success) {
       throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
     }
@@ -380,6 +401,14 @@ async function planAndApply(
       message: `Successfully applied ${plan.operations.length} operation(s).`
     };
   } catch (err: unknown) {
+    for (const step of [...[...rollback.undo].reverse(), ...rollback.keep]) {
+      try {
+        await step();
+      } catch {
+        // keep undoing the remaining edits; preserve original error
+      }
+    }
+
     // Rollback if snapshot was created
     if (snapshot) {
       try {

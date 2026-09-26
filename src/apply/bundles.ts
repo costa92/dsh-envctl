@@ -22,8 +22,9 @@ export async function setProfileBundleEnabled(
   paths: EnvironmentPaths,
   profileName: string,
   packageName: string,
-  enabled: boolean
-): Promise<void> {
+  enabled: boolean,
+  insertAt?: number
+): Promise<number> {
   if (!ProfileNameRegex.test(profileName)) {
     throw new ValidationError(`Invalid profile name: ${profileName}`);
   }
@@ -52,10 +53,11 @@ export async function setProfileBundleEnabled(
     ? profile.bundles.filter((name): name is string => typeof name === 'string')
     : [];
 
+  const previousIndex = currentBundles.indexOf(packageName);
   const nextBundles = enabled
-    ? currentBundles.includes(packageName)
+    ? previousIndex !== -1
       ? currentBundles
-      : [...currentBundles, packageName]
+      : [...currentBundles.slice(0, insertAt ?? currentBundles.length), packageName, ...currentBundles.slice(insertAt ?? currentBundles.length)]
     : currentBundles.filter((name) => name !== packageName);
 
   raw.dsh = {
@@ -67,4 +69,5 @@ export async function setProfileBundleEnabled(
   };
 
   await writeAtomic(packageJsonPath, `${JSON.stringify(raw, null, 2)}\n`, 'overwrite');
+  return previousIndex;
 }

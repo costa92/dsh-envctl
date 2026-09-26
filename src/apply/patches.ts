@@ -39,6 +39,22 @@ export async function readProfilePatchFile(paths: EnvironmentPaths, profileName:
   return fs.readFileSync(file, 'utf8');
 }
 
+export async function snapshotProfilePatchFile(
+  paths: EnvironmentPaths,
+  profileName: string
+): Promise<() => Promise<void>> {
+  const file = profilePatchFile(paths, profileName);
+  const existed = fs.existsSync(file);
+  const content = await readProfilePatchFile(paths, profileName);
+  return async () => {
+    if (existed) {
+      await writeAtomic(file, content, 'overwrite');
+    } else {
+      await fs.promises.rm(file, { force: true });
+    }
+  };
+}
+
 export async function writeManagedPatches(
   paths: EnvironmentPaths,
   profileName: string,
