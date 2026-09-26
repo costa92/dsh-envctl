@@ -7,6 +7,7 @@ import { acquireEnvironmentLock } from '../io/lock.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { loadManifest, loadState } from '../manifest/files.js';
 import { clearManagedPatches, profilePatchFile } from '../apply/patches.js';
+import { inspectGitWorkingTree, managedGitSourceDir } from '../source/git.js';
 
 export interface PurgeOptions {
   dryRun?: boolean;
@@ -82,12 +83,11 @@ export async function purgePlugin(
 
   const moved: string[] = [];
   const patchFile = profilePatchFile(paths, profileName);
-  const cloneDir = path.join(
-    paths.managerDir,
-    'sources',
-    profileName,
-    owned.packageName.replaceAll('/', '_')
-  );
+  const cloneDir = managedGitSourceDir(paths.managerDir, profileName, owned.packageName);
+  const cloneStatus = await inspectGitWorkingTree(cloneDir);
+  if (cloneStatus.isDirty) {
+    throw new ValidationError(`Refusing to purge ${cloneDir}: the managed clone has uncommitted changes`);
+  }
 
   if (options?.dryRun) {
     if (fs.existsSync(patchFile)) moved.push(patchFile);

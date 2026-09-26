@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { purgePlugin } from '../../src/purge/purge.js';
 import { applyEnvironment } from '../../src/apply/apply.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
+import { execa } from 'execa';
 
 describe('purgePlugin', () => {
   let tempHome: string;
@@ -126,5 +127,18 @@ profiles:
     await expect(purgePlugin(paths, 'web', 'teams', { dryRun: true })).rejects.toThrow(/no ownership/);
     const result = await purgePlugin(paths, 'web', 'teams', { dryRun: true, manifest: effective });
     expect(result.package).toBe('@nanmicoder/dsh-agent-teams');
+  });
+
+  it('refuses to purge a managed clone with uncommitted changes and leaves it in place', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const cloneDir = path.join(paths.managerDir, 'sources', 'web', '@nanmicoder_dsh-agent-teams');
+    fs.mkdirSync(cloneDir, { recursive: true });
+    await execa('git', ['init', '-q'], { cwd: cloneDir });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: cloneDir });
+    fs.writeFileSync(path.join(cloneDir, 'wip.txt'), 'unsaved work');
+
+    await expect(purgePlugin(paths, 'web', 'agent-teams')).rejects.toThrow(/uncommitted changes/);
+    await expect(purgePlugin(paths, 'web', 'agent-teams', { dryRun: true })).rejects.toThrow(/uncommitted changes/);
+    expect(fs.readFileSync(path.join(cloneDir, 'wip.txt'), 'utf8')).toBe('unsaved work');
   });
 });
