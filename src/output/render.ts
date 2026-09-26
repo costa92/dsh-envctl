@@ -13,10 +13,11 @@ export function renderPlan(plan: EnvironmentPlan): string {
     for (const op of plan.operations) {
       const symbol = getOpSymbol(op.kind);
       let details = '';
+      // Non-npm installs and source switches carry no version; the reason line says what changes.
       if (op.kind === 'install') {
-        details = `-> ${op.targetVersion ?? 'latest'}`;
+        details = op.targetVersion ? `-> ${op.targetVersion}` : '';
       } else if (op.kind === 'update') {
-        details = `${op.currentVersion ?? '?'} -> ${op.targetVersion ?? '?'}`;
+        details = op.currentVersion || op.targetVersion ? `${op.currentVersion ?? '?'} -> ${op.targetVersion ?? '?'}` : '';
       } else if (op.kind === 'enable' || op.kind === 'disable') {
         details = `enabled: ${op.targetEnabled}`;
       } else if (op.kind === 'remove') {

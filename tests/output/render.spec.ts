@@ -3,6 +3,20 @@ import { renderPlan, renderStatus, renderDoctor } from '../../src/output/render.
 import type { EnvironmentPlan, EnvironmentStatusSummary } from '../../src/planner/plan.js';
 
 describe('renderPlan', () => {
+  it('shows no version for installs and source switches that have none', () => {
+    const text = renderPlan({
+      hasChanges: true,
+      operations: [
+        { kind: 'install', profile: 'web', alias: 'linked', package: 'linked-pkg', reason: 'missing' },
+        { kind: 'update', profile: 'web', alias: 'moved', package: 'moved-pkg', reason: 'Source type changed: installed npm != declared git' }
+      ],
+      unmanaged: []
+    });
+    expect(text).not.toMatch(/latest|\? -> \?/);
+    expect(text).toContain('  + [web] linked-pkg (linked)\n');
+    expect(text).toContain('  ~ [web] moved-pkg (moved)\n');
+  });
+
   it('should render install, blocked, and unmanaged with text symbols', () => {
     const plan: EnvironmentPlan = {
       hasChanges: true,
