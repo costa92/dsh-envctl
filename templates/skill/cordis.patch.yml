@@ -1,6 +1,6 @@
 # Mounts this package's skills/ directory as an extra skill root, next to the default roots.
 - insert:
-    - id: {{name}}-skills
+    - id: '{{name}}-skills'
       name: '@deepseek-ai/dsh-skill-filesystem'
       config:
         providerName: '{{package}}'

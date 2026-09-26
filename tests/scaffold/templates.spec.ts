@@ -95,4 +95,38 @@ describe('component templates', () => {
     expect(row.name).toBe('@deepseek-ai/dsh-mcp-client');
     expect(row.config).toMatchObject({ serverName: 'hello-world', transport: 'streamable-http', url: 'http://127.0.0.1:3000/mcp' });
   });
+
+  // YAML scalars that are exactly {{name}} must stay quoted so kebab-case names like
+  // '123' or 'true' parse as strings instead of a number/boolean/null.
+  it.each(['123', 'true'] as const)('%s: name-derived YAML scalars parse as strings, not YAML types', (name) => {
+    const yamlVars = { name, package: 'x', toolName: name.replaceAll('-', '_'), peerRange: PEER_RANGE };
+    const renderWith = (variant: TemplateVariant) => renderTemplate(templateDir(variant), yamlVars);
+
+    for (const variant of variants) {
+      const files = renderWith(variant);
+      const [row] = insertedRows(files);
+      if (variant === 'skill') {
+        expect(row.id).toBe(`${name}-skills`);
+      } else {
+        expect(row.id).toBe(name);
+      }
+      expect(typeof row.id).toBe('string');
+      if (variant === 'agent') {
+        expect(row.config.id).toBe(name);
+        expect(typeof row.config.id).toBe('string');
+        expect(row.config.name).toBe(name);
+        expect(typeof row.config.name).toBe('string');
+      }
+      if (variant === 'mcp') {
+        expect(row.config.serverName).toBe(name);
+        expect(typeof row.config.serverName).toBe('string');
+      }
+    }
+
+    const skillFiles = renderWith('skill');
+    const skillMd = file(skillFiles, path.join('skills', name, 'SKILL.md'));
+    const frontmatter = YAML.parse(skillMd.split('---')[1]);
+    expect(frontmatter.name).toBe(name);
+    expect(typeof frontmatter.name).toBe('string');
+  });
 });

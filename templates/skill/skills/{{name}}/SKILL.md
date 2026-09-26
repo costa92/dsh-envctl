@@ -1,5 +1,5 @@
 ---
-name: {{name}}
+name: '{{name}}'
 description: One or two sentences on what this skill does and when the agent should use it.
 ---
 

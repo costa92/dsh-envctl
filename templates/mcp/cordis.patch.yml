@@ -3,9 +3,9 @@
 #   command: node
 #   args: ['./server.js']
 - insert:
-    - id: {{name}}
+    - id: '{{name}}'
       name: '@deepseek-ai/dsh-mcp-client'
       config:
-        serverName: {{name}}
+        serverName: '{{name}}'
         transport: streamable-http
         url: http://127.0.0.1:3000/mcp

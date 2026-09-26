@@ -39,7 +39,7 @@ describe('scaffoldComponent', () => {
     expect(result.dir).toBe(path.join(dshHome, 'skills', 'review'));
     expect(result.packageName).toBeUndefined();
     expect(result.files).toEqual(['SKILL.md']);
-    expect(fs.readFileSync(path.join(result.dir, 'SKILL.md'), 'utf8')).toContain('name: review');
+    expect(fs.readFileSync(path.join(result.dir, 'SKILL.md'), 'utf8')).toContain("name: 'review'");
   });
 
   it.each([
@@ -74,9 +74,29 @@ describe('scaffoldComponent', () => {
     expect(fs.readdirSync(path.join(work, 'empty'))).toEqual([]);
   });
 
-  it('cleanup() removes a directory it created', () => {
+  it('cleanup() removes a directory it created, including new parent directories', () => {
     const result = scaffoldComponent(opts({ kind: 'agent', name: 'helper', dir: 'a/b/helper' }));
     result.cleanup();
-    expect(fs.existsSync(path.join(work, 'a', 'b', 'helper'))).toBe(false);
+    expect(fs.existsSync(path.join(work, 'a'))).toBe(false);
+  });
+
+  it('cleanup() removes a newly created skills parent directory for --loose', () => {
+    const result = scaffoldComponent(opts({ kind: 'skill', name: 'review', loose: true }));
+    result.cleanup();
+    expect(fs.existsSync(path.join(dshHome, 'skills'))).toBe(false);
+  });
+
+  it('rejects a dangling symlink as --dir without deleting it on cleanup failure', () => {
+    const target = path.join(work, 'echo');
+    fs.symlinkSync(path.join(work, 'nonexistent-target'), target);
+    expect(() => scaffoldComponent(opts({ kind: 'tool', name: 'echo', dir: 'echo' }))).toThrow(`Target is not a directory: ${target}`);
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+  });
+
+  it('rejects an existing file as --dir', () => {
+    const target = path.join(work, 'echo');
+    fs.writeFileSync(target, 'x');
+    expect(() => scaffoldComponent(opts({ kind: 'tool', name: 'echo', dir: 'echo' }))).toThrow(`Target is not a directory: ${target}`);
+    expect(fs.readFileSync(target, 'utf8')).toBe('x');
   });
 });
