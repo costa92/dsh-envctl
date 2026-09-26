@@ -6,6 +6,7 @@ import { registerLifecycleCommands } from './commands/lifecycle.js';
 import { registerInspectCommands } from './commands/inspect.js';
 import { registerPluginCommands } from './commands/plugins.js';
 import { registerSourceCommands } from './commands/source.js';
+import { registerOverlayCommands } from './commands/overlay.js';
 
 export interface CliIO {
   stdout?: (chunk: string) => void;
@@ -48,6 +49,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   registerInspectCommands(ctx);
   registerPluginCommands(ctx);
   registerSourceCommands(ctx);
+  registerOverlayCommands(ctx);
 
   try {
     // commander keeps only the last of the two flags, so a conflict must be detected on argv.
