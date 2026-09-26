@@ -10,7 +10,6 @@ export interface LocalSourceInfo {
   isValid: boolean;
   name?: string;
   version?: string;
-  bundleEntry?: string;
   digest: string;
   packageJson?: Record<string, unknown>;
 }
@@ -81,10 +80,6 @@ export async function inspectLocalSource(sourcePath: string): Promise<LocalSourc
 
   const name = typeof pkgJson.name === 'string' ? pkgJson.name : undefined;
   const version = typeof pkgJson.version === 'string' ? pkgJson.version : undefined;
-  const bundleEntry =
-    typeof (pkgJson.dsh as Record<string, unknown> | undefined)?.bundle === 'string'
-      ? ((pkgJson.dsh as Record<string, unknown>).bundle as string)
-      : undefined;
 
   const digest = await calculateSourceDigest(sourcePath);
 
@@ -92,7 +87,6 @@ export async function inspectLocalSource(sourcePath: string): Promise<LocalSourc
     isValid: true,
     name,
     version,
-    bundleEntry,
     digest,
     packageJson: pkgJson
   };
