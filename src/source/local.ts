@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { EnvironmentManifest } from '../domain.js';
 import { ValidationError } from '../errors.js';
+import { PackageNameRegex } from '../manifest/schema.js';
 import type { LocalSourceDigests } from '../planner/plan.js';
 
 export interface LocalSourceInfo {
@@ -113,4 +114,14 @@ export async function readLocalSourceDigests(manifest: EnvironmentManifest | nul
     }
   }
   return digests;
+}
+
+// The name DSH installs the package under; directory and URL names are only a fallback.
+export function readPackageJsonName(dir: string): string | undefined {
+  try {
+    const name: unknown = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name;
+    return typeof name === 'string' && PackageNameRegex.test(name) ? name : undefined;
+  } catch {
+    return undefined;
+  }
 }

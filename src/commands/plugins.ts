@@ -15,11 +15,12 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
 import { withEnvironmentLock } from '../io/lock.js';
+import { readPackageJsonName } from '../source/local.js';
 
 export function registerPluginCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
 
-  function parsePluginSpec(spec: string, optsAlias?: string): { alias: string; packageName: string; source: PluginSource } {
+  function parsePluginSpec(spec: string, optsAlias?: string, optsPackage?: string): { alias: string; packageName: string; source: PluginSource } {
     if (spec.startsWith('git+') || spec.startsWith('http://') || spec.startsWith('https://') || spec.startsWith('git@') || spec.endsWith('.git')) {
       const cleanUrl = spec.startsWith('git+') ? spec.slice(4) : spec;
       const urlParts = cleanUrl.split('#');
@@ -29,7 +30,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
       const alias = optsAlias || baseName.replace(/^(dsh-plugin-|dsh-)/, '');
       return {
         alias,
-        packageName: baseName,
+        packageName: optsPackage ?? baseName,
         source: {
           type: 'git',
           url: repoUrl,
@@ -45,7 +46,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
       const alias = optsAlias || baseName.replace(/^(dsh-plugin-|dsh-)/, '');
       return {
         alias,
-        packageName: baseName,
+        packageName: optsPackage ?? readPackageJsonName(resolved) ?? baseName,
         source: {
           type: 'local-link',
           path: resolved
@@ -53,6 +54,9 @@ export function registerPluginCommands(ctx: CommandContext): void {
       };
     }
 
+    if (optsPackage !== undefined) {
+      throw new ValidationError('--package only applies to git and local sources');
+    }
     let packageName = spec;
     let version: string | undefined;
 
@@ -175,6 +179,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .description('Install a plugin into the manifest for a profile')
     .requiredOption('-p, --profile <name>', 'target profile')
     .option('--as <alias>', 'custom alias name for the plugin')
+    .option('--package <name>', 'package name for a git or local source; defaults to its package.json name')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (spec: string, cmdOpts) => {
       const opts = program.opts();
@@ -184,7 +189,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
 
       const parsed = overlay
         ? await writeOverlay(paths, overlay, (doc, base) => {
-            const next = parsePluginSpec(spec, cmdOpts.as);
+            const next = parsePluginSpec(spec, cmdOpts.as, cmdOpts.package);
             const baseEntry = base.profiles[profile]?.plugins[next.alias];
             if (baseEntry && baseEntry.package !== next.packageName) {
               throw new ValidationError(
@@ -205,7 +210,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
             if (!manifest.profiles[profile]) {
               manifest.profiles[profile] = { plugins: {} };
             }
-            const next = parsePluginSpec(spec, cmdOpts.as);
+            const next = parsePluginSpec(spec, cmdOpts.as, cmdOpts.package);
             const current = manifest.profiles[profile].plugins[next.alias];
             // Reinstalling the same package only moves its source; patches and the enabled state are kept.
             manifest.profiles[profile].plugins[next.alias] = current?.package === next.packageName

@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadManifest, loadLock, serializeLock, serializeManifest } from '../manifest/files.js';
@@ -15,6 +16,7 @@ import { mergeManifest } from '../overlay/merge.js';
 import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { acquireEnvironmentLock, withEnvironmentLock } from '../io/lock.js';
 import { hasEmbeddedCredentials } from '../manifest/schema.js';
+import { readPackageJsonName } from '../source/local.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
@@ -93,6 +95,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
     .option('--ref <ref>', 'branch or tag to clone')
     .option('-p, --profile <name>', 'record the clone as a managed git plugin for this profile')
     .option('--as <alias>', 'manifest alias when --profile is set')
+    .option('--package <name>', 'package name when --profile is set; defaults to the cloned package.json name')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (url: string, targetDir: string | undefined, cmdOpts) => {
       const opts = program.opts();
@@ -101,14 +104,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
       if (hasEmbeddedCredentials(url)) {
         throw new ValidationError('Git URL must not embed credentials; use SSH or a git credential helper');
       }
-      const packageName = packageNameFromGitUrl(url);
-      const alias = cmdOpts.as || packageName;
-      let resolvedTarget: string;
-      if (targetDir) {
-        resolvedTarget = path.resolve(process.cwd(), targetDir);
-      } else if (cmdOpts.profile) {
-        resolvedTarget = managedGitSourceDir(paths.managerDir, cmdOpts.profile, packageName);
-      } else {
+      const alias: string = cmdOpts.as || packageNameFromGitUrl(url);
+      if (!targetDir && !cmdOpts.profile) {
         throw new ValidationError('source clone requires <targetDir> or --profile');
       }
       if (!cmdOpts.profile && cmdOpts.layer !== undefined) {
@@ -116,27 +113,36 @@ export function registerSourceCommands(ctx: CommandContext): void {
       }
       const selection = cmdOpts.profile ? resolveCliOverlay(opts, paths) : null;
       const layer = resolveWriteLayer(selection, cmdOpts.layer);
+      const explicitTarget = targetDir ? path.resolve(process.cwd(), targetDir) : null;
+      const sourcesDir = path.join(paths.managerDir, 'sources');
+      // A managed clone is named after its package, which is only known once cloned, so it lands in a staging dir first.
+      const cloneDir = explicitTarget ?? path.join(sourcesDir, `.staging-${crypto.randomBytes(6).toString('hex')}`);
+      const createdDirs = (explicitTarget ? [cloneDir] : [cloneDir, sourcesDir]).filter((dir) => !fs.existsSync(dir));
 
       // Hold the lock from reading the manifest until the lock file is written, cloning included.
       const lockHandle = cmdOpts.profile ? await acquireEnvironmentLock(paths) : null;
       let res: Awaited<ReturnType<typeof cloneManagedGit>>;
+      let resolvedTarget = cloneDir;
       try {
-        // Prepare and validate every manifest write before cloning, so a rejected write leaves no orphan clone behind.
-        let writeManifest: (() => Promise<void>) | null = null;
+        if (cmdOpts.profile && !fs.existsSync(paths.manifestFile)) {
+          throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+        }
+        res = await cloneManagedGit(url, cloneDir, cmdOpts.ref);
+
         if (cmdOpts.profile) {
-          if (!fs.existsSync(paths.manifestFile)) {
-            throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
-          }
+          const profile: string = cmdOpts.profile;
+          const packageName: string = cmdOpts.package ?? readPackageJsonName(cloneDir) ?? packageNameFromGitUrl(url);
+          let writeManifest: () => Promise<void>;
           const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
           if (layer === 'overlay' && selection) {
             const overlayDoc = readOverlay(paths, selection.name);
-            const baseEntry = base.profiles[cmdOpts.profile]?.plugins[alias];
+            const baseEntry = base.profiles[profile]?.plugins[alias];
             if (baseEntry && baseEntry.package !== packageName) {
               throw new ValidationError(`Alias '${alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`);
             }
-            const overlayEntry = overlayDoc.profiles?.[cmdOpts.profile]?.plugins?.[alias];
+            const overlayEntry = overlayDoc.profiles?.[profile]?.plugins?.[alias];
             const exists = overlayEntry ? !overlayEntry.remove : Boolean(baseEntry);
-            setOverlayPluginFields(overlayDoc, cmdOpts.profile, alias, exists
+            setOverlayPluginFields(overlayDoc, profile, alias, exists
               ? { source: { type: 'git', url } }
               : baseEntry
                 ? { enabled: true, source: { type: 'git', url } }
@@ -144,35 +150,51 @@ export function registerSourceCommands(ctx: CommandContext): void {
             mergeManifest(base, overlayDoc, selection.name);
             writeManifest = () => saveOverlay(paths, selection.name, base, overlayDoc);
           } else {
-            if (!base.profiles[cmdOpts.profile]) {
-              base.profiles[cmdOpts.profile] = { plugins: {} };
+            if (!base.profiles[profile]) {
+              base.profiles[profile] = { plugins: {} };
             }
-            const current = base.profiles[cmdOpts.profile].plugins[alias];
-            base.profiles[cmdOpts.profile].plugins[alias] = current?.package === packageName
+            const current = base.profiles[profile].plugins[alias];
+            base.profiles[profile].plugins[alias] = current?.package === packageName
               ? { ...current, source: { type: 'git', url } }
               : { package: packageName, enabled: true, source: { type: 'git', url } };
             assertBaseMergesWithOverlay(paths, selection, base);
             writeManifest = () => writeAtomic(paths.manifestFile, serializeManifest(base), 'overwrite');
           }
-        }
 
-        res = await cloneManagedGit(url, resolvedTarget, cmdOpts.ref);
+          if (!explicitTarget) {
+            const managedDir = managedGitSourceDir(paths.managerDir, profile, packageName);
+            if (fs.existsSync(managedDir)) {
+              throw new ValidationError(`Managed source already exists: ${managedDir}`);
+            }
+            if (!fs.existsSync(path.dirname(managedDir))) {
+              createdDirs.push(path.dirname(managedDir));
+            }
+            await fs.promises.mkdir(path.dirname(managedDir), { recursive: true });
+            await fs.promises.rename(cloneDir, managedDir);
+            createdDirs[0] = managedDir;
+            resolvedTarget = managedDir;
+          }
 
-        if (cmdOpts.profile && writeManifest) {
           await writeManifest();
 
           const lock = fs.existsSync(paths.lockFile)
             ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
             : { apiVersion: 'dshenv-lock/v1' as const, profiles: {} };
-          if (!lock.profiles[cmdOpts.profile]) {
-            lock.profiles[cmdOpts.profile] = { plugins: {} };
+          if (!lock.profiles[profile]) {
+            lock.profiles[profile] = { plugins: {} };
           }
-          lock.profiles[cmdOpts.profile].plugins[alias] = {
+          lock.profiles[profile].plugins[alias] = {
             package: packageName,
             source: { type: 'git', url, commit: res.commit }
           };
           await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
         }
+      } catch (err) {
+        // Leave nothing behind that this command created: the clone and any directories made for it.
+        for (const dir of createdDirs) {
+          await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+        }
+        throw err;
       } finally {
         await lockHandle?.release();
       }
