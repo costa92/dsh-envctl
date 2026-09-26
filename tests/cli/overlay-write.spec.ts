@@ -178,4 +178,29 @@ describe('CLI writes with an active overlay', () => {
     expect(stderr).toMatch(/must declare package and source/);
     expect([fs.readFileSync(manifestFile(), 'utf8'), fs.readFileSync(overlayFile(), 'utf8')]).toEqual(before);
   });
+
+  it('source clone checks the overlay and --layer before cloning', async () => {
+    const upstream = path.join(tempHome, 'upstream', 'demo-plugin');
+    fs.mkdirSync(upstream, { recursive: true });
+    await execa('git', ['init'], { cwd: upstream });
+    await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream });
+    await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream });
+    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0' }));
+    await execa('git', ['add', '.'], { cwd: upstream });
+    await execa('git', ['commit', '-m', 'init'], { cwd: upstream });
+    const sourcesDir = path.join(tempHome, 'envctl', 'sources');
+    fs.writeFileSync(path.join(tempHome, 'envctl', 'overlays', 'bad.yaml'), 'apiVersion: dshenv-overlay/v1\nbogus: true\n');
+
+    for (const name of ['ghost', 'bad']) {
+      const res = await run(['--overlay', name, 'source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--layer', 'overlay']);
+      expect(res.code).toBe(3);
+      expect(fs.existsSync(sourcesDir)).toBe(false);
+    }
+
+    const target = path.join(tempHome, 'plain-clone');
+    const noProfile = await run(['source', 'clone', upstream, target, '--layer', 'overlay']);
+    expect(noProfile.code).toBe(3);
+    expect(noProfile.stderr).toContain('--layer requires --profile for source clone');
+    expect(fs.existsSync(target)).toBe(false);
+  });
 });

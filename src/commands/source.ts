@@ -104,25 +104,29 @@ export function registerSourceCommands(ctx: CommandContext): void {
       } else {
         throw new ValidationError('source clone requires <targetDir> or --profile');
       }
+      if (!cmdOpts.profile && cmdOpts.layer === 'overlay') {
+        throw new ValidationError('--layer requires --profile for source clone');
+      }
       const selection = cmdOpts.profile ? resolveCliOverlay(opts, paths) : null;
       const layer = resolveWriteLayer(selection, cmdOpts.layer);
+      // Read the overlay before cloning so a missing or invalid one leaves no orphan clone behind.
+      const overlayDoc = layer === 'overlay' && selection ? readOverlay(paths, selection.name) : null;
       const res = await cloneManagedGit(url, resolvedTarget, cmdOpts.ref);
 
       if (cmdOpts.profile) {
         if (!fs.existsSync(paths.manifestFile)) {
           throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
         }
-        if (layer === 'overlay' && selection) {
+        if (overlayDoc && selection) {
           const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
           const baseEntry = base.profiles[cmdOpts.profile]?.plugins[alias];
           if (baseEntry && baseEntry.package !== packageName) {
             throw new ValidationError(`Alias '${alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`);
           }
-          const doc = readOverlay(paths, selection.name);
-          setOverlayPluginFields(doc, cmdOpts.profile, alias, baseEntry
+          setOverlayPluginFields(overlayDoc, cmdOpts.profile, alias, baseEntry
             ? { enabled: true, source: { type: 'git', url } }
             : { package: packageName, enabled: true, source: { type: 'git', url } });
-          await saveOverlay(paths, selection.name, base, doc);
+          await saveOverlay(paths, selection.name, base, overlayDoc);
         } else {
           const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
           if (!manifest.profiles[cmdOpts.profile]) {
