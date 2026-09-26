@@ -66,7 +66,7 @@ dshenv --version
 dshenv doctor
 
 # 指定 DSH 源码目录
-dshenv doctor --harness-source /Users/costalong/code/dsh/deepseek-harness
+dshenv doctor --harness-source "$HOME/code/dsh/deepseek-harness"
 
 # 结构化 JSON 输出
 dshenv doctor --json
