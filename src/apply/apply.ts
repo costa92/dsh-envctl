@@ -10,7 +10,7 @@ import type {
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
 import { buildPlan, type EnvironmentPlan } from '../planner/plan.js';
 import { loadManifest, loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
-import { acquireEnvironmentLock, type LockHandle } from '../io/lock.js';
+import { acquireEnvironmentLock } from '../io/lock.js';
 import { createEnvironmentSnapshot, restoreEnvironmentSnapshot, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
@@ -261,6 +261,26 @@ export async function applyEnvironment(
     throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
   }
 
+  if (options?.dryRun) {
+    return planAndApply(paths, options);
+  }
+  // Plan only after locking so rollback/purge cannot change the files between plan and execution.
+  const lockHandle = await acquireEnvironmentLock(paths);
+  try {
+    return await planAndApply(paths, options);
+  } finally {
+    await lockHandle.release();
+  }
+}
+
+async function planAndApply(
+  paths: EnvironmentPaths,
+  options?: ApplyOptions
+): Promise<ApplyResult> {
+  if (!fs.existsSync(paths.manifestFile)) {
+    throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+  }
+
   const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
   const lock = fs.existsSync(paths.lockFile)
     ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
@@ -295,17 +315,13 @@ export async function applyEnvironment(
   const operationId = `apply-${crypto.randomBytes(6).toString('hex')}`;
   const now = new Date().toISOString();
 
-  let lockHandle: LockHandle | null = null;
   let snapshot: EnvironmentSnapshot | null = null;
 
   try {
-    // 1. Acquire environment lock
-    lockHandle = await acquireEnvironmentLock(paths);
-
-    // 2. Create snapshot before any modifications
+    // 1. Create snapshot before any modifications
     snapshot = await createEnvironmentSnapshot(paths, operationId);
 
-    // 3. Log operation start
+    // 2. Log operation start
     await appendJournalEntry(paths, {
       operationId,
       type: 'apply-started',
@@ -316,7 +332,7 @@ export async function applyEnvironment(
       }
     });
 
-    // 4. Execute operations via executor (or the DSH CLI adapter)
+    // 3. Execute operations via executor (or the DSH CLI adapter)
     const execRes = options?.executor
       ? await options.executor(plan, paths)
       : await executeWithDsh(plan, paths, manifest, lock, inventory, options);
@@ -331,7 +347,7 @@ export async function applyEnvironment(
       throw new DegradedError('Apply execution finished but the environment still has pending operations');
     }
 
-    // 5. Update state.json
+    // 4. Update state.json
     const lockSerialized = lock ? serializeLock(lock) : '{}';
     const lockHash = crypto.createHash('sha256').update(lockSerialized).digest('hex');
 
@@ -345,7 +361,7 @@ export async function applyEnvironment(
 
     await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');
 
-    // 6. Log operation completion
+    // 5. Log operation completion
     await appendJournalEntry(paths, {
       operationId,
       type: 'apply-completed',
@@ -386,9 +402,5 @@ export async function applyEnvironment(
     }
     const message = err instanceof Error ? err.message : String(err);
     throw new DegradedError(`Apply failed: ${message}`);
-  } finally {
-    if (lockHandle) {
-      await lockHandle.release();
-    }
   }
 }
