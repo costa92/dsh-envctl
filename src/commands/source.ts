@@ -13,6 +13,7 @@ import { inspectLocalSource } from '../source/local.js';
 import { ValidationError } from '../errors.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
+import { acquireEnvironmentLock, withEnvironmentLock } from '../io/lock.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
@@ -111,54 +112,61 @@ export function registerSourceCommands(ctx: CommandContext): void {
       const selection = cmdOpts.profile ? resolveCliOverlay(opts, paths) : null;
       const layer = resolveWriteLayer(selection, cmdOpts.layer);
 
-      // Prepare and validate every manifest write before cloning, so a rejected write leaves no orphan clone behind.
-      let writeManifest: (() => Promise<void>) | null = null;
-      if (cmdOpts.profile) {
-        if (!fs.existsSync(paths.manifestFile)) {
-          throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      // Hold the lock from reading the manifest until the lock file is written, cloning included.
+      const lockHandle = cmdOpts.profile ? await acquireEnvironmentLock(paths) : null;
+      let res: Awaited<ReturnType<typeof cloneManagedGit>>;
+      try {
+        // Prepare and validate every manifest write before cloning, so a rejected write leaves no orphan clone behind.
+        let writeManifest: (() => Promise<void>) | null = null;
+        if (cmdOpts.profile) {
+          if (!fs.existsSync(paths.manifestFile)) {
+            throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+          }
+          const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+          if (layer === 'overlay' && selection) {
+            const overlayDoc = readOverlay(paths, selection.name);
+            const baseEntry = base.profiles[cmdOpts.profile]?.plugins[alias];
+            if (baseEntry && baseEntry.package !== packageName) {
+              throw new ValidationError(`Alias '${alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`);
+            }
+            setOverlayPluginFields(overlayDoc, cmdOpts.profile, alias, baseEntry
+              ? { enabled: true, source: { type: 'git', url } }
+              : { package: packageName, enabled: true, source: { type: 'git', url } });
+            mergeManifest(base, overlayDoc, selection.name);
+            writeManifest = () => saveOverlay(paths, selection.name, base, overlayDoc);
+          } else {
+            if (!base.profiles[cmdOpts.profile]) {
+              base.profiles[cmdOpts.profile] = { plugins: {} };
+            }
+            base.profiles[cmdOpts.profile].plugins[alias] = {
+              package: packageName,
+              enabled: true,
+              source: { type: 'git', url }
+            };
+            assertBaseMergesWithOverlay(paths, selection, base);
+            writeManifest = () => writeAtomic(paths.manifestFile, serializeManifest(base), 'overwrite');
+          }
         }
-        const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
-        if (layer === 'overlay' && selection) {
-          const overlayDoc = readOverlay(paths, selection.name);
-          const baseEntry = base.profiles[cmdOpts.profile]?.plugins[alias];
-          if (baseEntry && baseEntry.package !== packageName) {
-            throw new ValidationError(`Alias '${alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`);
+
+        res = await cloneManagedGit(url, resolvedTarget, cmdOpts.ref);
+
+        if (cmdOpts.profile && writeManifest) {
+          await writeManifest();
+
+          const lock = fs.existsSync(paths.lockFile)
+            ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
+            : { apiVersion: 'dshenv-lock/v1' as const, profiles: {} };
+          if (!lock.profiles[cmdOpts.profile]) {
+            lock.profiles[cmdOpts.profile] = { plugins: {} };
           }
-          setOverlayPluginFields(overlayDoc, cmdOpts.profile, alias, baseEntry
-            ? { enabled: true, source: { type: 'git', url } }
-            : { package: packageName, enabled: true, source: { type: 'git', url } });
-          mergeManifest(base, overlayDoc, selection.name);
-          writeManifest = () => saveOverlay(paths, selection.name, base, overlayDoc);
-        } else {
-          if (!base.profiles[cmdOpts.profile]) {
-            base.profiles[cmdOpts.profile] = { plugins: {} };
-          }
-          base.profiles[cmdOpts.profile].plugins[alias] = {
+          lock.profiles[cmdOpts.profile].plugins[alias] = {
             package: packageName,
-            enabled: true,
-            source: { type: 'git', url }
+            source: { type: 'git', url, commit: res.commit }
           };
-          assertBaseMergesWithOverlay(paths, selection, base);
-          writeManifest = () => writeAtomic(paths.manifestFile, serializeManifest(base), 'overwrite');
+          await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
         }
-      }
-
-      const res = await cloneManagedGit(url, resolvedTarget, cmdOpts.ref);
-
-      if (cmdOpts.profile && writeManifest) {
-        await writeManifest();
-
-        const lock = fs.existsSync(paths.lockFile)
-          ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
-          : { apiVersion: 'dshenv-lock/v1' as const, profiles: {} };
-        if (!lock.profiles[cmdOpts.profile]) {
-          lock.profiles[cmdOpts.profile] = { plugins: {} };
-        }
-        lock.profiles[cmdOpts.profile].plugins[alias] = {
-          package: packageName,
-          source: { type: 'git', url, commit: res.commit }
-        };
-        await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
+      } finally {
+        await lockHandle?.release();
       }
 
       const wroteOverlay = Boolean(cmdOpts.profile) && layer === 'overlay' && Boolean(selection);
@@ -223,13 +231,20 @@ export function registerSourceCommands(ctx: CommandContext): void {
 
       const res = await safeFastForwardManagedGit(resolvedTarget, ref);
 
-      if (cmdOpts.profile && alias && fs.existsSync(paths.lockFile)) {
-        const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
-        const lockPlugin = lock.profiles[cmdOpts.profile]?.plugins[alias];
-        if (lockPlugin?.source.type === 'git') {
-          lockPlugin.source = { ...lockPlugin.source, commit: res.newCommit };
-          await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
-        }
+      if (cmdOpts.profile && alias) {
+        const profile: string = cmdOpts.profile;
+        const pluginAlias = alias;
+        await withEnvironmentLock(paths, async () => {
+          if (!fs.existsSync(paths.lockFile)) {
+            return;
+          }
+          const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
+          const lockPlugin = lock.profiles[profile]?.plugins[pluginAlias];
+          if (lockPlugin?.source.type === 'git') {
+            lockPlugin.source = { ...lockPlugin.source, commit: res.newCommit };
+            await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
+          }
+        });
       }
 
       if (opts.json) {

@@ -127,3 +127,12 @@ export async function acquireEnvironmentLock(
     }
   };
 }
+
+export async function withEnvironmentLock<T>(paths: EnvironmentPaths, fn: () => Promise<T>): Promise<T> {
+  const handle = await acquireEnvironmentLock(paths);
+  try {
+    return await fn();
+  } finally {
+    await handle.release();
+  }
+}

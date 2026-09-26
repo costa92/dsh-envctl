@@ -19,6 +19,7 @@ import {
 } from '../manifest/files.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
+import { withEnvironmentLock } from '../io/lock.js';
 
 export interface AdoptDetail {
   profile: string;
@@ -80,6 +81,15 @@ export interface AdoptOptions {
 }
 
 export async function adoptEnvironment(
+  paths: EnvironmentPaths,
+  candidate: CaptureDocument,
+  options?: AdoptOptions
+): Promise<AdoptSummary> {
+  // Adopt rewrites manifest, lock and state from what it reads, so nothing may change them in between.
+  return withEnvironmentLock(paths, () => adoptUnderLock(paths, candidate, options));
+}
+
+async function adoptUnderLock(
   paths: EnvironmentPaths,
   candidate: CaptureDocument,
   options?: AdoptOptions

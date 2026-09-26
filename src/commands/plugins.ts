@@ -14,6 +14,7 @@ import { assertBaseMergesWithOverlay, removeOverlayPlugin, resolveWriteLayer, sa
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
+import { withEnvironmentLock } from '../io/lock.js';
 
 export function registerPluginCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -117,11 +118,13 @@ export function registerPluginCommands(ctx: CommandContext): void {
     overlay: OverlaySelection,
     edit: (doc: EnvironmentOverlay, base: EnvironmentManifest) => T
   ): Promise<T> {
-    const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
-    const doc = readOverlay(paths, overlay.name);
-    const result = edit(doc, base);
-    await saveOverlay(paths, overlay.name, base, doc);
-    return result;
+    return withEnvironmentLock(paths, async () => {
+      const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const doc = readOverlay(paths, overlay.name);
+      const result = edit(doc, base);
+      await saveOverlay(paths, overlay.name, base, doc);
+      return result;
+    });
   }
 
   async function writeBase<T>(
@@ -129,11 +132,13 @@ export function registerPluginCommands(ctx: CommandContext): void {
     selection: OverlaySelection | null,
     edit: (manifest: EnvironmentManifest) => T
   ): Promise<T> {
-    const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
-    const result = edit(manifest);
-    assertBaseMergesWithOverlay(paths, selection, manifest);
-    await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
-    return result;
+    return withEnvironmentLock(paths, async () => {
+      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const result = edit(manifest);
+      assertBaseMergesWithOverlay(paths, selection, manifest);
+      await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+      return result;
+    });
   }
 
   function reportWrite(
@@ -152,15 +157,17 @@ export function registerPluginCommands(ctx: CommandContext): void {
   }
 
   async function pinLockVersion(paths: EnvironmentPaths, profile: string, alias: string, version: string): Promise<void> {
-    if (!fs.existsSync(paths.lockFile)) {
-      return;
-    }
-    const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
-    const lockPlugin = lock.profiles[profile]?.plugins[alias];
-    if (lockPlugin?.source.type === 'npm') {
-      lockPlugin.source = { ...lockPlugin.source, resolvedVersion: version };
-      await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
-    }
+    await withEnvironmentLock(paths, async () => {
+      if (!fs.existsSync(paths.lockFile)) {
+        return;
+      }
+      const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
+      const lockPlugin = lock.profiles[profile]?.plugins[alias];
+      if (lockPlugin?.source.type === 'npm') {
+        lockPlugin.source = { ...lockPlugin.source, resolvedVersion: version };
+        await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
+      }
+    });
   }
 
   program
