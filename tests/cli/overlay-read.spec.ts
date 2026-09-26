@@ -149,4 +149,15 @@ profiles:
     expect(code).toBe(0);
     expect(JSON.parse(stdout).dir).toBe(path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin'));
   });
+
+  it('warns and prints the banner on apply --dry-run', async () => {
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'state.json'),
+      JSON.stringify({ apiVersion: 'dshenv-state/v1', lastApplied: 'x', appliedLockHash: '', profiles: {} })
+    );
+    const { stdout, stderr } = await run(['apply', '--dry-run', '--overlay', 'laptop']);
+    expect(stderr).toContain('overlay changed since last apply: none → laptop');
+    expect(stdout.startsWith('overlay: laptop (flag)\n')).toBe(true);
+    expect(stdout).toContain('extra-plugin');
+  });
 });

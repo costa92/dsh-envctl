@@ -9,7 +9,9 @@ import type {
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
 import { buildPlan, type EnvironmentPlan, type LocalSourceDigests } from '../planner/plan.js';
-import { loadManifest, loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
+import { loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
+import { loadEffectiveManifest } from '../overlay/effective.js';
+import type { OverlaySelection } from '../overlay/selection.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
 import { createEnvironmentSnapshot, restoreEnvironmentSnapshot, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
@@ -25,6 +27,7 @@ export interface ApplyOptions {
   dryRun?: boolean;
   allowUntested?: boolean;
   harnessSource?: string;
+  overlay?: OverlaySelection | null;
   executor?: (plan: EnvironmentPlan, paths: EnvironmentPaths) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -329,7 +332,8 @@ async function planAndApply(
     throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
   }
 
-  const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+  // Loaded after the environment lock is held (see applyEnvironment), so the overlay cannot change mid-apply.
+  const { manifest } = loadEffectiveManifest(paths, options?.overlay ?? null);
   const lock = fs.existsSync(paths.lockFile)
     ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
     : null;
@@ -378,7 +382,8 @@ async function planAndApply(
       timestamp: now,
       details: {
         operationCount: plan.operations.length,
-        unmanagedCount: plan.unmanaged.length
+        unmanagedCount: plan.unmanaged.length,
+        overlay: options?.overlay?.name ?? null
       }
     });
 
@@ -410,7 +415,8 @@ async function planAndApply(
       lastApplied: now,
       appliedLockHash: lockHash,
       profiles: markRestartRequired(state?.profiles, plan, verifiedInventory, now),
-      ownership: pruneOwnership(state?.ownership, manifest)
+      ownership: pruneOwnership(state?.ownership, manifest),
+      ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {})
     };
 
     await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');

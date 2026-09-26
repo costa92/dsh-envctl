@@ -5,11 +5,12 @@ import { gcEnvironment } from '../gc/gc.js';
 import { purgePlugin } from '../purge/purge.js';
 import { renderPlan } from '../output/render.js';
 import { ValidationError } from '../errors.js';
-import { loadEffectiveManifest } from '../overlay/effective.js';
-import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
+import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
+import { loadState } from '../manifest/files.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
 
 export function registerLifecycleCommands(ctx: CommandContext): void {
-  const { program, writeOut } = ctx;
+  const { program, writeOut, writeErr } = ctx;
 
   program
     .command('apply')
@@ -25,15 +26,26 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         throw new ValidationError('Refusing to apply without --yes. Preview with --dry-run, then re-run with --yes.');
       }
 
+      const selection = resolveCliOverlay(opts, paths);
+      const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
+      const warning = overlaySwitchWarning(state, selection);
+      if (warning) {
+        writeErr(`${warning}\n`);
+      }
+
       const res = await applyEnvironment(paths, {
         dryRun: Boolean(cmdOpts.dryRun),
         allowUntested,
-        harnessSource: opts.harnessSource
+        harnessSource: opts.harnessSource,
+        overlay: selection
       });
 
       if (opts.json) {
-        writeOut(JSON.stringify(res, null, 2) + '\n');
+        writeOut(JSON.stringify(selection ? { ...res, overlay: selection } : res, null, 2) + '\n');
       } else {
+        if (selection) {
+          writeOut(overlayBanner(selection));
+        }
         if (res.dryRun) {
           writeOut(`[DRY-RUN] Planned operations:\n` + renderPlan(res.plan));
         } else if (res.applied) {
