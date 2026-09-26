@@ -368,6 +368,24 @@ exit 0
       expect(stderr).toContain("Overlay 'ghost' not found");
     });
 
+    it('reports a missing base manifest instead of failing when an overlay is selected', async () => {
+      select('laptop');
+      fs.rmSync(path.join(tempHome, 'envctl', 'manifest.yaml'));
+      const { code, stdout } = await run(['doctor', '--json']);
+      expect(code).toBe(0);
+      const report = JSON.parse(stdout);
+      expect(report.paths.manifestExists).toBe(false);
+      expect(report.overlay).toEqual({ name: 'laptop', via: 'file' });
+    });
+
+    it('still fails on a missing overlay when the base manifest is missing too', async () => {
+      select('ghost');
+      fs.rmSync(path.join(tempHome, 'envctl', 'manifest.yaml'));
+      const { code, stderr } = await run(['doctor']);
+      expect(code).toBe(3);
+      expect(stderr).toContain("Overlay 'ghost' not found");
+    });
+
     it('reports the active overlay in text and JSON', async () => {
       select('laptop');
       const text = await run(['doctor']);

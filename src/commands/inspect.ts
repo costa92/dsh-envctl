@@ -7,7 +7,7 @@ import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, pro
 import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError, CapabilityError } from '../errors.js';
 import type { EnvironmentLock, EnvironmentManifest, EnvironmentState } from '../domain.js';
-import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
+import { loadEffectiveManifest, overlaySwitchWarning, readOverlay } from '../overlay/effective.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
 
 export function registerInspectCommands(ctx: CommandContext): void {
@@ -115,7 +115,10 @@ export function registerInspectCommands(ctx: CommandContext): void {
 
       const selection = resolveCliOverlay(opts, paths);
       let manifest: EnvironmentManifest | undefined;
-      if (selection) {
+      if (selection && !fs.existsSync(paths.manifestFile)) {
+        // A missing base is reported via manifestExists, as without an overlay; the overlay itself is still checked.
+        readOverlay(paths, selection.name);
+      } else if (selection) {
         // A broken overlay selection is exactly what doctor must surface.
         manifest = loadEffectiveManifest(paths, selection).manifest;
       } else if (fs.existsSync(paths.manifestFile)) {
