@@ -11,6 +11,41 @@ export interface GitWorkingTreeStatus {
   trackingBranch?: string;
 }
 
+function isPathInside(root: string, candidate: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const resolvedCandidate = path.resolve(candidate);
+  const relative = path.relative(resolvedRoot, resolvedCandidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export function managedGitSourceDir(
+  managerDir: string,
+  profileName: string,
+  packageName: string
+): string {
+  if (!/^[-A-Za-z0-9._]+$/.test(profileName)) {
+    throw new ValidationError(`Invalid profile name: ${profileName}`);
+  }
+  const safePackage = packageName.replaceAll('/', '_').replaceAll('\\', '_');
+  if (!/^[-A-Za-z0-9._@]+$/.test(safePackage)) {
+    throw new ValidationError(`Invalid package name for managed source: ${packageName}`);
+  }
+  const dir = path.join(path.resolve(managerDir), 'sources', profileName, safePackage);
+  if (!isPathInside(managerDir, dir)) {
+    throw new ValidationError(`Managed source path escapes envctl: ${dir}`);
+  }
+  return dir;
+}
+
+export function packageNameFromGitUrl(url: string): string {
+  const trimmed = url.replace(/\.git$/i, '').replace(/\/+$/, '');
+  const segment = trimmed.split('/').filter(Boolean).pop();
+  if (!segment) {
+    throw new ValidationError(`Cannot derive package name from git URL: ${url}`);
+  }
+  return segment;
+}
+
 export function resolvePluginSourcePath(
   pluginName: string,
   explicitSourceRoot?: string

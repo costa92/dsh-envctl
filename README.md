@@ -195,6 +195,14 @@ dshenv status
 dshenv status --json
 ```
 
+### 14. `dshenv source clone`
+带 `--profile` 时克隆到 `envctl/sources/<profile>/<package>`，并把 HEAD commit 写入 lock。随后 `apply --yes` 才能安装。显式给出目标目录时仍可克隆到外部路径（`purge` 不会删除外部目录）。
+
+```bash
+dshenv source clone https://github.com/ex/plugin.git --profile web --as demo
+dshenv source clone https://github.com/ex/plugin.git ./external-checkout
+```
+
 ---
 
 ## 退出码规范
@@ -222,7 +230,6 @@ dshenv status --json
 ## 后续路线图
 
 见 `docs/roadmap.md`。后续版本计划交付：
-- 将 Git 源准备、锁定与 `apply` 生命周期完整串联
 - 将 Git 源准备、锁定与 `apply` 生命周期完整串联
 - 配置补丁之外的 live manager 写能力
 - 细粒度 live manager service 双向通讯

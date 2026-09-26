@@ -24,7 +24,13 @@ import { buildPlan, buildStatus, planExitCode } from './planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from './output/render.js';
 import { writeAtomic } from './io/atomic-file.js';
 import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, type RuntimeCapabilityEvidence } from './dsh/index.js';
-import { inspectGitWorkingTree, cloneManagedGit, safeFastForwardManagedGit } from './source/git.js';
+import {
+  inspectGitWorkingTree,
+  cloneManagedGit,
+  safeFastForwardManagedGit,
+  managedGitSourceDir,
+  packageNameFromGitUrl
+} from './source/git.js';
 import { inspectLocalSource, calculateSourceDigest } from './source/local.js';
 import { applyPatchBlock, removePatchBlock, extractManagedPatches } from './patch/patch.js';
 import { DshError, ValidationError, CapabilityError } from './errors.js';
@@ -786,15 +792,63 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     });
 
   sourceCmd
-    .command('clone <url> <targetDir>')
-    .description('Clone a Git plugin repository safely')
+    .command('clone <url> [targetDir]')
+    .description('Clone a Git plugin repository; with --profile, store under envctl/sources and lock the commit')
     .option('--ref <ref>', 'branch or tag to clone')
-    .action(async (url: string, targetDir: string, cmdOpts) => {
+    .option('-p, --profile <name>', 'record the clone as a managed git plugin for this profile')
+    .option('--as <alias>', 'manifest alias when --profile is set')
+    .action(async (url: string, targetDir: string | undefined, cmdOpts) => {
       const opts = program.opts();
-      const resolvedTarget = path.resolve(process.cwd(), targetDir);
+      const paths = resolveCliPaths(opts);
+      const packageName = packageNameFromGitUrl(url);
+      const alias = cmdOpts.as || packageName;
+      let resolvedTarget: string;
+      if (targetDir) {
+        resolvedTarget = path.resolve(process.cwd(), targetDir);
+      } else if (cmdOpts.profile) {
+        resolvedTarget = managedGitSourceDir(paths.managerDir, cmdOpts.profile, packageName);
+      } else {
+        throw new ValidationError('source clone requires <targetDir> or --profile');
+      }
       const res = await cloneManagedGit(url, resolvedTarget, cmdOpts.ref);
+
+      if (cmdOpts.profile) {
+        if (!fs.existsSync(paths.manifestFile)) {
+          throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+        }
+        const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        if (!manifest.profiles[cmdOpts.profile]) {
+          manifest.profiles[cmdOpts.profile] = { plugins: {} };
+        }
+        manifest.profiles[cmdOpts.profile].plugins[alias] = {
+          package: packageName,
+          enabled: true,
+          source: { type: 'git', url }
+        };
+        await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+
+        const lock = fs.existsSync(paths.lockFile)
+          ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
+          : { apiVersion: 'dshenv-lock/v1' as const, profiles: {} };
+        if (!lock.profiles[cmdOpts.profile]) {
+          lock.profiles[cmdOpts.profile] = { plugins: {} };
+        }
+        lock.profiles[cmdOpts.profile].plugins[alias] = {
+          package: packageName,
+          source: { type: 'git', url, commit: res.commit }
+        };
+        await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
+      }
+
       if (opts.json) {
-        writeOut(JSON.stringify({ status: 'cloned', url, target: resolvedTarget, commit: res.commit }, null, 2) + '\n');
+        writeOut(JSON.stringify({
+          status: 'cloned',
+          url,
+          target: resolvedTarget,
+          commit: res.commit,
+          profile: cmdOpts.profile,
+          alias
+        }, null, 2) + '\n');
       } else {
         writeOut(`Cloned ${url} to ${resolvedTarget} (HEAD at ${res.commit})\n`);
       }

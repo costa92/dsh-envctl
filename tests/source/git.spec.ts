@@ -6,7 +6,9 @@ import { execa } from 'execa';
 import {
   inspectGitWorkingTree,
   resolvePluginSourcePath,
-  safeFastForwardManagedGit
+  safeFastForwardManagedGit,
+  managedGitSourceDir,
+  packageNameFromGitUrl
 } from '../../src/source/git.js';
 import { ValidationError } from '../../src/errors.js';
 
@@ -56,5 +58,11 @@ describe('Managed Git Source Lifecycle', () => {
     const sourceRoot = '/custom/plugins';
     const resolved = resolvePluginSourcePath('agent-teams', sourceRoot);
     expect(resolved).toBe('/custom/plugins/agent-teams');
+  });
+
+  it('should place managed clones under envctl/sources', () => {
+    const dir = managedGitSourceDir('/tmp/dsh/envctl', 'web', '@scope/my-plugin');
+    expect(dir).toBe('/tmp/dsh/envctl/sources/web/@scope_my-plugin');
+    expect(packageNameFromGitUrl('https://github.com/ex/my-plugin.git')).toBe('my-plugin');
   });
 });
