@@ -46,13 +46,14 @@
 - [x] `source clone --profile` 写入 `envctl/sources` 并锁定 commit，plan/apply 可安装 git 插件
 - [x] `source pull --profile` 更新 lock commit；apply 成功后标记 `restart-required`
 - [x] plan 比对 Profile 依赖 spec 的 `#<commit>` 与 lock commit，不一致时 `update` 重装锁定 commit（无 commit 证据不猜）
-- [x] 全量测试套件覆盖（当前 35 个测试文件，218 项测试全部通过）
+- [x] 全量测试套件覆盖（当前 36 个测试文件，221 项测试全部通过）
 
 ### Phase 4: 事务日志、回滚与垃圾清理（已实现）
 - [x] 操作日志写入 `journal.jsonl`（apply/rollback/gc）
 - [x] `rollback`：从 `envctl/backups/` 恢复管理文件；需要 `--yes`；不撤销 DSH 包变更
 - [x] `gc`：只删除 `envctl/trash` 内过期项；需要 `--yes`
 - [x] apply 执行失败时恢复管理文件快照
+- [x] apply 执行失败时逆序撤销本工具对 Profile bundles（保留原位置）与 `cordis.patch.yml` 的改动；DSH 已完成的卸载不回滚
 - [x] `purge`：有 ownership 的受管 patch（及 `envctl/sources` clone）移入 trash；外部路径拒绝
 
 ## 延后能力

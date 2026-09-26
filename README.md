@@ -223,7 +223,7 @@ dshenv source clone https://github.com/ex/plugin.git ./external-checkout
 1. **路径约束**：清单中的本地链接和本地文件路径必须为绝对路径；仍应只使用可信源码目录和规范的 npm 包名。
 2. **凭据使用约束**：不要把明文密钥写入清单、锁文件、patch 配置或源码 `package.json`。`doctor` 不回显 `DSH_CLI` 参数，但 `source status --json` 会输出源码包摘要，使用前应检查其中是否含敏感字段。
 3. **非受管保护**：实际 Profile 中未写入 `manifest.yaml` 的插件保持 `unmanaged`，不会被自动删除。
-4. **锁与管理文件快照**：`apply` 执行前备份当时已经存在的 `manifest/lock/state` 并获取独占锁；失败时覆盖恢复这些快照文件，但不能恢复“原本不存在”的文件状态，也不保证撤销 DSH CLI 已完成的 Profile 包变更。失败后应重新运行 `status` 与 `plan`。
+4. **锁与管理文件快照**：`apply` 执行前备份当时已经存在的 `manifest/lock/state` 并获取独占锁；失败时覆盖恢复这些快照文件（不能恢复“原本不存在”的文件状态），并逆序撤销本工具对 Profile `dsh.profile.bundles` 与 `cordis.patch.yml` 的改动；DSH CLI 已完成的包安装、更新或卸载不会撤销，已成功卸载的包也不会恢复其 bundle 与受管块。失败后应重新运行 `status` 与 `plan`。
 
 ---
 
