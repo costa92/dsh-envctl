@@ -10,6 +10,7 @@ import { clearManagedPatches, profilePatchFile } from '../apply/patches.js';
 
 export interface PurgeOptions {
   dryRun?: boolean;
+  manifest?: EnvironmentManifest | null;
 }
 
 export interface PurgeResult {
@@ -72,9 +73,11 @@ export async function purgePlugin(
     throw new ValidationError(`State file not found: ${paths.stateFile}`);
   }
   const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
-  const manifest = fs.existsSync(paths.manifestFile)
-    ? loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'))
-    : null;
+  const manifest = options?.manifest !== undefined
+    ? options.manifest
+    : fs.existsSync(paths.manifestFile)
+      ? loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'))
+      : null;
   const owned = findOwnedPlugin(state, manifest, profileName, pluginRef);
 
   const moved: string[] = [];

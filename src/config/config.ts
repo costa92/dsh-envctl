@@ -1,8 +1,6 @@
-import * as fs from 'node:fs';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { EnvironmentManifest, PatchEntry } from '../domain.js';
 import { ValidationError } from '../errors.js';
-import { loadManifest } from '../manifest/files.js';
 import { computePatchDigest, extractManagedPatches } from '../patch/patch.js';
 import { readProfilePatchFile } from '../apply/patches.js';
 
@@ -51,13 +49,10 @@ export function getAtPath(target: Record<string, unknown>, dottedPath: string): 
 
 export async function readPluginConfig(
   paths: EnvironmentPaths,
+  manifest: EnvironmentManifest,
   profileName: string,
   alias: string
 ): Promise<{ source: 'live' | 'manifest'; id: string; config: Record<string, unknown>; digest?: string; digestValid?: boolean }> {
-  if (!fs.existsSync(paths.manifestFile)) {
-    throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
-  }
-  const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
   const plugin = manifest.profiles[profileName]?.plugins[alias];
   if (!plugin) {
     throw new ValidationError(`Plugin '${alias}' not found in profile '${profileName}'`);

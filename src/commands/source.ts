@@ -11,7 +11,8 @@ import {
 } from '../source/git.js';
 import { inspectLocalSource } from '../source/local.js';
 import { ValidationError } from '../errors.js';
-import { resolveCliPaths, type CommandContext } from './context.js';
+import { loadEffectiveManifest } from '../overlay/effective.js';
+import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
 export function registerSourceCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -28,10 +29,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
       const paths = resolveCliPaths(opts);
       let targetDir: string;
       if (cmdOpts?.profile) {
-        if (!fs.existsSync(paths.manifestFile)) {
-          throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
-        }
-        const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
         let alias = cmdOpts.as;
         if (!alias) {
           const gitAliases = Object.entries(manifest.profiles[cmdOpts.profile]?.plugins ?? {})
@@ -162,10 +160,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
       let alias: string | undefined;
       let packageName: string | undefined;
       if (cmdOpts.profile) {
-        if (!fs.existsSync(paths.manifestFile)) {
-          throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
-        }
-        const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
         alias = cmdOpts.as;
         if (!alias) {
           const plugins = manifest.profiles[cmdOpts.profile]?.plugins ?? {};

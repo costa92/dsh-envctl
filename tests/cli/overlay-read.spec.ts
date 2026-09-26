@@ -114,4 +114,39 @@ describe('CLI overlay-aware reads', () => {
     const { stdout } = await run(['status', '--json', '--overlay', 'laptop']);
     expect(JSON.parse(stdout).overlay).toEqual({ name: 'laptop', via: 'flag' });
   });
+
+  it('reads overlay patch config through config get', async () => {
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'overlays', 'laptop.yaml'),
+      `apiVersion: dshenv-overlay/v1
+profiles:
+  web:
+    plugins:
+      shared:
+        patches:
+          - id: shared
+            config: { mode: solo }
+`
+    );
+    const { code, stdout } = await run(['config', 'get', 'shared', '--profile', 'web', '--path', 'mode', '--json', '--overlay', 'laptop']);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toBe('solo');
+  });
+
+  it('finds overlay-only git plugins for source status --profile', async () => {
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'overlays', 'laptop.yaml'),
+      `apiVersion: dshenv-overlay/v1
+profiles:
+  web:
+    plugins:
+      demo:
+        package: demo-plugin
+        source: { type: git, url: "https://example.com/o/demo.git" }
+`
+    );
+    const { code, stdout } = await run(['source', 'status', '--profile', 'web', '--json', '--overlay', 'laptop']);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout).dir).toBe(path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin'));
+  });
 });

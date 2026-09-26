@@ -1,10 +1,12 @@
+import * as fs from 'node:fs';
 import { applyEnvironment } from '../apply/apply.js';
 import { rollbackEnvironment } from '../rollback/rollback.js';
 import { gcEnvironment } from '../gc/gc.js';
 import { purgePlugin } from '../purge/purge.js';
 import { renderPlan } from '../output/render.js';
 import { ValidationError } from '../errors.js';
-import { resolveCliPaths, type CommandContext } from './context.js';
+import { loadEffectiveManifest } from '../overlay/effective.js';
+import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
 export function registerLifecycleCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -78,7 +80,10 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         throw new ValidationError('Refusing to purge without --yes. Preview with --dry-run, then re-run with --yes.');
       }
       const result = await purgePlugin(paths, cmdOpts.profile, plugin, {
-        dryRun: Boolean(cmdOpts.dryRun)
+        dryRun: Boolean(cmdOpts.dryRun),
+        manifest: fs.existsSync(paths.manifestFile)
+          ? loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest
+          : null
       });
       if (opts.json) {
         writeOut(JSON.stringify(result, null, 2) + '\n');

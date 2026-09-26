@@ -94,4 +94,37 @@ profiles:
     expect(fs.readFileSync(patchFile, 'utf8')).not.toContain('dshenv:begin');
     expect(result.moved.some((item) => item.includes('cordis.patch.yml'))).toBe(true);
   });
+
+  it('resolves an alias declared only in the effective manifest', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.writeFileSync(
+      paths.stateFile,
+      JSON.stringify({
+        apiVersion: 'dshenv-state/v1',
+        lastApplied: 'x',
+        appliedLockHash: '',
+        profiles: {},
+        ownership: {
+          web: {
+            '@nanmicoder/dsh-agent-teams': {
+              package: '@nanmicoder/dsh-agent-teams',
+              alias: 'old-alias',
+              sourceType: 'npm',
+              adoptedAt: 'x',
+              adoptedBy: 'test'
+            }
+          }
+        }
+      })
+    );
+    const effective = {
+      apiVersion: 'dshenv/v1' as const,
+      profiles: {
+        web: { plugins: { teams: { package: '@nanmicoder/dsh-agent-teams', enabled: true, source: { type: 'npm' as const, version: '0.1.21' } } } }
+      }
+    };
+    await expect(purgePlugin(paths, 'web', 'teams', { dryRun: true })).rejects.toThrow(/no ownership/);
+    const result = await purgePlugin(paths, 'web', 'teams', { dryRun: true, manifest: effective });
+    expect(result.package).toBe('@nanmicoder/dsh-agent-teams');
+  });
 });

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
-import { loadManifest, loadLock, loadState } from '../manifest/files.js';
+import { loadLock, loadState } from '../manifest/files.js';
 import { buildPlan, buildStatus, planExitCode } from '../planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from '../output/render.js';
 import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, type RuntimeCapabilityEvidence } from '../dsh/index.js';
@@ -117,7 +117,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
       let manifestAllowUntested: boolean | undefined;
       if (fs.existsSync(paths.manifestFile)) {
         try {
-          const m = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+          const m = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
           manifestHarnessSource = m.environment?.harness?.sourceDir;
           manifestAllowUntested = m.environment?.harness?.allowUntestedVersion;
         } catch {

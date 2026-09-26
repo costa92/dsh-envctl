@@ -214,7 +214,8 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
-      const config = await readPluginConfig(paths, cmdOpts.profile, alias);
+      const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
+      const config = await readPluginConfig(paths, manifest, cmdOpts.profile, alias);
       const value = cmdOpts.path ? getAtPath(config.config, cmdOpts.path) : config;
       if (opts.json) {
         writeOut(JSON.stringify(value, null, 2) + '\n');
@@ -228,7 +229,8 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
-      const config = await readPluginConfig(paths, cmdOpts.profile, alias);
+      const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
+      const config = await readPluginConfig(paths, manifest, cmdOpts.profile, alias);
       const ok = config.source === 'manifest' || config.digestValid === true;
       if (opts.json) {
         writeOut(JSON.stringify({ alias, profile: cmdOpts.profile, valid: ok, source: config.source, digest: config.digest }, null, 2) + '\n');
