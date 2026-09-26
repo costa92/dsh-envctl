@@ -34,6 +34,8 @@ DSH 运行时命令解析优先级：
 2. `--harness-source <path>` / 清单中的 `environment.harness.sourceDir`（转换为 `pnpm --dir <sourceDir> dsh`）
 3. 系统 `PATH` 中的 `dsh`
 
+跨机器同步 `manifest.yaml` 与 `overlays/`；`lock.json`、`state.json`、`overlay-selection.json` 只属于本机。
+
 ---
 
 ## 安装与快速上手
@@ -202,6 +204,20 @@ dshenv status --json
 dshenv source clone https://github.com/ex/plugin.git --profile web --as demo
 dshenv source clone https://github.com/ex/plugin.git ./external-checkout
 ```
+
+### 15. `dshenv overlay`
+按机器/环境在 base 清单（`envctl/manifest.yaml`）之上叠加 `envctl/overlays/<name>.yaml`。
+
+```bash
+dshenv overlay use laptop      # 本机持久选择
+dshenv overlay use --none      # 清除选择
+dshenv overlay list            # 列出 overlay，标出当前生效项
+dshenv overlay show --json     # 合并结果与每个插件的出处
+dshenv plan --overlay server   # 单次命令临时指定
+dshenv plan --no-overlay       # 单次命令只用 base
+```
+
+选择优先级：`--overlay` > `--no-overlay` > `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`config set`、`source clone --profile`、`adopt`）必须带 `--layer base` 或 `--layer overlay`。
 
 ---
 

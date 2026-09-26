@@ -60,11 +60,18 @@
 - [x] apply 执行失败时逆序撤销本工具对 Profile bundles（保留原位置）与 `cordis.patch.yml` 的改动；DSH 已完成的卸载不回滚
 - [x] `purge`：有 ownership 的受管 patch（及 `envctl/sources` clone）移入 trash；外部路径拒绝
 
+### Phase 5：Base + Overlay 清单合并（已实现）
+- [x] `envctl/overlays/<name>.yaml` 叠加 base，按别名/patch id 合并，支持新增、字段覆盖、`remove: true`、`environment` 覆盖
+- [x] 本机持久选择（`overlay use`），`--overlay` / `--no-overlay` / `DSHENV_OVERLAY` 临时覆盖；缺失即报错，不退回 base
+- [x] 出处：`list` 的 `origin`、`overlay show`
+- [x] 有生效 overlay 时写入命令必须指定 `--layer`
+- [x] apply 在锁内加载合并清单，state 记录 `appliedOverlay`，切换时警告
+- [x] 全量测试套件覆盖（当前 45 个测试文件，308 项测试全部通过）
+
 ## 延后能力
 
 下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
 
-- Base + Overlay 清单合并与出处规则
 - 动态 HMR / 调用运行时内部 service（如 `ctx.dynamicCordisRunner`）
 - 静态 Cordis Service DAG 分析（需插件暴露机器可读的服务贡献元数据）
 - GitHub Actions、容器示例、远程环境分发
