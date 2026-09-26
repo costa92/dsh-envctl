@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execa } from 'execa';
 import { runCli } from '../../src/cli.js';
-import { loadManifest, loadLock } from '../../src/manifest/files.js';
+import { loadManifest, loadLock, serializeManifest } from '../../src/manifest/files.js';
 import { buildPlan } from '../../src/planner/plan.js';
 import { readEnvironmentInventory } from '../../src/inventory/profile-reader.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
@@ -84,5 +84,53 @@ describe('CLI source clone --profile', () => {
     if (gitLock.type === 'git') {
       expect(gitLock.commit).toBe(newHead);
     }
+  });
+
+  it('should report the only managed clone via source status --profile', async () => {
+    await runCli([
+      'source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome
+    ]);
+    let stdout = '';
+    const code = await runCli(
+      ['source', 'status', '--profile', 'web', '--json', '--dsh-home', tempHome],
+      {
+        stdout: (chunk) => {
+          stdout += chunk;
+        },
+        stderr: () => {}
+      }
+    );
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout) as { dir: string; git: { isGitRepo: boolean; isDirty: boolean } };
+    expect(parsed.git.isGitRepo).toBe(true);
+    expect(parsed.git.isDirty).toBe(false);
+    expect(parsed.dir).toContain(`${path.join('envctl', 'sources', 'web', 'demo-plugin')}`);
+  });
+
+  it('should require --as when a profile has multiple Git plugins', async () => {
+    await runCli([
+      'source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome
+    ]);
+    const manifestFile = path.join(tempHome, 'envctl', 'manifest.yaml');
+    const manifest = loadManifest(fs.readFileSync(manifestFile, 'utf8'));
+    manifest.profiles.web.plugins.other = {
+      ...manifest.profiles.web.plugins.demo,
+      package: 'other-plugin'
+    };
+    fs.writeFileSync(manifestFile, serializeManifest(manifest));
+
+    let stderr = '';
+    const code = await runCli(
+      ['source', 'status', '--profile', 'web', '--dsh-home', tempHome],
+      {
+        stdout: () => {},
+        stderr: (chunk) => {
+          stderr += chunk;
+        }
+      }
+    );
+
+    expect(code).toBe(3);
+    expect(stderr).toContain('requires --as');
   });
 });

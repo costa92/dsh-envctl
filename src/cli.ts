@@ -759,9 +759,37 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   sourceCmd
     .command('status [sourcePath]')
     .description('Inspect working tree and digest status of a source directory')
-    .action(async (sourcePath?: string) => {
+    .option('-p, --profile <name>', 'inspect the managed clone for this profile')
+    .option('--as <alias>', 'manifest alias when --profile is set')
+    .action(async (sourcePath?: string, cmdOpts?: { profile?: string; as?: string }) => {
       const opts = program.opts();
-      const targetDir = sourcePath ? path.resolve(process.cwd(), sourcePath) : process.cwd();
+      const paths = resolveCliPaths(opts);
+      let targetDir: string;
+      if (cmdOpts?.profile) {
+        if (!fs.existsSync(paths.manifestFile)) {
+          throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+        }
+        const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        let alias = cmdOpts.as;
+        if (!alias) {
+          const gitAliases = Object.entries(manifest.profiles[cmdOpts.profile]?.plugins ?? {})
+            .filter(([, plugin]) => plugin.source.type === 'git')
+            .map(([name]) => name);
+          if (gitAliases.length !== 1) {
+            throw new ValidationError('source status --profile requires --as when the profile does not have exactly one git plugin');
+          }
+          alias = gitAliases[0];
+        }
+        const plugin = manifest.profiles[cmdOpts.profile]?.plugins[alias];
+        if (!plugin || plugin.source.type !== 'git') {
+          throw new ValidationError(`Git plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+        }
+        targetDir = sourcePath
+          ? path.resolve(process.cwd(), sourcePath)
+          : managedGitSourceDir(paths.managerDir, cmdOpts.profile, plugin.package);
+      } else {
+        targetDir = sourcePath ? path.resolve(process.cwd(), sourcePath) : process.cwd();
+      }
       const gitStatus = await inspectGitWorkingTree(targetDir);
       let localInfo: unknown = null;
       try {
