@@ -68,7 +68,8 @@
 - [x] apply 在锁内加载合并清单，state 记录 `appliedOverlay`，切换时警告
 - [x] lock 只细化合并清单：npm 目标版本以清单为准，git url 不一致时不沿用 lock commit；`--layer base` 写入（含 `adopt`、`source clone`）前校验与 overlay 可合并
 - [x] npm 版本只允许精确版本（schema、`install`、`update --to`、`capture`），避免范围与已装版本永远不一致
-- [x] 全量测试套件覆盖（当前 48 个测试文件，341 项测试全部通过）
+- [x] git 清单声明的 `commit` 与 lock 缺失或不一致时 `blocked` 并给出处理指引，不再静默以 lock 为准
+- [x] 全量测试套件覆盖（当前 48 个测试文件，344 项测试全部通过）
 
 ## 延后能力
 
