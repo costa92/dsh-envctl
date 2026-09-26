@@ -90,7 +90,9 @@
 - [x] `-p` 复用 `install` 命令抽出的 `installPlugin`，登记失败时清理生成的目录，不自动 `apply`
 - [x] 模板 peer 范围要求 DSH `>=0.1.7-0 <0.2.0-0`（agent 预设与 linked-package peer 解析在更早版本缺失）
 - [x] 真实 DSH 冒烟验证（2026-09-26）：源码构建 0.1.7-rc.1 跑 `dsh web`，四类生成包全部加载成功（skill 列出、agent 预设注册、tool 注册且包内无 `node_modules`、mcp 仅因无服务端连接失败但无 schema 错误）；已安装的全局 0.1.5-rc.2 无法运行这些模板
-- [x] 全量测试套件覆盖（当前 62 个测试文件，459 项测试全部通过）
+- [x] npm 安装版冒烟验证（2026-09-26）：`@deepseek-ai/dsh@0.1.7-rc.2` 本地安装后跑 `dsh web`，skill、agent、JS tool 均加载；`--typescript` tool 经 `pnpm install && pnpm build` 后在 npm 版与源码版 0.1.7-rc.1 上均注册并可调用，`dsh-tools` 解析到运行中 DSH 的副本而非包内副本；mcp 行已激活并向配置地址发起连接（无真实 MCP 服务端，未注册工具）
+- [x] 终审修复：模板中 `{{name}}` 标量加引号（`123`、`true` 等名称不再被 YAML 解析为非字符串）；`--dir` 为非目录或符号链接时报错且不删除；失败清理包括本次新建的父目录
+- [x] 全量测试套件覆盖（当前 62 个测试文件，466 项测试全部通过）
 
 ## 延后能力
 
