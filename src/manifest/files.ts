@@ -6,11 +6,13 @@ import {
   StateSchema,
   CaptureDocumentSchema
 } from './schema.js';
+import { OverlaySchema } from '../overlay/schema.js';
 import type {
   EnvironmentManifest,
   EnvironmentLock,
   EnvironmentState,
-  CaptureDocument
+  CaptureDocument,
+  EnvironmentOverlay
 } from '../domain.js';
 
 export function parseYamlStrict(content: string): unknown {
@@ -90,6 +92,16 @@ export function loadState(content: string): EnvironmentState {
   return res.data as EnvironmentState;
 }
 
+export function parseOverlay(content: string, file: string): EnvironmentOverlay {
+  const raw = parseYamlStrict(content);
+  const res = OverlaySchema.safeParse(raw);
+  if (!res.success) {
+    const issues = res.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+    throw new ValidationError(`Invalid overlay schema in ${file}: ${issues}`);
+  }
+  return res.data as EnvironmentOverlay;
+}
+
 function sortKeys(val: unknown): unknown {
   if (Array.isArray(val)) {
     return val.map(sortKeys);
@@ -107,6 +119,12 @@ function sortKeys(val: unknown): unknown {
 
 export function serializeManifest(manifest: EnvironmentManifest): string {
   const sorted = sortKeys(manifest);
+  const yamlString = YAML.stringify(sorted, { indent: 2, lineWidth: 0 });
+  return yamlString.trimEnd() + '\n';
+}
+
+export function serializeOverlay(overlay: EnvironmentOverlay): string {
+  const sorted = sortKeys(overlay);
   const yamlString = YAML.stringify(sorted, { indent: 2, lineWidth: 0 });
   return yamlString.trimEnd() + '\n';
 }

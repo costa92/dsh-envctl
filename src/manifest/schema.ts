@@ -213,7 +213,8 @@ export const StateSchema = z
     lastApplied: z.string(),
     appliedLockHash: z.string(),
     profiles: z.record(z.string(), ProfileStateEntrySchema).default({}),
-    ownership: z.record(z.string(), z.record(z.string(), PluginOwnershipRecordSchema)).optional()
+    ownership: z.record(z.string(), z.record(z.string(), PluginOwnershipRecordSchema)).optional(),
+    appliedOverlay: z.string().min(1).optional()
   })
   .strict();
 

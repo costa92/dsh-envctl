@@ -140,6 +140,7 @@ export interface EnvironmentState {
     string,
     Record<string, PluginOwnershipRecord>
   >;
+  appliedOverlay?: string;
 }
 
 export interface CaptureDocument {
@@ -147,4 +148,24 @@ export interface CaptureDocument {
   manifest: EnvironmentManifest;
   lock: EnvironmentLock;
   warnings: string[];
+}
+
+export interface OverlayPatchEntry {
+  id: string;
+  config?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface OverlayPluginEntry {
+  package?: string;
+  enabled?: boolean;
+  source?: PluginSource;
+  patches?: OverlayPatchEntry[];
+  remove?: true;
+}
+
+export interface EnvironmentOverlay {
+  apiVersion: 'dshenv-overlay/v1';
+  environment?: EnvironmentManifest['environment'];
+  profiles?: Record<string, { plugins?: Record<string, OverlayPluginEntry> }>;
 }
