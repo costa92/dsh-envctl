@@ -16,6 +16,7 @@ import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
 import { resolveDshCommand } from '../dsh/command.js';
+import { setProfileBundleEnabled } from './bundles.js';
 
 export interface ApplyOptions {
   dryRun?: boolean;
@@ -72,17 +73,36 @@ async function executeWithDsh(
   lock: EnvironmentLock | null,
   options?: ApplyOptions
 ): Promise<{ success: boolean; error?: string }> {
-  const command = resolveDshCommand({
-    cliHarnessSource: options?.harnessSource,
-    manifestHarnessSource: manifest.environment?.harness?.sourceDir
-  });
-  if (!command) {
+  assertSupportedPlan(plan);
+
+  const needsCli = plan.operations.some(
+    (operation) => operation.kind === 'install' || operation.kind === 'update'
+  );
+  const command = needsCli
+    ? resolveDshCommand({
+        cliHarnessSource: options?.harnessSource,
+        manifestHarnessSource: manifest.environment?.harness?.sourceDir
+      })
+    : null;
+  if (needsCli && !command) {
     throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
   }
 
-  assertSupportedPlan(plan);
-
   for (const operation of plan.operations) {
+    if (operation.kind === 'enable' || operation.kind === 'disable') {
+      await setProfileBundleEnabled(
+        paths,
+        operation.profile,
+        operation.package,
+        operation.kind === 'enable'
+      );
+      continue;
+    }
+
+    if (!command) {
+      throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
+    }
+
     const result = await execa(
       command.file,
       [...command.args, 'plugin', '--profile', operation.profile, 'add', packageSpec(manifest, lock, operation)],
@@ -110,7 +130,11 @@ function assertSupportedPlan(plan: EnvironmentPlan): void {
   }
 
   const unsupported = plan.operations.find(
-    (operation) => operation.kind !== 'install' && operation.kind !== 'update'
+    (operation) =>
+      operation.kind !== 'install' &&
+      operation.kind !== 'update' &&
+      operation.kind !== 'enable' &&
+      operation.kind !== 'disable'
   );
   if (unsupported) {
     throw new CapabilityError(

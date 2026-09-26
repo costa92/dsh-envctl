@@ -29,7 +29,8 @@
 - [x] 实现 `adopt --from <candidate>` 命令：校验候选事实一致性，生成所有权记录
 - [x] 实现独占写锁（`acquireEnvironmentLock`）、快照备份（`backups/`）与操作日志（`logs/journal.jsonl`）
 - [x] 实现 `apply` 状态机执行器（支持 `--dry-run`、能力检查与异常自动快照回滚）
-- [x] `apply` 通过 DSH CLI 执行 `install/update`，执行后复盘；`enable/disable` 在执行前拒绝；正式 apply 需要 `--yes`
+- [x] `apply` 通过 DSH CLI 执行 `install/update`，执行后复盘；正式 apply 需要 `--yes`
+- [x] `apply` 按 `dsh.profile.bundles` 执行 `enable/disable`（禁用保留依赖）
 - [x] 全量测试套件覆盖率（21 个测试文件，163 项测试全部通过）
 
 ### Phase 3: 受管 Git、Patch 管理器与便捷 CLI 命令（已实现）

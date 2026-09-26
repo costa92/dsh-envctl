@@ -184,27 +184,63 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     expect(profile.dependencies).toEqual({ '@nanmicoder/dsh-agent-teams': '0.1.21' });
   });
 
-  it('should reject enable/disable before invoking the DSH CLI', async () => {
+  it('should enable an installed plugin by updating dsh.profile.bundles without invoking DSH CLI', async () => {
     installDeclaredPlugin();
     const profileJson = path.join(tempHome, 'profiles', 'web', 'package.json');
     const profile = JSON.parse(fs.readFileSync(profileJson, 'utf8')) as {
+      dependencies: Record<string, string>;
       dsh: { profile: { bundles: string[] } };
     };
     profile.dsh.profile.bundles = [];
-    fs.writeFileSync(profileJson, JSON.stringify(profile));
+    fs.writeFileSync(profileJson, JSON.stringify(profile, null, 2));
 
-    let executed = false;
+    const marker = path.join(tempHome, 'dsh-was-called');
     const fakeDsh = path.join(tempHome, 'must-not-run.mjs');
-    fs.writeFileSync(fakeDsh, 'process.exit(1)');
+    fs.writeFileSync(fakeDsh, `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)}, 'called'); process.exit(1);`);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
 
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-    await expect(applyEnvironment(paths, {
-      executor: async () => {
-        executed = true;
-        return { success: true };
-      }
-    })).rejects.toThrow(/enable|not supported/i);
-    expect(executed).toBe(false);
+    const result = await applyEnvironment(paths);
+    expect(result.applied).toBe(true);
+    expect(fs.existsSync(marker)).toBe(false);
+    const next = JSON.parse(fs.readFileSync(profileJson, 'utf8')) as {
+      dependencies: Record<string, string>;
+      dsh: { profile: { bundles: string[] } };
+    };
+    expect(next.dsh.profile.bundles).toContain('@nanmicoder/dsh-agent-teams');
+    expect(next.dependencies['@nanmicoder/dsh-agent-teams']).toBe('0.1.21');
+  });
+
+  it('should disable an installed plugin by removing it from bundles and keeping the dependency', async () => {
+    installDeclaredPlugin();
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      agent-teams:
+        package: "@nanmicoder/dsh-agent-teams"
+        enabled: false
+        source:
+          type: npm
+          version: "0.1.21"
+`
+    );
+
+    const marker = path.join(tempHome, 'dsh-was-called');
+    const fakeDsh = path.join(tempHome, 'must-not-run.mjs');
+    fs.writeFileSync(fakeDsh, `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)}, 'called'); process.exit(1);`);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const result = await applyEnvironment(paths);
+    expect(result.applied).toBe(true);
+    expect(fs.existsSync(marker)).toBe(false);
+    const next = JSON.parse(
+      fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), 'utf8')
+    ) as { dependencies: Record<string, string>; dsh: { profile: { bundles: string[] } } };
+    expect(next.dsh.profile.bundles).not.toContain('@nanmicoder/dsh-agent-teams');
+    expect(next.dependencies['@nanmicoder/dsh-agent-teams']).toBe('0.1.21');
   });
 });
