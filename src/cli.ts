@@ -9,12 +9,14 @@ import { applyEnvironment } from './apply/apply.js';
 import { rollbackEnvironment } from './rollback/rollback.js';
 import { gcEnvironment } from './gc/gc.js';
 import { purgePlugin } from './purge/purge.js';
+import { getAtPath, parseConfigValue, readPluginConfig, upsertPluginPatch } from './config/config.js';
 import {
   loadManifest,
   loadLock,
   loadState,
   parseYamlStrict,
   serializeCaptureDocument,
+  serializeLock,
   serializeManifest
 } from './manifest/files.js';
 import { CaptureDocumentSchema } from './manifest/schema.js';
@@ -298,9 +300,9 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     });
 
   program
-    .command('status')
+    .command('status [plugin]')
     .description('Display status summary of DSH environment and manifests')
-    .action(async () => {
+    .action(async (plugin?: string) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
@@ -324,6 +326,14 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       const inventory = await readEnvironmentInventory(paths);
       const plan = buildPlan(manifest, lock, inventory, state);
       const summary = buildStatus(manifest, lock, state, inventory, plan);
+      if (plugin) {
+        summary.plugins = summary.plugins.filter(
+          (entry) => entry.package === plugin || entry.package.endsWith(`/${plugin}`)
+        );
+        if (summary.plugins.length === 0) {
+          throw new ValidationError(`Plugin not found in status: ${plugin}`);
+        }
+      }
 
       if (opts.json) {
         writeOut(JSON.stringify(summary, null, 2) + '\n');
@@ -508,6 +518,148 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
         writeOut(JSON.stringify({ status: 'installed', profile: cmdOpts.profile, alias: parsed.alias, package: parsed.packageName, source: parsed.source }, null, 2) + '\n');
       } else {
         writeOut(`Installed ${parsed.packageName} (${parsed.alias}) in profile '${cmdOpts.profile}'.\n`);
+      }
+    });
+
+  program
+    .command('update <alias>')
+    .description('Update the declared npm version for a plugin in the manifest')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .requiredOption('--to <version>', 'exact version to declare; does not float to latest')
+    .action(async (alias: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      if (!fs.existsSync(paths.manifestFile)) {
+        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const plugin = manifest.profiles[cmdOpts.profile]?.plugins[alias];
+      if (!plugin) {
+        throw new ValidationError(`Plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+      }
+      if (plugin.source.type !== 'npm') {
+        throw new ValidationError(`update --to currently supports npm sources only (got ${plugin.source.type})`);
+      }
+      plugin.source = { ...plugin.source, version: cmdOpts.to };
+      await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+      if (fs.existsSync(paths.lockFile)) {
+        const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
+        const lockPlugin = lock.profiles[cmdOpts.profile]?.plugins[alias];
+        if (lockPlugin?.source.type === 'npm') {
+          lockPlugin.source = { ...lockPlugin.source, resolvedVersion: cmdOpts.to };
+          await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
+        }
+      }
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'updated', profile: cmdOpts.profile, alias, version: cmdOpts.to }, null, 2) + '\n');
+      } else {
+        writeOut(`Updated ${alias} in profile '${cmdOpts.profile}' to ${cmdOpts.to}.\n`);
+      }
+    });
+
+  program
+    .command('list')
+    .description('List declared and unmanaged plugins')
+    .option('-p, --profile <name>', 'limit to one profile')
+    .action(async (cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      if (!fs.existsSync(paths.manifestFile)) {
+        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const lock = fs.existsSync(paths.lockFile) ? loadLock(fs.readFileSync(paths.lockFile, 'utf8')) : null;
+      const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
+      const inventory = await readEnvironmentInventory(paths);
+      const plan = buildPlan(manifest, lock, inventory, state);
+      const rows: Array<Record<string, unknown>> = [];
+      const profiles = cmdOpts.profile ? [cmdOpts.profile] : Object.keys(manifest.profiles);
+      for (const profileName of profiles) {
+        const declared = manifest.profiles[profileName]?.plugins ?? {};
+        for (const [alias, plugin] of Object.entries(declared)) {
+          const installed = inventory.profiles[profileName]?.plugins[plugin.package];
+          rows.push({
+            profile: profileName,
+            alias,
+            package: plugin.package,
+            enabled: plugin.enabled ?? true,
+            source: plugin.source.type,
+            installed: Boolean(installed?.installed),
+            actualVersion: installed?.version
+          });
+        }
+      }
+      for (const unmanaged of plan.unmanaged) {
+        if (cmdOpts.profile && unmanaged.profile !== cmdOpts.profile) {
+          continue;
+        }
+        rows.push({
+          profile: unmanaged.profile,
+          alias: null,
+          package: unmanaged.package,
+          enabled: inventory.profiles[unmanaged.profile]?.plugins[unmanaged.package]?.enabled,
+          source: 'unmanaged',
+          installed: true
+        });
+      }
+      if (opts.json) {
+        writeOut(JSON.stringify({ plugins: rows }, null, 2) + '\n');
+      } else {
+        for (const row of rows) {
+          writeOut(`${row.profile} ${row.alias ?? '-'} ${row.package} ${row.source} installed=${String(row.installed)}\n`);
+        }
+      }
+    });
+
+  const configCmd = program.command('config').description('Read or update declared plugin configuration');
+  configCmd
+    .command('get <alias>')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .option('--path <dottedPath>', 'return a nested field')
+    .action(async (alias: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      const config = await readPluginConfig(paths, cmdOpts.profile, alias);
+      const value = cmdOpts.path ? getAtPath(config.config, cmdOpts.path) : config;
+      if (opts.json) {
+        writeOut(JSON.stringify(value, null, 2) + '\n');
+      } else {
+        writeOut(`${JSON.stringify(value, null, 2)}\n`);
+      }
+    });
+  configCmd
+    .command('validate <alias>')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .action(async (alias: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      const config = await readPluginConfig(paths, cmdOpts.profile, alias);
+      const ok = config.source === 'manifest' || config.digestValid === true;
+      if (opts.json) {
+        writeOut(JSON.stringify({ alias, profile: cmdOpts.profile, valid: ok, source: config.source, digest: config.digest }, null, 2) + '\n');
+      } else {
+        writeOut(`${ok ? 'valid' : 'invalid'} (${config.source})\n`);
+      }
+      if (!ok) {
+        throw new ValidationError(`Config digest mismatch for ${alias} in ${cmdOpts.profile}`);
+      }
+    });
+  configCmd
+    .command('set <alias> <dottedPath> <value>')
+    .requiredOption('-p, --profile <name>', 'target profile')
+    .action(async (alias: string, dottedPath: string, value: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      if (!fs.existsSync(paths.manifestFile)) {
+        throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      const patch = upsertPluginPatch(manifest, cmdOpts.profile, alias, dottedPath, parseConfigValue(value));
+      await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'set', profile: cmdOpts.profile, alias, path: dottedPath, patch }, null, 2) + '\n');
+      } else {
+        writeOut(`Updated ${alias} config ${dottedPath} in profile '${cmdOpts.profile}'. Apply to write the live patch.\n`);
       }
     });
 

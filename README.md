@@ -163,7 +163,31 @@ dshenv purge agent-teams --profile web --dry-run
 dshenv purge agent-teams --profile web --yes
 ```
 
-### 10. `dshenv status`
+### 10. `dshenv list`
+列出清单中的插件，以及 plan 标出的 unmanaged 包。
+
+```bash
+dshenv list
+dshenv list --profile web --json
+```
+
+### 11. `dshenv update`
+只改清单（以及已有 lock 条目）里的精确 npm 版本，不解析 latest。随后用 `apply --yes` 真正更新。
+
+```bash
+dshenv update agent-teams --profile web --to 0.1.22
+```
+
+### 12. `dshenv config`
+读取或改清单中的插件配置。`set` 只写 manifest；`apply` 才会落到 `cordis.patch.yml`。
+
+```bash
+dshenv config get agent-teams --profile web
+dshenv config validate agent-teams --profile web
+dshenv config set agent-teams taskPlanning captain --profile web
+```
+
+### 13. `dshenv status`
 显示当前环境状态摘要与操作统计。
 
 ```bash

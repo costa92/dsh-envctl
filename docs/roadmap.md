@@ -40,7 +40,7 @@
 - [x] 脏工作树安全拒绝保护（防用户本地代码丢失）
 - [x] 本地源码目录构建审批与递归 SHA256 digest 校验机制 (`src/source/local.ts`)
 - [x] 受管 YAML Patch 块插入、提取、校验与移除适配器 (`src/patch/patch.ts`)
-- [x] 便捷插件管理命令：`install`、`enable`、`disable`、`remove`、`source status|clone|pull` (`src/cli.ts`)
+- [x] 便捷插件管理命令：`install`、`update --to`、`enable`、`disable`、`remove`、`list`、`config get|validate|set`、`source status|clone|pull` (`src/cli.ts`)
 - [x] 全量测试套件覆盖（25 个测试文件，178 项测试全部通过）
 
 ### Phase 4: 事务日志、回滚与垃圾清理
