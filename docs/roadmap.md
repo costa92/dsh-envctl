@@ -83,6 +83,15 @@
 - [x] 仓库 CI：`.github/workflows/ci.yml` 在 Node 22/24 上以 frozen lockfile 跑 typecheck、test、build
 - [x] 使用者示例：`docs/examples/github-actions/dshenv-check.yml`，`validate` 校验 base 与每个 overlay，`drift` 在 self-hosted runner 上以 `plan` 退出码做漂移门禁；测试会实际执行两段脚本
 
+### 组件脚手架（`dshenv new`）（已实现）
+- [x] `dshenv new <skill|agent|tool|mcp> <name>` 从 `templates/` 下的文件模板经 `{{key}}` 替换生成组件包；`--dir`、`--package`、`--typescript`（仅 tool）、`--loose`（仅 skill）
+- [x] skill 默认生成 bundle（额外一行 `dsh-skill-filesystem` 挂载 `skills/`），`--loose` 直接写 `$DSH_HOME/skills/<name>/SKILL.md`，由 DSH 自动发现，不进清单
+- [x] agent 生成 `dsh-agent-preset` + `dsh-persona`；tool 生成纯 JS `defineTool` 插件，peer 依赖 `@deepseek-ai/dsh-tools` 从运行中的 DSH 解析；mcp 生成 `dsh-mcp-client`
+- [x] `-p` 复用 `install` 命令抽出的 `installPlugin`，登记失败时清理生成的目录，不自动 `apply`
+- [x] 模板 peer 范围要求 DSH `>=0.1.7-0 <0.2.0-0`（agent 预设与 linked-package peer 解析在更早版本缺失）
+- [x] 真实 DSH 冒烟验证（2026-09-26）：源码构建 0.1.7-rc.1 跑 `dsh web`，四类生成包全部加载成功（skill 列出、agent 预设注册、tool 注册且包内无 `node_modules`、mcp 仅因无服务端连接失败但无 schema 错误）；已安装的全局 0.1.5-rc.2 无法运行这些模板
+- [x] 全量测试套件覆盖（当前 62 个测试文件，459 项测试全部通过）
+
 ## 延后能力
 
 下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
