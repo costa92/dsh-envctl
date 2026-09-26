@@ -41,8 +41,9 @@ async function isStaleLock(lockFilePath: string): Promise<boolean> {
       try {
         // Check if process is still alive
         process.kill(info.pid, 0);
-      } catch {
-        return true;
+      } catch (err: unknown) {
+        // EPERM means the process exists but belongs to another user; only ESRCH proves it is gone.
+        return (err as NodeJS.ErrnoException).code === 'ESRCH';
       }
     }
     return false;

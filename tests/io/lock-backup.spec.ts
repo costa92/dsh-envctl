@@ -63,6 +63,16 @@ describe('Lock, Backup and Journal IO', () => {
     expect(fs.readFileSync(lockFile, 'utf8')).toBe('');
   });
 
+  it('should not treat a lock held by another user\'s live process as stale', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const lockFile = path.join(paths.managerDir, 'dshenv.lock');
+    fs.mkdirSync(paths.managerDir, { recursive: true });
+    // pid 1 is alive and, for an unprivileged test run, signalling it fails with EPERM rather than ESRCH.
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 1, hostname: os.hostname() }));
+    await expect(acquireEnvironmentLock(paths, 200)).rejects.toThrow(/already held/);
+    expect(JSON.parse(fs.readFileSync(lockFile, 'utf8')).pid).toBe(1);
+  });
+
   it('should let only one of several concurrent waiters reclaim a stale lock', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const lockFile = path.join(paths.managerDir, 'dshenv.lock');
