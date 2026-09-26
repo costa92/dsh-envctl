@@ -8,7 +8,7 @@ import { CaptureDocumentSchema } from '../manifest/schema.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
 import type { CaptureDocument } from '../domain.js';
-import { resolveWriteLayer } from '../overlay/write.js';
+import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
 export function registerSetupCommands(ctx: CommandContext): void {
@@ -71,7 +71,8 @@ export function registerSetupCommands(ctx: CommandContext): void {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
-      if (resolveWriteLayer(resolveCliOverlay(opts, paths), cmdOpts.layer) === 'overlay') {
+      const selection = resolveCliOverlay(opts, paths);
+      if (resolveWriteLayer(selection, cmdOpts.layer) === 'overlay') {
         throw new ValidationError('adopt only writes the base manifest; use --layer base');
       }
 
@@ -91,7 +92,9 @@ export function registerSetupCommands(ctx: CommandContext): void {
         throw new ValidationError(`Invalid candidate schema: ${issues}`);
       }
 
-      const summary = await adoptEnvironment(paths, parsed.data as CaptureDocument);
+      const summary = await adoptEnvironment(paths, parsed.data as CaptureDocument, {
+        validateManifest: (manifest) => assertBaseMergesWithOverlay(paths, selection, manifest)
+      });
 
       if (opts.json) {
         writeOut(JSON.stringify(summary, null, 2) + '\n');

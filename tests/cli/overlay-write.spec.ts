@@ -203,4 +203,72 @@ describe('CLI writes with an active overlay', () => {
     expect(noProfile.stderr).toContain('--layer requires --profile for source clone');
     expect(fs.existsSync(target)).toBe(false);
   });
+
+  it('refuses an adopt whose base the active overlay can no longer merge onto', async () => {
+    const profileDir = path.join(tempHome, 'profiles', 'web');
+    fs.mkdirSync(path.join(profileDir, 'node_modules', 'extra-plugin'), { recursive: true });
+    fs.writeFileSync(path.join(profileDir, 'node_modules', 'extra-plugin', 'package.json'), JSON.stringify({ name: 'extra-plugin', version: '2.0.0' }));
+    fs.writeFileSync(
+      path.join(profileDir, 'package.json'),
+      JSON.stringify({
+        dependencies: { 'shared-plugin': '1.0.0', 'heavy-plugin': '1.0.0', 'extra-plugin': '2.0.0' },
+        dsh: { profile: { bundles: ['shared-plugin', 'heavy-plugin', 'extra-plugin'] } }
+      })
+    );
+    const candidate = path.join(tempHome, 'candidate.yaml');
+    fs.writeFileSync(
+      candidate,
+      `apiVersion: dshenv-capture/v1
+manifest:
+  apiVersion: dshenv/v1
+  profiles:
+    web:
+      plugins:
+        extra:
+          package: extra-plugin
+          enabled: true
+          source: { type: npm, version: "2.0.0" }
+lock:
+  apiVersion: dshenv-lock/v1
+  profiles:
+    web:
+      plugins:
+        extra:
+          package: extra-plugin
+          source: { type: npm, resolvedVersion: "2.0.0" }
+warnings: []
+`
+    );
+    const before = fs.readFileSync(manifestFile(), 'utf8');
+    // The overlay declares `extra` with a package; once the base also declares it, the overlay would change its package.
+    const { code, stderr } = await run(['adopt', '--from', candidate, '--layer', 'base', '--yes']);
+    expect(code).toBe(3);
+    expect(stderr).toMatch(/cannot change package/);
+    expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(tempHome, 'envctl', 'state.json'))).toBe(false);
+  });
+
+  it('source clone --layer base checks the overlay merge and --profile before cloning', async () => {
+    const upstream = path.join(tempHome, 'upstream', 'extra-plugin');
+    fs.mkdirSync(upstream, { recursive: true });
+    await execa('git', ['init'], { cwd: upstream });
+    await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream });
+    await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream });
+    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'extra-plugin', version: '1.0.0' }));
+    await execa('git', ['add', '.'], { cwd: upstream });
+    await execa('git', ['commit', '-m', 'init'], { cwd: upstream });
+
+    const before = fs.readFileSync(manifestFile(), 'utf8');
+    const clash = await run(['source', 'clone', upstream, '--profile', 'web', '--as', 'extra', '--layer', 'base']);
+    expect(clash.code).toBe(3);
+    expect(clash.stderr).toMatch(/cannot change package/);
+    expect(fs.existsSync(path.join(tempHome, 'envctl', 'sources'))).toBe(false);
+    expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(before);
+
+    const target = path.join(tempHome, 'plain-clone');
+    const noProfile = await run(['source', 'clone', upstream, target, '--layer', 'base']);
+    expect(noProfile.code).toBe(3);
+    expect(noProfile.stderr).toContain('--layer requires --profile for source clone');
+    expect(fs.existsSync(target)).toBe(false);
+  });
 });

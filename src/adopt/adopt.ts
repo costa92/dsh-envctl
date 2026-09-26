@@ -64,9 +64,15 @@ export function checkCandidateFreshness(
   }
 }
 
+export interface AdoptOptions {
+  // Runs before anything is written; lets callers reject a base that an active overlay cannot merge onto.
+  validateManifest?: (manifest: EnvironmentManifest) => void;
+}
+
 export async function adoptEnvironment(
   paths: EnvironmentPaths,
-  candidate: CaptureDocument
+  candidate: CaptureDocument,
+  options?: AdoptOptions
 ): Promise<AdoptSummary> {
   const inventory = await readEnvironmentInventory(paths);
   checkCandidateFreshness(candidate, inventory);
@@ -186,6 +192,8 @@ export async function adoptEnvironment(
     profiles: existingState.profiles ?? {},
     ownership
   };
+
+  options?.validateManifest?.(mergedManifest);
 
   await writeAtomic(paths.manifestFile, serializeManifest(mergedManifest), 'overwrite');
   await writeAtomic(paths.lockFile, lockSerialized, 'overwrite');
