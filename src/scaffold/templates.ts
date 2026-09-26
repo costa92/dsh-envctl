@@ -6,8 +6,8 @@ export type ComponentKind = 'skill' | 'agent' | 'tool' | 'mcp';
 export const COMPONENT_KINDS: readonly ComponentKind[] = ['skill', 'agent', 'tool', 'mcp'];
 export type TemplateVariant = 'skill' | 'agent' | 'tool' | 'tool-ts' | 'mcp';
 
-// DSH checks @deepseek-ai/dsh-* peers against its own version (prereleases included); cover the whole 0.1 line.
-export const PEER_RANGE = '>=0.1.0-0 <0.2.0';
+// DSH checks @deepseek-ai/dsh-* peers against its own version with prereleases included; templates need 0.1.7+ (agent presets, linked peer lookup).
+export const PEER_RANGE = '>=0.1.7-0 <0.2.0-0';
 export const ComponentNameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // Walks up from this module so both src/ (tsx) and the bundled lib/ find the package's templates.
