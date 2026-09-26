@@ -3,11 +3,26 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { FileExistsError } from '../errors.js';
 
+// Profile files may be symlinks (e.g. managed by dotfiles) and may be shared; replacing them by rename
+// must neither turn the link into a plain file nor tighten the permissions of an existing file.
+async function resolveOverwriteTarget(targetPath: string): Promise<{ target: string; fileMode: number }> {
+  try {
+    const target = await fs.promises.realpath(targetPath);
+    const stat = await fs.promises.stat(target);
+    return { target, fileMode: stat.mode & 0o7777 };
+  } catch {
+    return { target: targetPath, fileMode: 0o600 };
+  }
+}
+
 export async function writeAtomic(
-  targetPath: string,
+  requestedPath: string,
   contents: string | Uint8Array,
   mode: 'create' | 'overwrite' = 'overwrite'
 ): Promise<void> {
+  const { target: targetPath, fileMode } = mode === 'overwrite'
+    ? await resolveOverwriteTarget(requestedPath)
+    : { target: requestedPath, fileMode: 0o600 };
   const dir = path.dirname(targetPath);
   await fs.promises.mkdir(dir, { recursive: true });
 
@@ -31,6 +46,9 @@ export async function writeAtomic(
     handle = await fs.promises.open(tempPath, 'wx', 0o600);
     const data = typeof contents === 'string' ? Buffer.from(contents, 'utf8') : contents;
     await handle.writeFile(data);
+    if (fileMode !== 0o600) {
+      await handle.chmod(fileMode);
+    }
     await handle.sync();
     await handle.close();
     handle = null;

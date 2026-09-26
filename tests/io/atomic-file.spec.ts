@@ -47,4 +47,33 @@ describe('writeAtomic', () => {
 
     expect(fs.readFileSync(targetFile, 'utf8')).toBe('new content');
   });
+
+  it('writes through a symlink to its target, keeping the link', async () => {
+    const realFile = path.join(tempDir, 'dotfiles', 'package.json');
+    fs.mkdirSync(path.dirname(realFile));
+    fs.writeFileSync(realFile, 'old');
+    const link = path.join(tempDir, 'package.json');
+    fs.symlinkSync(realFile, link);
+
+    await writeAtomic(link, 'new', 'overwrite');
+
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(realFile, 'utf8')).toBe('new');
+  });
+
+  it('keeps the permissions of the file it overwrites', async () => {
+    const targetFile = path.join(tempDir, 'shared.yml');
+    fs.writeFileSync(targetFile, 'old');
+    fs.chmodSync(targetFile, 0o644);
+
+    await writeAtomic(targetFile, 'new', 'overwrite');
+
+    expect(fs.statSync(targetFile).mode & 0o777).toBe(0o644);
+  });
+
+  it('still creates new files private to the owner', async () => {
+    const targetFile = path.join(tempDir, 'fresh.json');
+    await writeAtomic(targetFile, '{}', 'overwrite');
+    expect(fs.statSync(targetFile).mode & 0o777).toBe(0o600);
+  });
 });
