@@ -1,0 +1,4 @@
+# Loads this package as a Cordis plugin.
+- insert:
+    - id: '{{name}}'
+      name: '{{package}}'

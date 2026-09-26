@@ -1,0 +1,11 @@
+# Connects DSH to one MCP server. For a local stdio server use instead:
+#   transport: stdio
+#   command: node
+#   args: ['./server.js']
+- insert:
+    - id: '{{name}}'
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: '{{name}}'
+        transport: streamable-http
+        url: http://127.0.0.1:3000/mcp

@@ -1,0 +1,10 @@
+# Mounts this package's skills/ directory as an extra skill root, next to the default roots.
+- insert:
+    - id: '{{name}}-skills'
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: '{{package}}'
+        includeDefaultRoots: false
+        watch: true
+        customSkillDirs:
+          - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('{{package}}/package.json')), 'skills')

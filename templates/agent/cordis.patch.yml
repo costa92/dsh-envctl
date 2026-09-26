@@ -1,0 +1,21 @@
+# Adds the '{{name}}' agent preset. A preset's plugins list is everything the agent can use;
+# copy tool rows (bash, file system, ...) from dsh-web-app's presets/minimal.patch.yml to give it tools.
+- insert:
+    - id: '{{name}}'
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: '{{name}}'
+        name: '{{name}}'
+        description: Describe when to pick this agent.
+        order: 100
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are {{name}}, a focused assistant. Describe the role, tone and boundaries here.
+          # Delegate work to child agents:
+          # - id: subagent
+          #   name: '@deepseek-ai/dsh-tool-subagent'
+          #   config:
+          #     provider: spawn
+          #     toolName: subagent

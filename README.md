@@ -17,6 +17,7 @@
 - **无损环境捕获与接管**：将现有 DSH Profile 盘点为可审阅的候选清单（`capture`），确认事实未过期后再建立所有权（`adopt`）。
 - **多运行时与能力探测**：无缝支持源码运行模式（`--harness-source`）、环境变量（`DSH_CLI`）及全局 PATH 探测（`doctor`）。
 - **结构化成功输出**：所有命令的成功结果均支持 `--json` 格式；错误当前仍以纯文本写入 stderr。
+- **组件脚手架**：`dshenv new` 从模板生成 skill/agent/tool/mcp 组件包，可选直接登记进清单。
 
 ---
 
@@ -228,6 +229,22 @@ dshenv restarted --profile web --json
 
 ### 17. 在 CI 中使用
 仓库自身的 CI 见 `.github/workflows/ci.yml`（Node 22/24 上跑 typecheck、test、build）。在你的配置仓库里校验清单与 overlay、在真实环境上做漂移门禁，可参考 `docs/examples/github-actions/dshenv-check.yml`，说明见 `docs/使用教程.md` 第 14 节。
+
+### 18. `dshenv new`
+
+从模板生成 DSH 组件包，可选直接登记进清单：
+
+```bash
+dshenv new skill code-review            # skill bundle：skills/code-review/SKILL.md
+dshenv new skill code-review --loose    # 直接写入 $DSH_HOME/skills/code-review/SKILL.md
+dshenv new agent reviewer               # agent 预设（dsh-agent-preset + dsh-persona）
+dshenv new tool echo-text -p web        # 纯 JS tool 插件，并登记到 profile web
+dshenv new tool echo-text --typescript  # TypeScript 版本，需先 pnpm install && pnpm build
+dshenv new mcp docs-server              # MCP server 配置包
+```
+
+- 名称必须是 kebab-case；目标目录非空时拒绝。
+- `-p` 等同于随后执行 `dshenv install <目录> -p <profile>`（支持 `--as`、`--layer`）；登记失败时删除生成的目录。不会自动 `apply`。
 
 ---
 
