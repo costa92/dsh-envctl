@@ -4,7 +4,7 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type { PatchEntry } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
-import { applyPatchBlock, removePatchBlock } from '../patch/patch.js';
+import { removePatchBlock, replacePluginBlocks } from '../patch/patch.js';
 
 const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
 const MAX_PATCH_BYTES = 1024 * 1024;
@@ -61,10 +61,8 @@ export async function writeManagedPatches(
   pluginAlias: string,
   patches: PatchEntry[]
 ): Promise<void> {
-  let content = await readProfilePatchFile(paths, profileName);
-  for (const patch of patches) {
-    content = applyPatchBlock(content, profileName, pluginAlias, patch.id, patch.config);
-  }
+  const active = patches.filter((patch) => patch.enabled !== false);
+  const content = replacePluginBlocks(await readProfilePatchFile(paths, profileName), profileName, pluginAlias, active);
   await writeAtomic(profilePatchFile(paths, profileName), content.endsWith('\n') ? content : `${content}\n`, 'overwrite');
 }
 

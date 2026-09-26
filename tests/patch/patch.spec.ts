@@ -4,6 +4,7 @@ import {
   renderPatchBlock,
   applyPatchBlock,
   removePatchBlock,
+  replacePluginBlocks,
   extractManagedPatches
 } from '../../src/patch/patch.js';
 
@@ -86,5 +87,47 @@ suffix: true
     expect(patches[0].plugin).toBe('agent-teams');
     expect(patches[0].isDigestValid).toBe(true);
     expect(patches[0].config).toEqual(sampleConfig);
+  });
+
+  it('keeps every patch of a plugin, each in its own verifiable block', () => {
+    const content = replacePluginBlocks('', 'web', 'demo', [
+      { id: 'p1', config: { a: 1 } },
+      { id: 'p2', config: { b: 2 } }
+    ]);
+    const patches = extractManagedPatches(content, 'web');
+    expect(patches.map((patch) => [patch.id, patch.isDigestValid])).toEqual([['p1', true], ['p2', true]]);
+  });
+
+  it('rewrites all blocks of a plugin in place, dropping patches no longer declared', () => {
+    const start = replacePluginBlocks('before: 1\n', 'web', 'demo', [
+      { id: 'p1', config: { a: 1 } },
+      { id: 'p2', config: { b: 2 } }
+    ]) + 'after: 1\n';
+    const next = replacePluginBlocks(start, 'web', 'demo', [{ id: 'p2', config: { b: 3 } }]);
+    expect(extractManagedPatches(next, 'web').map((patch) => [patch.id, patch.config])).toEqual([['p2', { b: 3 }]]);
+    expect(next.startsWith('before: 1\n')).toBe(true);
+    expect(next.endsWith('after: 1\n')).toBe(true);
+  });
+
+  it('writes config values containing $ replacement patterns verbatim when updating a block', () => {
+    const config = { tpl: 'x$$y', re: "end$'", all: 'a$&b' };
+    const first = applyPatchBlock('', 'web', 'demo', 'demo', { tpl: 'old' });
+    const updated = applyPatchBlock(first, 'web', 'demo', 'demo', config);
+    const [patch] = extractManagedPatches(updated, 'web');
+    expect(patch.config).toEqual(config);
+    expect(patch.isDigestValid).toBe(true);
+  });
+
+  it('treats aliases literally instead of as regular expressions', () => {
+    const both = applyPatchBlock(applyPatchBlock('', 'web', 'axb', 'axb', { k: 1 }), 'web', 'a.b', 'a.b', { k: 2 });
+    expect(extractManagedPatches(removePatchBlock(both, 'web', 'a.b'), 'web').map((patch) => patch.plugin)).toEqual(['axb']);
+    expect(() => applyPatchBlock('', 'web', 'c++', 'c++', { k: 1 })).not.toThrow();
+    expect(extractManagedPatches(applyPatchBlock('', 'web', 'c++', 'c++', { k: 1 }), 'web')[0].plugin).toBe('c++');
+  });
+
+  it('removes a block without collapsing blank lines elsewhere in the file', () => {
+    const userContent = 'keep: 1\n\n\n\nother: 2\n';
+    const withBlock = applyPatchBlock(userContent, 'web', 'demo', 'demo', { k: 1 });
+    expect(removePatchBlock(withBlock, 'web', 'demo')).toBe(userContent);
   });
 });

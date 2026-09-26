@@ -258,29 +258,27 @@ export function buildPlan(
         }
       }
 
-      if (pluginManifest.patches && pluginManifest.patches.length > 0) {
-        const actualPatches = profInv?.managedPatches ?? [];
-        const needsConfigure = pluginManifest.patches.some((expected) => {
-          const digest = computePatchDigest(expected.config);
-          return !actualPatches.some(
-            (actual) =>
-              actual.plugin === alias &&
-              actual.id === expected.id &&
-              actual.isDigestValid &&
-              actual.digest === digest
-          );
+      // Live blocks must match the enabled patches exactly, so dropped or disabled patches are cleared too.
+      const expectedPatches = (pluginManifest.patches ?? []).filter((patch) => patch.enabled !== false);
+      const livePatches = (profInv?.managedPatches ?? []).filter((actual) => actual.plugin === alias);
+      const patchesInSync =
+        livePatches.length === expectedPatches.length &&
+        expectedPatches.every((expected, index) => {
+          const actual = livePatches[index];
+          return actual.id === expected.id && actual.isDigestValid && actual.digest === computePatchDigest(expected.config);
         });
-        if (needsConfigure) {
-          operations.push({
-            kind: 'configure',
-            profile: profName,
-            alias,
-            package: pkgName,
-            reason: 'Managed configuration patch is missing or digest does not match',
-            currentEnabled,
-            targetEnabled
-          });
-        }
+      if (!patchesInSync) {
+        operations.push({
+          kind: 'configure',
+          profile: profName,
+          alias,
+          package: pkgName,
+          reason: expectedPatches.length > 0
+            ? 'Managed configuration patch is missing or digest does not match'
+            : 'Managed configuration patch is no longer declared',
+          currentEnabled,
+          targetEnabled
+        });
       }
     }
   }

@@ -93,7 +93,7 @@ export function upsertPluginPatch(
   }
   const current: PatchEntry = plugin.patches?.[0] ?? { id: alias, config: {} };
   const config = setAtPath(current.config, dottedPath, value);
-  const next: PatchEntry = { id: current.id, config };
+  const next: PatchEntry = { ...current, config };
   plugin.patches = [next, ...(plugin.patches?.slice(1) ?? [])];
   return next;
 }

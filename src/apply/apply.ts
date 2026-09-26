@@ -128,11 +128,11 @@ async function executeWithDsh(
 
     if (operation.kind === 'configure') {
       const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
-      if (!plugin?.patches?.length) {
-        throw new ValidationError(`No patches declared for ${operation.alias} in ${operation.profile}`);
+      if (!plugin) {
+        throw new ValidationError(`Plugin '${operation.alias}' is missing from profile '${operation.profile}'`);
       }
       rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile));
-      await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches);
+      await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches ?? []);
       continue;
     }
 

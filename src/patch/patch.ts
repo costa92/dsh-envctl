@@ -55,6 +55,46 @@ export function renderPatchBlock(
   ].join('\n');
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Replaces every managed block of one plugin with one block per patch, written where the first old block was.
+// Surrounding bytes are spliced rather than passed through String.replace, which would expand `$` patterns in values.
+export function replacePluginBlocks(
+  existingContent: string,
+  profileName: string,
+  pluginAlias: string,
+  patches: Array<{ id: string; config: Record<string, unknown> }>
+): string {
+  const profile = escapeRegExp(profileName);
+  const plugin = escapeRegExp(pluginAlias);
+  const regex = new RegExp(
+    `# dshenv:begin profile=${profile} plugin=${plugin}(?: digest=[^\\s]+)?\\n[\\s\\S]*?# dshenv:end profile=${profile} plugin=${plugin}\\n?`,
+    'g'
+  );
+  const blocks = patches.map((patch) => `${renderPatchBlock(profileName, pluginAlias, patch.id, patch.config)}\n`).join('');
+
+  const matches = [...existingContent.matchAll(regex)];
+  if (matches.length === 0) {
+    if (blocks.length === 0) return existingContent;
+    if (existingContent.length === 0) return blocks;
+    return `${existingContent}${existingContent.endsWith('\n') ? '\n' : '\n\n'}${blocks}`;
+  }
+
+  let result = '';
+  let cursor = 0;
+  matches.forEach((match, index) => {
+    let before = existingContent.slice(cursor, match.index);
+    const replacement = index === 0 ? blocks : '';
+    // Dropping a block also drops the blank line that appending it introduced.
+    if (replacement === '' && before.endsWith('\n\n')) before = before.slice(0, -1);
+    result += before + replacement;
+    cursor = match.index + match[0].length;
+  });
+  return result + existingContent.slice(cursor);
+}
+
 export function applyPatchBlock(
   existingContent: string,
   profileName: string,
@@ -62,21 +102,7 @@ export function applyPatchBlock(
   patchId: string,
   config: Record<string, unknown>
 ): string {
-  const newBlock = renderPatchBlock(profileName, pluginAlias, patchId, config);
-  const regex = new RegExp(
-    `# dshenv:begin profile=${profileName} plugin=${pluginAlias}(?: digest=[^\\s]+)?\\n[\\s\\S]*?# dshenv:end profile=${profileName} plugin=${pluginAlias}\\n?`,
-    'g'
-  );
-
-  if (regex.test(existingContent)) {
-    return existingContent.replace(regex, `${newBlock}\n`);
-  }
-
-  const trimmed = existingContent.trimEnd();
-  if (trimmed.length === 0) {
-    return `${newBlock}\n`;
-  }
-  return `${trimmed}\n\n${newBlock}\n`;
+  return replacePluginBlocks(existingContent, profileName, pluginAlias, [{ id: patchId, config }]);
 }
 
 export function removePatchBlock(
@@ -84,13 +110,7 @@ export function removePatchBlock(
   profileName: string,
   pluginAlias: string
 ): string {
-  const regex = new RegExp(
-    `# dshenv:begin profile=${profileName} plugin=${pluginAlias}(?: digest=[^\\s]+)?\\n[\\s\\S]*?# dshenv:end profile=${profileName} plugin=${pluginAlias}\\n?`,
-    'g'
-  );
-
-  const cleaned = existingContent.replace(regex, '');
-  return cleaned.replace(/\n{3,}/g, '\n\n');
+  return replacePluginBlocks(existingContent, profileName, pluginAlias, []);
 }
 
 export function extractManagedPatches(
