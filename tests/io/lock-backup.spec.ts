@@ -63,6 +63,34 @@ describe('Lock, Backup and Journal IO', () => {
     expect(fs.readFileSync(lockFile, 'utf8')).toBe('');
   });
 
+  it('should let only one of several concurrent waiters reclaim a stale lock', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const lockFile = path.join(paths.managerDir, 'dshenv.lock');
+    for (let round = 0; round < 200; round++) {
+      // A pid that cannot belong to a live process marks the lock as stale.
+      fs.writeFileSync(lockFile, JSON.stringify({ pid: 2 ** 31 - 1, hostname: os.hostname() }));
+      const results = await Promise.allSettled(
+        Array.from({ length: 32 }, () => acquireEnvironmentLock(paths, 0))
+      );
+      const winners = results.filter((result) => result.status === 'fulfilled');
+      expect(winners).toHaveLength(1);
+      fs.rmSync(lockFile, { force: true });
+    }
+  });
+
+  it('should point at a reclaim marker left by a crashed reclaimer instead of removing it', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const lockFile = path.join(paths.managerDir, 'dshenv.lock');
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 2 ** 31 - 1, hostname: os.hostname() }));
+    const guard = `${lockFile}.reclaim`;
+    fs.mkdirSync(guard);
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(guard, past, past);
+
+    await expect(acquireEnvironmentLock(paths, 0)).rejects.toThrow(/stale reclaim marker/);
+    expect(fs.existsSync(guard)).toBe(true);
+  });
+
   it('should reclaim an unreadable lock left behind long ago', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const lockFile = path.join(paths.managerDir, 'dshenv.lock');
