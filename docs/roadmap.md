@@ -66,7 +66,8 @@
 - [x] 出处：`list` 的 `origin`、`overlay show`
 - [x] 有生效 overlay 时写入命令必须指定 `--layer`
 - [x] apply 在锁内加载合并清单，state 记录 `appliedOverlay`，切换时警告
-- [x] 全量测试套件覆盖（当前 45 个测试文件，308 项测试全部通过）
+- [x] lock 只细化合并清单：npm 精确版本与 git url 不一致时不沿用 lock；`--layer base` 写入前校验与 overlay 可合并
+- [x] 全量测试套件覆盖（当前 46 个测试文件，322 项测试全部通过）
 
 ## 延后能力
 
