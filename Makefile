@@ -1,8 +1,9 @@
-.PHONY: help install build typecheck test test-watch check clean demo-init demo-status demo-plan demo-doctor demo-capture demo-apply demo-list demo-rollback demo-gc
+.PHONY: help install build typecheck test test-watch check clean demo-prepare check-harness-source demo-init demo-status demo-plan demo-doctor demo-capture demo-apply demo-list demo-rollback demo-gc
 
 SHELL := /bin/bash
-DEMO_HOME ?= /Users/costalong/code/dsh/dsh-demo
-HARNESS_SOURCE ?= /Users/costalong/code/dsh/deepseek-harness
+DSH_WORKSPACE ?= $(HOME)/code/dsh
+DEMO_HOME ?= $(DSH_WORKSPACE)/dsh-demo
+HARNESS_SOURCE ?= $(DSH_WORKSPACE)/deepseek-harness
 
 # Default target
 help:
@@ -25,6 +26,11 @@ help:
 	@echo "  make demo-list    - List declared plugins in demo directory"
 	@echo "  make demo-rollback - Preview restoring the latest envctl snapshot"
 	@echo "  make demo-gc      - Preview expired trash cleanup"
+	@echo ""
+	@echo "Demo paths (override with make TARGET VARIABLE=/path):"
+	@echo "  DSH_WORKSPACE=$(DSH_WORKSPACE)"
+	@echo "  DEMO_HOME=$(DEMO_HOME)"
+	@echo "  HARNESS_SOURCE=$(HARNESS_SOURCE)"
 
 install:
 	pnpm install
@@ -46,31 +52,41 @@ check: typecheck build test
 clean:
 	rm -rf lib tsconfig.tsbuildinfo .vitest
 
-demo-init: build
-	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js init
+demo-prepare:
+	@mkdir -p "$(DSH_WORKSPACE)" "$(DEMO_HOME)"
 
-demo-status: build
-	@DSH_HOME=$(DEMO_HOME) node bin/dshenv.js status; \
+check-harness-source:
+	@if [ ! -d "$(HARNESS_SOURCE)" ]; then \
+		echo "Harness source directory not found: $(HARNESS_SOURCE)" >&2; \
+		echo "Set HARNESS_SOURCE=/path/to/deepseek-harness or DSH_WORKSPACE=/path/to/dsh." >&2; \
+		exit 2; \
+	fi
+
+demo-init: build demo-prepare
+	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js init
+
+demo-status: build demo-prepare
+	@DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js status; \
 	status=$$?; \
 	if [ $$status -eq 0 ] || [ $$status -eq 2 ]; then exit 0; else exit $$status; fi
 
-demo-plan: build
-	-DSH_HOME=$(DEMO_HOME) node bin/dshenv.js plan
+demo-plan: build demo-prepare
+	-DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js plan
 
-demo-doctor: build
-	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js --harness-source $(HARNESS_SOURCE) doctor
+demo-doctor: build demo-prepare check-harness-source
+	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js --harness-source "$(HARNESS_SOURCE)" doctor
 
-demo-capture: build
-	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js capture
+demo-capture: build demo-prepare
+	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js capture
 
-demo-apply: build
-	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js apply --dry-run
+demo-apply: build demo-prepare
+	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js apply --dry-run
 
-demo-list: build
-	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js list
+demo-list: build demo-prepare
+	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js list
 
-demo-rollback: build
-	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js rollback --dry-run
+demo-rollback: build demo-prepare
+	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js rollback --dry-run
 
-demo-gc: build
-	DSH_HOME=$(DEMO_HOME) node bin/dshenv.js gc --dry-run
+demo-gc: build demo-prepare
+	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js gc --dry-run
