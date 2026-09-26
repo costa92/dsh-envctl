@@ -176,7 +176,20 @@ export function buildPlan(
       const currentVersion = installed?.version;
       const currentEnabled = isInstalled ? (installed?.enabled ?? true) : undefined;
 
-      if (!isInstalled) {
+      if (!isInstalled && pluginManifest.source.type === 'in-box') {
+        // In-box plugins ship with DSH and are only inventoried through the bundles, so absence means disabled.
+        if (targetEnabled) {
+          operations.push({
+            kind: 'enable',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: 'In-box plugin is not selected in the profile bundles',
+            currentEnabled: false,
+            targetEnabled
+          });
+        }
+      } else if (!isInstalled) {
         operations.push({
           kind: 'install',
           profile: profName,
@@ -200,7 +213,19 @@ export function buildPlan(
       } else {
         const installedCommit =
           pluginManifest.source.type === 'git' ? commitFromGitSpec(installed?.resolvedSource) : undefined;
-        if (targetVersion && currentVersion && targetVersion !== currentVersion) {
+        const installedType = installed?.sourceType;
+        const declaredType = pluginManifest.source.type;
+        if (installedType && installedType !== declaredType && installedType !== 'in-box' && declaredType !== 'in-box') {
+          operations.push({
+            kind: 'update',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: `Source type changed: installed ${installedType} != declared ${declaredType}`,
+            currentEnabled,
+            targetEnabled
+          });
+        } else if (targetVersion && currentVersion && targetVersion !== currentVersion) {
           operations.push({
             kind: 'update',
             profile: profName,

@@ -511,7 +511,7 @@ describe('buildPlan', () => {
         web: { plugins: { demo: { package: 'demo-plugin', source: { type, path: '/src/demo', digest } } } }
       }
     });
-    const inventory: EnvironmentInventory = {
+    const inventoryFor = (type: 'local-file' | 'local-link'): EnvironmentInventory => ({
       profiles: {
         web: {
           name: 'web',
@@ -521,7 +521,7 @@ describe('buildPlan', () => {
               name: 'demo-plugin',
               installed: true,
               version: '0.1.0',
-              sourceType: 'local-file',
+              sourceType: type,
               isSymlink: false,
               isExternalSymlink: false,
               enabled: true
@@ -529,13 +529,14 @@ describe('buildPlan', () => {
           }
         }
       }
-    };
+    });
+    const inventory = inventoryFor('local-file');
     const current = { web: { demo: 'new-digest' } };
 
     it.each(['local-file', 'local-link'] as const)(
       'should plan update when the %s source changed since the last apply',
       (type) => {
-        const plan = buildPlan(manifestFor(type), lockWith(type, 'old-digest'), inventory, null, current);
+        const plan = buildPlan(manifestFor(type), lockWith(type, 'old-digest'), inventoryFor(type), null, current);
         expect(plan.operations).toEqual([
           expect.objectContaining({ kind: 'update', currentVersion: 'old-digest', targetVersion: 'new-digest' })
         ]);
@@ -701,6 +702,51 @@ describe('lock versus effective manifest', () => {
     const plan = buildPlan(manifest, lock, { profiles: { web: { name: 'web', path: '/dummy', plugins: {} } } });
     expect(plan.operations).toEqual([
       expect.objectContaining({ kind: 'blocked', blockedReason: 'Git source has no locked commit; refusing to invent HEAD' })
+    ]);
+  });
+});
+
+describe('source kinds the inventory reports differently', () => {
+  const manifestWith = (source: EnvironmentManifest['profiles'][string]['plugins'][string]['source'], enabled: boolean): EnvironmentManifest => ({
+    apiVersion: 'dshenv/v1',
+    profiles: { web: { plugins: { demo: { package: 'demo-plugin', enabled, source } } } }
+  });
+  const inventoryWith = (plugins: EnvironmentInventory['profiles'][string]['plugins']): EnvironmentInventory => ({
+    profiles: { web: { name: 'web', path: '/dummy', plugins } }
+  });
+
+  it('treats an in-box plugin outside the bundles as disabled rather than missing', () => {
+    expect(buildPlan(manifestWith({ type: 'in-box' }, false), null, inventoryWith({})).hasChanges).toBe(false);
+    expect(buildPlan(manifestWith({ type: 'in-box' }, true), null, inventoryWith({})).operations).toEqual([
+      expect.objectContaining({ kind: 'enable', alias: 'demo' })
+    ]);
+  });
+
+  it('reinstalls when the declared source type differs from the installed one', () => {
+    const url = 'https://example.com/demo.git';
+    const commit = 'c'.repeat(40);
+    const lock: EnvironmentLock = {
+      apiVersion: 'dshenv-lock/v1',
+      profiles: { web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'git', url, commit } } } } }
+    };
+    const installedFromNpm = inventoryWith({
+      'demo-plugin': {
+        name: 'demo-plugin', installed: true, version: '1.0.0', sourceType: 'npm', resolvedSource: '1.0.0',
+        isSymlink: false, isExternalSymlink: false, enabled: true
+      }
+    });
+    expect(buildPlan(manifestWith({ type: 'git', url }, true), lock, installedFromNpm).operations).toEqual([
+      expect.objectContaining({ kind: 'update', reason: 'Source type changed: installed npm != declared git' })
+    ]);
+
+    const installedFromGit = inventoryWith({
+      'demo-plugin': {
+        name: 'demo-plugin', installed: true, version: '1.0.0', sourceType: 'git', resolvedSource: `${url}#${commit}`,
+        isSymlink: false, isExternalSymlink: false, enabled: true
+      }
+    });
+    expect(buildPlan(manifestWith({ type: 'npm', version: '1.0.0' }, true), null, installedFromGit).operations).toEqual([
+      expect.objectContaining({ kind: 'update', reason: 'Source type changed: installed git != declared npm' })
     ]);
   });
 });
