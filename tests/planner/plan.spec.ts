@@ -647,11 +647,6 @@ describe('lock versus effective manifest', () => {
     expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: '1.5.0' })]);
   });
 
-  it('keeps using the lock for a non-exact manifest version', () => {
-    const plan = buildPlan(npmManifest('*'), npmLock('1.2.3'), installedAt('1.0.0'));
-    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: '1.2.3' })]);
-  });
-
   it('keeps using the lock when it matches the exact manifest version', () => {
     const plan = buildPlan(npmManifest('1.0.0'), npmLock('1.0.0'), installedAt('1.0.0'));
     expect(plan.hasChanges).toBe(false);

@@ -15,6 +15,7 @@ import {
 } from '../manifest/files.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
+import { ExactVersionRegex } from '../manifest/schema.js';
 
 const GIT_COMMIT_RE = /^[0-9a-f]{7,40}$/i;
 
@@ -83,6 +84,12 @@ export function captureEnvironment(
 
       if (plugin.sourceType === 'npm') {
         const version = plugin.version || (plugin.resolvedSource && !plugin.resolvedSource.startsWith('http') ? plugin.resolvedSource : '0.0.0');
+        if (!ExactVersionRegex.test(version)) {
+          warnings.push(
+            `Package ${pkgName} in profile ${profileName} is declared as '${version}' and not installed; skipped because dshenv needs an exact version`
+          );
+          continue;
+        }
         const resolvedFrom =
           typeof plugin.rawPackageJson?._resolved === 'string'
             ? plugin.rawPackageJson._resolved

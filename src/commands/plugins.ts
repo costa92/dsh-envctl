@@ -7,6 +7,7 @@ import { buildPlan } from '../planner/plan.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError } from '../errors.js';
+import { ExactVersionRegex } from '../manifest/schema.js';
 import type { PluginSource } from '../domain.js';
 import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { assertBaseMergesWithOverlay, removeOverlayPlugin, resolveWriteLayer, saveOverlay, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
@@ -51,7 +52,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
     }
 
     let packageName = spec;
-    let version = '*';
+    let version: string | undefined;
 
     if (spec.startsWith('@')) {
       const atIdx = spec.indexOf('@', 1);
@@ -65,6 +66,10 @@ export function registerPluginCommands(ctx: CommandContext): void {
         packageName = spec.slice(0, atIdx);
         version = spec.slice(atIdx + 1);
       }
+    }
+
+    if (!version || !ExactVersionRegex.test(version)) {
+      throw new ValidationError(`npm plugin needs an exact version: ${packageName}@<x.y.z>`);
     }
 
     const simpleName = packageName.startsWith('@') ? packageName.split('/')[1] : packageName;
@@ -165,6 +170,9 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+      if (!ExactVersionRegex.test(cmdOpts.to)) {
+        throw new ValidationError('--to must be an exact version such as 1.2.3');
+      }
       if (!fs.existsSync(paths.manifestFile)) {
         throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
       }

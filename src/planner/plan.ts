@@ -91,18 +91,8 @@ function lockedLocalDigest(
 type LockedSource = EnvironmentLock['profiles'][string]['plugins'][string]['source'] | undefined;
 type ManifestSource = EnvironmentManifest['profiles'][string]['plugins'][string]['source'];
 
-const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
-
-// The lock is a single per-machine file shared by every overlay, so it may only refine the
-// effective manifest (resolve a range, pin the same url), never override what it declares.
-export function lockedNpmVersion(source: ManifestSource, locked: LockedSource): string | undefined {
-  if (source.type !== 'npm') return undefined;
-  if (locked?.type !== 'npm') return source.version;
-  return EXACT_VERSION.test(source.version) && source.version !== locked.resolvedVersion
-    ? source.version
-    : locked.resolvedVersion;
-}
-
+// The lock is a single per-machine file shared by every overlay, so it may only pin what the
+// effective manifest declares, never override it.
 export function lockedGitCommit(source: ManifestSource, locked: LockedSource): string | undefined {
   return source.type === 'git' && locked?.type === 'git' && locked.url === source.url ? locked.commit : undefined;
 }
@@ -149,7 +139,7 @@ export function buildPlan(
       const targetEnabled = pluginManifest.enabled ?? true;
       const lockEntry = profLock[alias];
 
-      const targetVersion = lockedNpmVersion(pluginManifest.source, lockEntry?.source);
+      const targetVersion = pluginManifest.source.type === 'npm' ? pluginManifest.source.version : undefined;
 
       const installed = profInv?.plugins?.[pkgName];
       const gitLockCommit = lockedGitCommit(pluginManifest.source, lockEntry?.source);
