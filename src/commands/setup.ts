@@ -8,7 +8,8 @@ import { CaptureDocumentSchema } from '../manifest/schema.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
 import type { CaptureDocument } from '../domain.js';
-import { resolveCliPaths, type CommandContext } from './context.js';
+import { resolveWriteLayer } from '../overlay/write.js';
+import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
 export function registerSetupCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -65,9 +66,14 @@ export function registerSetupCommands(ctx: CommandContext): void {
     .description('Adopt a candidate capture manifest into active environment management')
     .requiredOption('-f, --from <file>', 'path to candidate capture manifest')
     .option('-y, --yes', 'skip confirmation')
+    .option('--layer <layer>', 'layer to write when an overlay is active; adopt only supports base')
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+
+      if (resolveWriteLayer(resolveCliOverlay(opts, paths), cmdOpts.layer) === 'overlay') {
+        throw new ValidationError('adopt only writes the base manifest; use --layer base');
+      }
 
       const candidatePath = path.isAbsolute(cmdOpts.from)
         ? cmdOpts.from

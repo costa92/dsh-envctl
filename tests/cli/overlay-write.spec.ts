@@ -1,0 +1,107 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { runCli } from '../../src/cli.js';
+import { loadLock, loadManifest, parseOverlay } from '../../src/manifest/files.js';
+import { writeOverlayFixture } from '../helpers/overlay-fixture.js';
+
+describe('CLI writes with an active overlay', () => {
+  let tempHome: string;
+  const manifestFile = () => path.join(tempHome, 'envctl', 'manifest.yaml');
+  const overlayFile = () => path.join(tempHome, 'envctl', 'overlays', 'laptop.yaml');
+  const overlay = () => parseOverlay(fs.readFileSync(overlayFile(), 'utf8'), overlayFile());
+  const run = async (args: string[]) => {
+    let stderr = '';
+    const code = await runCli([...args, '--dsh-home', tempHome], { stdout: () => {}, stderr: (chunk) => { stderr += chunk; } });
+    return { code, stderr };
+  };
+
+  beforeEach(async () => {
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-cli-overlay-write-'));
+    writeOverlayFixture(tempHome);
+    await run(['overlay', 'use', 'laptop']);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('refuses writes without --layer and leaves both files unchanged', async () => {
+    const before = [fs.readFileSync(manifestFile(), 'utf8'), fs.readFileSync(overlayFile(), 'utf8')];
+    const { code, stderr } = await run(['disable', 'shared', '--profile', 'web']);
+    expect(code).toBe(3);
+    expect(stderr).toMatch(/pass --layer base or --layer overlay/);
+    expect([fs.readFileSync(manifestFile(), 'utf8'), fs.readFileSync(overlayFile(), 'utf8')]).toEqual(before);
+  });
+
+  it('writes enabled only into the overlay with --layer overlay', async () => {
+    const baseBefore = fs.readFileSync(manifestFile(), 'utf8');
+    expect((await run(['disable', 'shared', '--profile', 'web', '--layer', 'overlay'])).code).toBe(0);
+    expect(overlay().profiles?.web.plugins?.shared).toEqual({ enabled: false });
+    expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(baseBefore);
+  });
+
+  it('writes the base with --layer base', async () => {
+    const overlayBefore = fs.readFileSync(overlayFile(), 'utf8');
+    expect((await run(['disable', 'shared', '--profile', 'web', '--layer', 'base'])).code).toBe(0);
+    expect(loadManifest(fs.readFileSync(manifestFile(), 'utf8')).profiles.web.plugins.shared.enabled).toBe(false);
+    expect(fs.readFileSync(overlayFile(), 'utf8')).toBe(overlayBefore);
+  });
+
+  it('enables a plugin in the overlay', async () => {
+    expect((await run(['enable', 'extra', '--profile', 'web', '--layer', 'overlay'])).code).toBe(0);
+    expect(overlay().profiles?.web.plugins?.extra.enabled).toBe(true);
+  });
+
+  it('tombstones base plugins and deletes overlay-only plugins on remove', async () => {
+    expect((await run(['remove', 'shared', '--profile', 'web', '--layer', 'overlay'])).code).toBe(0);
+    expect(overlay().profiles?.web.plugins?.shared).toEqual({ remove: true });
+    expect((await run(['remove', 'extra', '--profile', 'web', '--layer', 'overlay'])).code).toBe(0);
+    expect(overlay().profiles?.web.plugins?.extra).toBeUndefined();
+  });
+
+  it('sets one config key in the overlay', async () => {
+    expect((await run(['config', 'set', 'shared', 'mode', 'solo', '--profile', 'web', '--layer', 'overlay'])).code).toBe(0);
+    expect(overlay().profiles?.web.plugins?.shared.patches).toEqual([{ id: 'shared', config: { mode: 'solo' } }]);
+  });
+
+  it('installs new plugins and overrides existing ones in the overlay', async () => {
+    expect((await run(['install', 'new-plugin@3.0.0', '--profile', 'web', '--layer', 'overlay'])).code).toBe(0);
+    expect(overlay().profiles?.web.plugins?.['new-plugin']).toEqual({
+      package: 'new-plugin',
+      enabled: true,
+      source: { type: 'npm', version: '3.0.0' }
+    });
+
+    expect((await run(['install', 'shared-plugin@1.5.0', '--profile', 'web', '--as', 'shared', '--layer', 'overlay'])).code).toBe(0);
+    expect(overlay().profiles?.web.plugins?.shared).toEqual({ enabled: true, source: { type: 'npm', version: '1.5.0' } });
+
+    const clash = await run(['install', 'other-plugin@1.0.0', '--profile', 'web', '--as', 'shared', '--layer', 'overlay']);
+    expect(clash.code).toBe(3);
+    expect(clash.stderr).toMatch(/cannot change its package/);
+  });
+
+  it('overrides the npm version in the overlay and pins the lock', async () => {
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'lock.json'),
+      JSON.stringify({
+        apiVersion: 'dshenv-lock/v1',
+        profiles: { web: { plugins: { shared: { package: 'shared-plugin', source: { type: 'npm', resolvedVersion: '1.0.0' } } } } }
+      })
+    );
+    expect((await run(['update', 'shared', '--profile', 'web', '--to', '1.1.0', '--layer', 'overlay'])).code).toBe(0);
+    expect(overlay().profiles?.web.plugins?.shared).toEqual({ source: { type: 'npm', version: '1.1.0' } });
+    const lock = loadLock(fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8'));
+    expect(lock.profiles.web.plugins.shared.source).toMatchObject({ resolvedVersion: '1.1.0' });
+  });
+
+  it('rejects --layer overlay without an active overlay and adopt into an overlay', async () => {
+    await run(['overlay', 'use', '--none']);
+    expect((await run(['disable', 'shared', '--profile', 'web', '--layer', 'overlay'])).code).toBe(3);
+    await run(['overlay', 'use', 'laptop']);
+    const adopt = await run(['adopt', '--from', path.join(tempHome, 'missing.yaml'), '--layer', 'overlay']);
+    expect(adopt.code).toBe(3);
+    expect(adopt.stderr).toMatch(/adopt only writes the base manifest/);
+  });
+});

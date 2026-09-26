@@ -11,7 +11,8 @@ import {
 } from '../source/git.js';
 import { inspectLocalSource } from '../source/local.js';
 import { ValidationError } from '../errors.js';
-import { loadEffectiveManifest } from '../overlay/effective.js';
+import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
+import { resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, type CommandContext } from './context.js';
 
 export function registerSourceCommands(ctx: CommandContext): void {
@@ -85,6 +86,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
     .option('--ref <ref>', 'branch or tag to clone')
     .option('-p, --profile <name>', 'record the clone as a managed git plugin for this profile')
     .option('--as <alias>', 'manifest alias when --profile is set')
+    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (url: string, targetDir: string | undefined, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -98,22 +100,37 @@ export function registerSourceCommands(ctx: CommandContext): void {
       } else {
         throw new ValidationError('source clone requires <targetDir> or --profile');
       }
+      const selection = cmdOpts.profile ? resolveCliOverlay(opts, paths) : null;
+      const layer = resolveWriteLayer(selection, cmdOpts.layer);
       const res = await cloneManagedGit(url, resolvedTarget, cmdOpts.ref);
 
       if (cmdOpts.profile) {
         if (!fs.existsSync(paths.manifestFile)) {
           throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
         }
-        const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
-        if (!manifest.profiles[cmdOpts.profile]) {
-          manifest.profiles[cmdOpts.profile] = { plugins: {} };
+        if (layer === 'overlay' && selection) {
+          const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+          const baseEntry = base.profiles[cmdOpts.profile]?.plugins[alias];
+          if (baseEntry && baseEntry.package !== packageName) {
+            throw new ValidationError(`Alias '${alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`);
+          }
+          const doc = readOverlay(paths, selection.name);
+          setOverlayPluginFields(doc, cmdOpts.profile, alias, baseEntry
+            ? { enabled: true, source: { type: 'git', url } }
+            : { package: packageName, enabled: true, source: { type: 'git', url } });
+          await saveOverlay(paths, selection.name, base, doc);
+        } else {
+          const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+          if (!manifest.profiles[cmdOpts.profile]) {
+            manifest.profiles[cmdOpts.profile] = { plugins: {} };
+          }
+          manifest.profiles[cmdOpts.profile].plugins[alias] = {
+            package: packageName,
+            enabled: true,
+            source: { type: 'git', url }
+          };
+          await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
         }
-        manifest.profiles[cmdOpts.profile].plugins[alias] = {
-          package: packageName,
-          enabled: true,
-          source: { type: 'git', url }
-        };
-        await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
 
         const lock = fs.existsSync(paths.lockFile)
           ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))

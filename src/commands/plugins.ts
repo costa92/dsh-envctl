@@ -8,7 +8,9 @@ import { writeAtomic } from '../io/atomic-file.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError } from '../errors.js';
 import type { PluginSource } from '../domain.js';
-import { loadEffectiveManifest } from '../overlay/effective.js';
+import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
+import { removeOverlayPlugin, resolveWriteLayer, saveOverlay, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
+import type { EnvironmentPaths } from '../environment/paths.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
 
 export function registerPluginCommands(ctx: CommandContext): void {
@@ -78,17 +80,58 @@ export function registerPluginCommands(ctx: CommandContext): void {
     };
   }
 
+  function overlaySuffix(name: string): string {
+    return ` (overlay '${name}')`;
+  }
+
+  async function pinLockVersion(paths: EnvironmentPaths, profile: string, alias: string, version: string): Promise<void> {
+    if (!fs.existsSync(paths.lockFile)) {
+      return;
+    }
+    const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
+    const lockPlugin = lock.profiles[profile]?.plugins[alias];
+    if (lockPlugin?.source.type === 'npm') {
+      lockPlugin.source = { ...lockPlugin.source, resolvedVersion: version };
+      await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
+    }
+  }
+
   program
     .command('install <spec>')
     .description('Install a plugin into the manifest for a profile')
     .requiredOption('-p, --profile <name>', 'target profile')
     .option('--as <alias>', 'custom alias name for the plugin')
+    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (spec: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
       if (!fs.existsSync(paths.manifestFile)) {
         throw new ValidationError(`Manifest file not found: ${paths.manifestFile}. Run dshenv init first.`);
+      }
+
+      const selection = resolveCliOverlay(opts, paths);
+      const layer = resolveWriteLayer(selection, cmdOpts.layer);
+      if (layer === 'overlay' && selection) {
+        const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        const doc = readOverlay(paths, selection.name);
+        const parsed = parsePluginSpec(spec, cmdOpts.as);
+        const baseEntry = base.profiles[cmdOpts.profile]?.plugins[parsed.alias];
+        if (baseEntry && baseEntry.package !== parsed.packageName) {
+          throw new ValidationError(
+            `Alias '${parsed.alias}' is '${baseEntry.package}' in the base manifest; an overlay cannot change its package`
+          );
+        }
+        setOverlayPluginFields(doc, cmdOpts.profile, parsed.alias, baseEntry
+          ? { enabled: true, source: parsed.source }
+          : { package: parsed.packageName, enabled: true, source: parsed.source });
+        await saveOverlay(paths, selection.name, base, doc);
+        if (opts.json) {
+          writeOut(JSON.stringify({ status: 'installed', layer: 'overlay', overlay: selection.name, profile: cmdOpts.profile, alias: parsed.alias, package: parsed.packageName, source: parsed.source }, null, 2) + '\n');
+        } else {
+          writeOut(`Installed ${parsed.packageName} (${parsed.alias}) in profile '${cmdOpts.profile}'${overlaySuffix(selection.name)}.\n`);
+        }
+        return;
       }
 
       const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
@@ -117,11 +160,34 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .description('Update the declared npm version for a plugin in the manifest')
     .requiredOption('-p, --profile <name>', 'target profile')
     .requiredOption('--to <version>', 'exact version to declare; does not float to latest')
+    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       if (!fs.existsSync(paths.manifestFile)) {
         throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+      const selection = resolveCliOverlay(opts, paths);
+      const layer = resolveWriteLayer(selection, cmdOpts.layer);
+      if (layer === 'overlay' && selection) {
+        const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        const doc = readOverlay(paths, selection.name);
+        const plugin = loadEffectiveManifest(paths, selection).manifest.profiles[cmdOpts.profile]?.plugins[alias];
+        if (!plugin) {
+          throw new ValidationError(`Plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+        }
+        if (plugin.source.type !== 'npm') {
+          throw new ValidationError(`update --to currently supports npm sources only (got ${plugin.source.type})`);
+        }
+        setOverlayPluginFields(doc, cmdOpts.profile, alias, { source: { ...plugin.source, version: cmdOpts.to } });
+        await saveOverlay(paths, selection.name, base, doc);
+        await pinLockVersion(paths, cmdOpts.profile, alias, cmdOpts.to);
+        if (opts.json) {
+          writeOut(JSON.stringify({ status: 'updated', layer: 'overlay', overlay: selection.name, profile: cmdOpts.profile, alias, version: cmdOpts.to }, null, 2) + '\n');
+        } else {
+          writeOut(`Updated ${alias} in profile '${cmdOpts.profile}' to ${cmdOpts.to}${overlaySuffix(selection.name)}.\n`);
+        }
+        return;
       }
       const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
       const plugin = manifest.profiles[cmdOpts.profile]?.plugins[alias];
@@ -133,14 +199,7 @@ export function registerPluginCommands(ctx: CommandContext): void {
       }
       plugin.source = { ...plugin.source, version: cmdOpts.to };
       await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
-      if (fs.existsSync(paths.lockFile)) {
-        const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
-        const lockPlugin = lock.profiles[cmdOpts.profile]?.plugins[alias];
-        if (lockPlugin?.source.type === 'npm') {
-          lockPlugin.source = { ...lockPlugin.source, resolvedVersion: cmdOpts.to };
-          await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
-        }
-      }
+      await pinLockVersion(paths, cmdOpts.profile, alias, cmdOpts.to);
       if (opts.json) {
         writeOut(JSON.stringify({ status: 'updated', profile: cmdOpts.profile, alias, version: cmdOpts.to }, null, 2) + '\n');
       } else {
@@ -244,11 +303,30 @@ export function registerPluginCommands(ctx: CommandContext): void {
   configCmd
     .command('set <alias> <dottedPath> <value>')
     .requiredOption('-p, --profile <name>', 'target profile')
+    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, dottedPath: string, value: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       if (!fs.existsSync(paths.manifestFile)) {
         throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+      const selection = resolveCliOverlay(opts, paths);
+      const layer = resolveWriteLayer(selection, cmdOpts.layer);
+      if (layer === 'overlay' && selection) {
+        const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        const doc = readOverlay(paths, selection.name);
+        const plugin = loadEffectiveManifest(paths, selection).manifest.profiles[cmdOpts.profile]?.plugins[alias];
+        if (!plugin) {
+          throw new ValidationError(`Plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+        }
+        const patch = setOverlayPatchValue(doc, cmdOpts.profile, alias, plugin.patches?.[0]?.id ?? alias, dottedPath, parseConfigValue(value));
+        await saveOverlay(paths, selection.name, base, doc);
+        if (opts.json) {
+          writeOut(JSON.stringify({ status: 'set', layer: 'overlay', overlay: selection.name, profile: cmdOpts.profile, alias, path: dottedPath, patch }, null, 2) + '\n');
+        } else {
+          writeOut(`Updated ${alias} config ${dottedPath} in profile '${cmdOpts.profile}'${overlaySuffix(selection.name)}. Apply to write the live patch.\n`);
+        }
+        return;
       }
       const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
       const patch = upsertPluginPatch(manifest, cmdOpts.profile, alias, dottedPath, parseConfigValue(value));
@@ -264,12 +342,31 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .command('enable <alias>')
     .description('Enable an installed plugin in a profile')
     .requiredOption('-p, --profile <name>', 'target profile')
+    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
       if (!fs.existsSync(paths.manifestFile)) {
         throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+
+      const selection = resolveCliOverlay(opts, paths);
+      const layer = resolveWriteLayer(selection, cmdOpts.layer);
+      if (layer === 'overlay' && selection) {
+        const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        const doc = readOverlay(paths, selection.name);
+        if (!loadEffectiveManifest(paths, selection).manifest.profiles[cmdOpts.profile]?.plugins[alias]) {
+          throw new ValidationError(`Plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+        }
+        setOverlayPluginFields(doc, cmdOpts.profile, alias, { enabled: true });
+        await saveOverlay(paths, selection.name, base, doc);
+        if (opts.json) {
+          writeOut(JSON.stringify({ status: 'enabled', layer: 'overlay', overlay: selection.name, profile: cmdOpts.profile, alias }, null, 2) + '\n');
+        } else {
+          writeOut(`Enabled plugin '${alias}' in profile '${cmdOpts.profile}'${overlaySuffix(selection.name)}.\n`);
+        }
+        return;
       }
 
       const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
@@ -292,12 +389,31 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .command('disable <alias>')
     .description('Disable an installed plugin in a profile')
     .requiredOption('-p, --profile <name>', 'target profile')
+    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
       if (!fs.existsSync(paths.manifestFile)) {
         throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+
+      const selection = resolveCliOverlay(opts, paths);
+      const layer = resolveWriteLayer(selection, cmdOpts.layer);
+      if (layer === 'overlay' && selection) {
+        const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        const doc = readOverlay(paths, selection.name);
+        if (!loadEffectiveManifest(paths, selection).manifest.profiles[cmdOpts.profile]?.plugins[alias]) {
+          throw new ValidationError(`Plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
+        }
+        setOverlayPluginFields(doc, cmdOpts.profile, alias, { enabled: false });
+        await saveOverlay(paths, selection.name, base, doc);
+        if (opts.json) {
+          writeOut(JSON.stringify({ status: 'disabled', layer: 'overlay', overlay: selection.name, profile: cmdOpts.profile, alias }, null, 2) + '\n');
+        } else {
+          writeOut(`Disabled plugin '${alias}' in profile '${cmdOpts.profile}'${overlaySuffix(selection.name)}.\n`);
+        }
+        return;
       }
 
       const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
@@ -321,12 +437,28 @@ export function registerPluginCommands(ctx: CommandContext): void {
     .description('Remove an installed plugin from a profile')
     .requiredOption('-p, --profile <name>', 'target profile')
     .option('-y, --yes', 'skip confirmation')
+    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
       if (!fs.existsSync(paths.manifestFile)) {
         throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+      }
+
+      const selection = resolveCliOverlay(opts, paths);
+      const layer = resolveWriteLayer(selection, cmdOpts.layer);
+      if (layer === 'overlay' && selection) {
+        const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+        const doc = readOverlay(paths, selection.name);
+        const outcome = removeOverlayPlugin(doc, base, cmdOpts.profile, alias);
+        await saveOverlay(paths, selection.name, base, doc);
+        if (opts.json) {
+          writeOut(JSON.stringify({ status: 'removed', layer: 'overlay', overlay: selection.name, profile: cmdOpts.profile, alias, outcome }, null, 2) + '\n');
+        } else {
+          writeOut(`Removed plugin '${alias}' from profile '${cmdOpts.profile}'${overlaySuffix(selection.name)}.\n`);
+        }
+        return;
       }
 
       const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
