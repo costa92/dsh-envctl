@@ -393,6 +393,75 @@ describe('buildPlan', () => {
     const plan = buildPlan(manifest, null, inventory);
     expect(plan.operations[0]?.kind).toBe('blocked');
   });
+
+  describe('git commit drift', () => {
+    const oldCommit = 'a'.repeat(40);
+    const newCommit = 'b'.repeat(40);
+    const manifest: EnvironmentManifest = {
+      apiVersion: 'dshenv/v1',
+      profiles: {
+        web: {
+          plugins: {
+            demo: {
+              package: 'demo-plugin',
+              enabled: true,
+              source: { type: 'git', url: 'https://example.com/demo.git' }
+            }
+          }
+        }
+      }
+    };
+    const lockAt = (commit: string): EnvironmentLock => ({
+      apiVersion: 'dshenv-lock/v1',
+      profiles: {
+        web: {
+          plugins: {
+            demo: {
+              package: 'demo-plugin',
+              source: { type: 'git', url: 'https://example.com/demo.git', commit }
+            }
+          }
+        }
+      }
+    });
+    const installedFrom = (spec: string): EnvironmentInventory => ({
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            'demo-plugin': {
+              name: 'demo-plugin',
+              installed: true,
+              version: '0.1.0',
+              sourceType: 'git',
+              resolvedSource: spec,
+              isSymlink: false,
+              isExternalSymlink: false,
+              enabled: true
+            }
+          }
+        }
+      }
+    });
+
+    it('should plan update when the installed commit differs from the locked commit', () => {
+      const plan = buildPlan(manifest, lockAt(newCommit), installedFrom(`https://example.com/demo.git#${oldCommit}`));
+      expect(plan.operations).toEqual([
+        expect.objectContaining({ kind: 'update', currentVersion: oldCommit, targetVersion: newCommit })
+      ]);
+    });
+
+    it('should treat an abbreviated installed commit matching the lock as in sync', () => {
+      const plan = buildPlan(manifest, lockAt(newCommit), installedFrom(`git+https://example.com/demo.git#${newCommit.slice(0, 7)}`));
+      expect(plan.hasChanges).toBe(false);
+    });
+
+    it('should not guess drift when the installed spec carries no commit', () => {
+      const plan = buildPlan(manifest, lockAt(newCommit), installedFrom('github:example/demo#main'));
+      expect(plan.hasChanges).toBe(false);
+    });
+  });
 });
 
 describe('buildStatus', () => {

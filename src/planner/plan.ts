@@ -73,6 +73,17 @@ const KIND_ORDER: Record<OperationKind, number> = {
   blocked: 7
 };
 
+// Only a hex fragment proves which commit is installed; branch names and bare URLs are not evidence.
+function commitFromGitSpec(spec: string | undefined): string | undefined {
+  return spec?.match(/#([0-9a-f]{7,40})$/i)?.[1].toLowerCase();
+}
+
+function isSameCommit(a: string, b: string): boolean {
+  const left = a.toLowerCase();
+  const right = b.toLowerCase();
+  return left.startsWith(right) || right.startsWith(left);
+}
+
 export function buildPlan(
   manifest: EnvironmentManifest | null,
   lock: EnvironmentLock | null,
@@ -160,6 +171,8 @@ export function buildPlan(
           });
         }
       } else {
+        const installedCommit =
+          pluginManifest.source.type === 'git' ? commitFromGitSpec(installed?.resolvedSource) : undefined;
         if (targetVersion && currentVersion && targetVersion !== currentVersion) {
           operations.push({
             kind: 'update',
@@ -169,6 +182,18 @@ export function buildPlan(
             reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
             currentVersion,
             targetVersion,
+            currentEnabled,
+            targetEnabled
+          });
+        } else if (gitLockCommit && installedCommit && !isSameCommit(installedCommit, gitLockCommit)) {
+          operations.push({
+            kind: 'update',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: `Commit mismatch: current ${installedCommit} != locked ${gitLockCommit}`,
+            currentVersion: installedCommit,
+            targetVersion: gitLockCommit,
             currentEnabled,
             targetEnabled
           });

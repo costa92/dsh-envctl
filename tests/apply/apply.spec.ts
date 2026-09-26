@@ -427,4 +427,73 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     const second = await applyEnvironment(paths);
     expect(second.plan.hasChanges).toBe(false);
   });
+
+  it('should reinstall a git plugin at the locked commit after the lock moves', async () => {
+    const url = 'https://example.com/demo.git';
+    const oldCommit = 'a'.repeat(40);
+    const newCommit = 'b'.repeat(40);
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      demo:
+        package: demo-plugin
+        source:
+          type: git
+          url: "${url}"
+`
+    );
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'lock.json'),
+      JSON.stringify({
+        apiVersion: 'dshenv-lock/v1',
+        profiles: {
+          web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'git', url, commit: newCommit } } } }
+        }
+      })
+    );
+    const profileDir = path.join(tempHome, 'profiles', 'web');
+    const writeInstalled = (spec: string): void => {
+      fs.mkdirSync(path.join(profileDir, 'node_modules', 'demo-plugin'), { recursive: true });
+      fs.writeFileSync(
+        path.join(profileDir, 'package.json'),
+        JSON.stringify({ dependencies: { 'demo-plugin': spec }, dsh: { profile: { bundles: ['demo-plugin'] } } })
+      );
+      fs.writeFileSync(
+        path.join(profileDir, 'node_modules', 'demo-plugin', 'package.json'),
+        JSON.stringify({ name: 'demo-plugin', version: '0.1.0' })
+      );
+    };
+    writeInstalled(`${url}#${oldCommit}`);
+
+    const received = path.join(tempHome, 'dsh-received-spec');
+    const fakeDsh = path.join(tempHome, 'fake-dsh.mjs');
+    fs.writeFileSync(fakeDsh, `
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  console.log('0.1.7-rc.2');
+  process.exit(0);
+}
+const spec = args.at(-1);
+fs.writeFileSync(${JSON.stringify(received)}, spec);
+const pkgJsonPath = path.join(process.env.DSH_HOME, 'profiles', 'web', 'package.json');
+const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+pkg.dependencies['demo-plugin'] = spec;
+fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
+`);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const result = await applyEnvironment(paths);
+    expect(result.applied).toBe(true);
+    expect(result.plan.operations.map((op) => op.kind)).toEqual(['update']);
+    expect(fs.readFileSync(received, 'utf8')).toBe(`${url}#${newCommit}`);
+
+    const second = await applyEnvironment(paths);
+    expect(second.plan.hasChanges).toBe(false);
+  });
 });
