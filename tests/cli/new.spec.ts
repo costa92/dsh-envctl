@@ -54,6 +54,15 @@ describe('CLI new', () => {
     expect(result.stdout).toContain('pnpm install && pnpm build');
   });
 
+  it('tells TypeScript + -p users to build before applying', async () => {
+    await run(['init']);
+    const dir = path.join(work, 'echo');
+    const result = await run(['new', 'tool', 'echo', '--dir', dir, '--typescript', '-p', 'web']);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('pnpm install && pnpm build');
+    expect(result.stdout).toContain("Registered as 'echo' in profile 'web'. Next: build, then dshenv plan and dshenv apply --yes.");
+  });
+
   it('writes a loose skill under DSH_HOME/skills', async () => {
     const result = await run(['new', 'skill', 'review', '--loose', '--json']);
     expect(result.code).toBe(0);
@@ -85,6 +94,15 @@ describe('CLI new', () => {
     const plan = await run(['plan']);
     expect(plan.code).toBe(2);
     expect(plan.stdout).toContain('+ [web] echo');
+  });
+
+  it('registers using the generated package name, not a name derived from the target directory', async () => {
+    await run(['init']);
+    const dir = path.join(work, 'x');
+    const result = await run(['new', 'tool', 'x', '--dir', dir, '--package', '@scope/echo', '-p', 'web', '--json']);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout).installed).toEqual({ profile: 'web', alias: 'x' });
+    expect(manifest().profiles.web.plugins.x).toEqual({ package: '@scope/echo', enabled: true, source: { type: 'local-link', path: dir } });
   });
 
   it('honours --as and --layer overlay', async () => {

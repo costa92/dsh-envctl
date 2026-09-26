@@ -45,6 +45,7 @@ export function registerNewCommand(ctx: CommandContext, plugins: PluginCommands)
             spec: result.dir,
             profile: cmdOpts.profile,
             alias: cmdOpts.as,
+            packageName: result.packageName,
             layer: cmdOpts.layer
           });
           installed = { profile: cmdOpts.profile, alias: registered.alias };
@@ -71,7 +72,9 @@ export function registerNewCommand(ctx: CommandContext, plugins: PluginCommands)
         lines.push(`Build it first: cd ${result.dir} && pnpm install && pnpm build`);
       }
       if (installed) {
-        lines.push(`Registered as '${installed.alias}' in profile '${installed.profile}'. Next: dshenv plan, then dshenv apply --yes.`);
+        lines.push(cmdOpts.typescript
+          ? `Registered as '${installed.alias}' in profile '${installed.profile}'. Next: build, then dshenv plan and dshenv apply --yes.`
+          : `Registered as '${installed.alias}' in profile '${installed.profile}'. Next: dshenv plan, then dshenv apply --yes.`);
       } else if (cmdOpts.loose) {
         lines.push('DSH picks up skills in this directory automatically.');
       } else {
