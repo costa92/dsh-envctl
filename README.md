@@ -226,6 +226,9 @@ dshenv restarted
 dshenv restarted --profile web --json
 ```
 
+### 17. 在 CI 中使用
+仓库自身的 CI 见 `.github/workflows/ci.yml`（Node 22/24 上跑 typecheck、test、build）。在你的配置仓库里校验清单与 overlay、在真实环境上做漂移门禁，可参考 `docs/examples/github-actions/dshenv-check.yml`，说明见 `docs/使用教程.md` 第 14 节。
+
 ---
 
 ## 退出码规范
