@@ -529,4 +529,64 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     const second = await applyEnvironment(paths);
     expect(second.plan.hasChanges).toBe(false);
   });
+
+  it('should reinstall a local-file plugin when its source changes and record the digest in the lock', async () => {
+    const sourceDir = path.join(tempHome, 'src', 'demo');
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '0.1.0' }));
+    fs.writeFileSync(path.join(sourceDir, 'index.js'), 'export const v = 1;\n');
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      demo:
+        package: demo-plugin
+        source:
+          type: local-file
+          path: "${sourceDir}"
+`
+    );
+    fs.writeFileSync(path.join(tempHome, 'envctl', 'lock.json'), JSON.stringify({ apiVersion: 'dshenv-lock/v1', profiles: {} }));
+    const profileDir = path.join(tempHome, 'profiles', 'web');
+    fs.mkdirSync(path.join(profileDir, 'node_modules', 'demo-plugin'), { recursive: true });
+    fs.writeFileSync(
+      path.join(profileDir, 'package.json'),
+      JSON.stringify({ dependencies: { 'demo-plugin': `file:${sourceDir}` }, dsh: { profile: { bundles: ['demo-plugin'] } } })
+    );
+    fs.writeFileSync(
+      path.join(profileDir, 'node_modules', 'demo-plugin', 'package.json'),
+      JSON.stringify({ name: 'demo-plugin', version: '0.1.0' })
+    );
+
+    const calls = path.join(tempHome, 'dsh-calls');
+    const fakeDsh = path.join(tempHome, 'fake-dsh.mjs');
+    fs.writeFileSync(fakeDsh, `
+import fs from 'node:fs';
+const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  console.log('0.1.7-rc.2');
+  process.exit(0);
+}
+fs.appendFileSync(${JSON.stringify(calls)}, args.at(-1) + '\\n');
+`);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+
+    // No digest recorded yet: the installed copy cannot be proven current, so it is reinstalled once.
+    const first = await applyEnvironment(paths);
+    expect(first.plan.operations.map((op) => op.kind)).toEqual(['update']);
+    const firstDigest = loadLock(fs.readFileSync(paths.lockFile, 'utf8')).profiles.web.plugins.demo.source;
+    expect(firstDigest).toMatchObject({ type: 'local-file', path: sourceDir, digest: expect.any(String) });
+
+    expect((await applyEnvironment(paths)).plan.hasChanges).toBe(false);
+
+    fs.writeFileSync(path.join(sourceDir, 'index.js'), 'export const v = 2;\n');
+    const third = await applyEnvironment(paths);
+    expect(third.plan.operations.map((op) => op.kind)).toEqual(['update']);
+    const thirdDigest = loadLock(fs.readFileSync(paths.lockFile, 'utf8')).profiles.web.plugins.demo.source;
+    expect(thirdDigest).not.toEqual(firstDigest);
+    expect(fs.readFileSync(calls, 'utf8')).toBe(`file:${sourceDir}\nfile:${sourceDir}\n`);
+  });
 });

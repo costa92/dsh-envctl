@@ -1,7 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import type { EnvironmentManifest } from '../domain.js';
 import { ValidationError } from '../errors.js';
+import type { LocalSourceDigests } from '../planner/plan.js';
 
 export interface LocalSourceInfo {
   isValid: boolean;
@@ -93,4 +95,22 @@ export async function inspectLocalSource(sourcePath: string): Promise<LocalSourc
     digest,
     packageJson: pkgJson
   };
+}
+
+export async function readLocalSourceDigests(manifest: EnvironmentManifest | null): Promise<LocalSourceDigests> {
+  const digests: LocalSourceDigests = {};
+  for (const [profileName, profile] of Object.entries(manifest?.profiles ?? {})) {
+    for (const [alias, plugin] of Object.entries(profile.plugins)) {
+      if (plugin.source.type !== 'local-file' && plugin.source.type !== 'local-link') {
+        continue;
+      }
+      try {
+        const digest = await calculateSourceDigest(plugin.source.path);
+        (digests[profileName] ??= {})[alias] = digest;
+      } catch {
+        // An unreadable source gives no evidence of drift; install/update will surface the error.
+      }
+    }
+  }
+  return digests;
 }

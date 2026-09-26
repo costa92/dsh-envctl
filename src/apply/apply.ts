@@ -8,12 +8,13 @@ import type {
   EnvironmentState
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
-import { buildPlan, type EnvironmentPlan } from '../planner/plan.js';
+import { buildPlan, type EnvironmentPlan, type LocalSourceDigests } from '../planner/plan.js';
 import { loadManifest, loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
 import { createEnvironmentSnapshot, restoreEnvironmentSnapshot, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
+import { readLocalSourceDigests } from '../source/local.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
 import { probeDsh, resolveDshCommand } from '../dsh/command.js';
 import { capabilitiesFor } from '../dsh/capabilities.js';
@@ -226,6 +227,30 @@ function markRestartRequired(
   return next;
 }
 
+// Record the source digest each local plugin was installed from, so plan can detect later edits.
+function recordLocalDigests(
+  lock: EnvironmentLock | null,
+  manifest: EnvironmentManifest,
+  digests: LocalSourceDigests
+): EnvironmentLock | null {
+  let next = lock;
+  for (const [profileName, aliases] of Object.entries(digests)) {
+    for (const [alias, digest] of Object.entries(aliases)) {
+      const plugin = manifest.profiles[profileName]?.plugins[alias];
+      if (!plugin || (plugin.source.type !== 'local-file' && plugin.source.type !== 'local-link')) {
+        continue;
+      }
+      const entry = { package: plugin.package, source: { type: plugin.source.type, path: plugin.source.path, digest } };
+      if (JSON.stringify(next?.profiles[profileName]?.plugins[alias]) === JSON.stringify(entry)) {
+        continue;
+      }
+      next = structuredClone(next ?? { apiVersion: 'dshenv-lock/v1', profiles: {} });
+      (next.profiles[profileName] ??= { plugins: {} }).plugins[alias] = entry;
+    }
+  }
+  return next;
+}
+
 function pruneOwnership(
   ownership: EnvironmentState['ownership'],
   manifest: EnvironmentManifest
@@ -313,7 +338,8 @@ async function planAndApply(
     : null;
 
   const inventory = await readEnvironmentInventory(paths);
-  const plan = buildPlan(manifest, lock, inventory, state);
+  const localDigests = await readLocalSourceDigests(manifest);
+  const plan = buildPlan(manifest, lock, inventory, state, localDigests);
 
   if (!plan.hasChanges) {
     return {
@@ -365,14 +391,18 @@ async function planAndApply(
     }
 
     // Never commit successful state until the actual environment converges.
+    const nextLock = recordLocalDigests(lock, manifest, localDigests);
     const verifiedInventory = await readEnvironmentInventory(paths);
-    const remainingPlan = buildPlan(manifest, lock, verifiedInventory, state);
+    const remainingPlan = buildPlan(manifest, nextLock, verifiedInventory, state, localDigests);
     if (remainingPlan.hasChanges) {
       throw new DegradedError('Apply execution finished but the environment still has pending operations');
     }
+    if (nextLock !== lock && nextLock) {
+      await writeAtomic(paths.lockFile, serializeLock(nextLock), 'overwrite');
+    }
 
     // 4. Update state.json
-    const lockSerialized = lock ? serializeLock(lock) : '{}';
+    const lockSerialized = nextLock ? serializeLock(nextLock) : '{}';
     const lockHash = crypto.createHash('sha256').update(lockSerialized).digest('hex');
 
     const nextState: EnvironmentState = {

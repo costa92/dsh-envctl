@@ -31,7 +31,7 @@ import {
   managedGitSourceDir,
   packageNameFromGitUrl
 } from './source/git.js';
-import { inspectLocalSource, calculateSourceDigest } from './source/local.js';
+import { inspectLocalSource, calculateSourceDigest, readLocalSourceDigests } from './source/local.js';
 import { applyPatchBlock, removePatchBlock, extractManagedPatches } from './patch/patch.js';
 import { DshError, ValidationError, CapabilityError } from './errors.js';
 import type { EnvironmentManifest, EnvironmentLock, EnvironmentState, CaptureDocument, PluginSource } from './domain.js';
@@ -294,7 +294,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       }
 
       const inventory = await readEnvironmentInventory(paths);
-      const plan = buildPlan(manifest, lock, inventory, planState);
+      const plan = buildPlan(manifest, lock, inventory, planState, await readLocalSourceDigests(manifest));
 
       if (opts.json) {
         writeOut(JSON.stringify(plan, null, 2) + '\n');
@@ -330,7 +330,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       }
 
       const inventory = await readEnvironmentInventory(paths);
-      const plan = buildPlan(manifest, lock, inventory, state);
+      const plan = buildPlan(manifest, lock, inventory, state, await readLocalSourceDigests(manifest));
       const summary = buildStatus(manifest, lock, state, inventory, plan);
       if (plugin) {
         summary.plugins = summary.plugins.filter(
@@ -577,7 +577,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       const lock = fs.existsSync(paths.lockFile) ? loadLock(fs.readFileSync(paths.lockFile, 'utf8')) : null;
       const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
       const inventory = await readEnvironmentInventory(paths);
-      const plan = buildPlan(manifest, lock, inventory, state);
+      const plan = buildPlan(manifest, lock, inventory, state, await readLocalSourceDigests(manifest));
       const rows: Array<Record<string, unknown>> = [];
       const profiles = cmdOpts.profile ? [cmdOpts.profile] : Object.keys(manifest.profiles);
       for (const profileName of profiles) {

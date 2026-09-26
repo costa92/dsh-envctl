@@ -462,6 +462,70 @@ describe('buildPlan', () => {
       expect(plan.hasChanges).toBe(false);
     });
   });
+
+  describe('local source digest drift', () => {
+    const manifestFor = (type: 'local-file' | 'local-link'): EnvironmentManifest => ({
+      apiVersion: 'dshenv/v1',
+      profiles: {
+        web: {
+          plugins: {
+            demo: { package: 'demo-plugin', enabled: true, source: { type, path: '/src/demo' } }
+          }
+        }
+      }
+    });
+    const lockWith = (type: 'local-file' | 'local-link', digest?: string): EnvironmentLock => ({
+      apiVersion: 'dshenv-lock/v1',
+      profiles: {
+        web: { plugins: { demo: { package: 'demo-plugin', source: { type, path: '/src/demo', digest } } } }
+      }
+    });
+    const inventory: EnvironmentInventory = {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            'demo-plugin': {
+              name: 'demo-plugin',
+              installed: true,
+              version: '0.1.0',
+              sourceType: 'local-file',
+              isSymlink: false,
+              isExternalSymlink: false,
+              enabled: true
+            }
+          }
+        }
+      }
+    };
+    const current = { web: { demo: 'new-digest' } };
+
+    it.each(['local-file', 'local-link'] as const)(
+      'should plan update when the %s source changed since the last apply',
+      (type) => {
+        const plan = buildPlan(manifestFor(type), lockWith(type, 'old-digest'), inventory, null, current);
+        expect(plan.operations).toEqual([
+          expect.objectContaining({ kind: 'update', currentVersion: 'old-digest', targetVersion: 'new-digest' })
+        ]);
+      }
+    );
+
+    it('should plan update when no digest was recorded for an installed local source', () => {
+      const plan = buildPlan(manifestFor('local-file'), lockWith('local-file'), inventory, null, current);
+      expect(plan.operations.map((op) => op.kind)).toEqual(['update']);
+    });
+
+    it('should stay in sync when the recorded digest matches the source', () => {
+      const plan = buildPlan(manifestFor('local-file'), lockWith('local-file', 'new-digest'), inventory, null, current);
+      expect(plan.hasChanges).toBe(false);
+    });
+
+    it('should not guess drift when the source digest cannot be read', () => {
+      const plan = buildPlan(manifestFor('local-file'), lockWith('local-file', 'old-digest'), inventory, null, {});
+      expect(plan.hasChanges).toBe(false);
+    });
+  });
 });
 
 describe('buildStatus', () => {

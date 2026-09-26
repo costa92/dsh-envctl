@@ -33,6 +33,9 @@ export interface UnmanagedPlugin {
   package: string;
 }
 
+// profile -> alias -> current digest of the plugin's local source directory
+export type LocalSourceDigests = Record<string, Record<string, string>>;
+
 export interface EnvironmentPlan {
   hasChanges: boolean;
   operations: PlanOperation[];
@@ -78,6 +81,13 @@ function commitFromGitSpec(spec: string | undefined): string | undefined {
   return spec?.match(/#([0-9a-f]{7,40})$/i)?.[1].toLowerCase();
 }
 
+function lockedLocalDigest(
+  source: EnvironmentLock['profiles'][string]['plugins'][string]['source'] | undefined,
+  type: 'local-file' | 'local-link'
+): string | undefined {
+  return source?.type === type ? source.digest : undefined;
+}
+
 function isSameCommit(a: string, b: string): boolean {
   const left = a.toLowerCase();
   const right = b.toLowerCase();
@@ -88,7 +98,8 @@ export function buildPlan(
   manifest: EnvironmentManifest | null,
   lock: EnvironmentLock | null,
   inventory: EnvironmentInventory,
-  state?: EnvironmentState | null
+  state?: EnvironmentState | null,
+  localDigests?: LocalSourceDigests
 ): EnvironmentPlan {
   const operations: PlanOperation[] = [];
   const unmanaged: UnmanagedPlugin[] = [];
@@ -182,6 +193,26 @@ export function buildPlan(
             reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
             currentVersion,
             targetVersion,
+            currentEnabled,
+            targetEnabled
+          });
+        } else if (
+          (pluginManifest.source.type === 'local-file' || pluginManifest.source.type === 'local-link') &&
+          localDigests?.[profName]?.[alias] &&
+          lockedLocalDigest(lockEntry?.source, pluginManifest.source.type) !== localDigests[profName][alias]
+        ) {
+          // Without a recorded digest the installed copy cannot be proven to match the source.
+          const recorded = lockedLocalDigest(lockEntry?.source, pluginManifest.source.type);
+          operations.push({
+            kind: 'update',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: recorded
+              ? `Local source changed: recorded ${recorded} != current ${localDigests[profName][alias]}`
+              : 'Local source has no recorded digest',
+            currentVersion: recorded,
+            targetVersion: localDigests[profName][alias],
             currentEnabled,
             targetEnabled
           });
