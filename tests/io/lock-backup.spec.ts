@@ -54,6 +54,27 @@ describe('Lock, Backup and Journal IO', () => {
     await holder.release();
   });
 
+  it('should not steal a lock whose holder has not written its content yet', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const lockFile = path.join(paths.managerDir, 'dshenv.lock');
+    fs.writeFileSync(lockFile, '');
+
+    await expect(acquireEnvironmentLock(paths, 200)).rejects.toThrow(/already held/i);
+    expect(fs.readFileSync(lockFile, 'utf8')).toBe('');
+  });
+
+  it('should reclaim an unreadable lock left behind long ago', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const lockFile = path.join(paths.managerDir, 'dshenv.lock');
+    fs.writeFileSync(lockFile, '');
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockFile, past, past);
+
+    const handle = await acquireEnvironmentLock(paths, 200);
+    expect(JSON.parse(fs.readFileSync(lockFile, 'utf8')).pid).toBe(process.pid);
+    await handle.release();
+  });
+
   it('should create and restore snapshot', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\n');

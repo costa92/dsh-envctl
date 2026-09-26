@@ -10,6 +10,7 @@ export interface LockHandle {
 }
 
 const LOCK_RETRY_MS = 100;
+const LOCK_WRITE_GRACE_MS = 5000;
 
 async function tryCreateLock(lockFilePath: string, lockContent: string): Promise<boolean> {
   try {
@@ -26,9 +27,16 @@ async function tryCreateLock(lockFilePath: string, lockContent: string): Promise
   // Check if stale lock
   let isStale = false;
   try {
+    const stat = await fs.promises.stat(lockFilePath);
     const raw = await fs.promises.readFile(lockFilePath, 'utf8');
-    const info = JSON.parse(raw);
-    if (info.pid && info.hostname === os.hostname()) {
+    let info: { pid?: number; hostname?: string } | null = null;
+    try {
+      info = JSON.parse(raw);
+    } catch {
+      // The holder creates the file before writing it; only an old unreadable lock is abandoned.
+      isStale = Date.now() - stat.mtimeMs > LOCK_WRITE_GRACE_MS;
+    }
+    if (info?.pid && info.hostname === os.hostname()) {
       try {
         // Check if process is still alive
         process.kill(info.pid, 0);
@@ -37,7 +45,8 @@ async function tryCreateLock(lockFilePath: string, lockContent: string): Promise
       }
     }
   } catch {
-    isStale = true;
+    // The lock vanished while being inspected; retry.
+    return false;
   }
 
   if (!isStale) {
