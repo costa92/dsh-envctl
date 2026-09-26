@@ -302,6 +302,59 @@ describe('buildPlan', () => {
     expect(plan.operations[0].kind).toBe('configure');
   });
 
+  it('should plan every operation a plugin needs so one apply can converge', () => {
+    const manifest: EnvironmentManifest = {
+      apiVersion: 'dshenv/v1',
+      profiles: {
+        web: {
+          plugins: {
+            fresh: {
+              package: 'pkg-fresh',
+              enabled: false,
+              source: { type: 'npm', version: '1.0.0' },
+              patches: [{ id: 'fresh', config: { a: 1 } }]
+            },
+            stale: {
+              package: 'pkg-stale',
+              enabled: false,
+              source: { type: 'npm', version: '2.0.0' },
+              patches: [{ id: 'stale', config: { b: 2 } }]
+            }
+          }
+        }
+      }
+    };
+    const inventory: EnvironmentInventory = {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            'pkg-stale': {
+              name: 'pkg-stale',
+              installed: true,
+              version: '1.0.0',
+              sourceType: 'npm',
+              isSymlink: false,
+              isExternalSymlink: false,
+              enabled: true
+            }
+          }
+        }
+      }
+    };
+
+    const plan = buildPlan(manifest, null, inventory);
+    expect(plan.operations.map((op) => [op.package, op.kind])).toEqual([
+      ['pkg-fresh', 'install'],
+      ['pkg-fresh', 'disable'],
+      ['pkg-fresh', 'configure'],
+      ['pkg-stale', 'update'],
+      ['pkg-stale', 'disable'],
+      ['pkg-stale', 'configure']
+    ]);
+  });
+
   it('should block git plugins whose lock has no commit', () => {
     const manifest: EnvironmentManifest = {
       apiVersion: 'dshenv/v1',

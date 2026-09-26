@@ -133,7 +133,12 @@ export function buildPlan(
         continue;
       }
 
-      if (!installed || !installed.installed) {
+      // A plugin may need several operations; apply requires convergence in a single run.
+      const isInstalled = Boolean(installed?.installed);
+      const currentVersion = installed?.version;
+      const currentEnabled = isInstalled ? (installed?.enabled ?? true) : undefined;
+
+      if (!isInstalled) {
         operations.push({
           kind: 'install',
           profile: profName,
@@ -143,35 +148,45 @@ export function buildPlan(
           targetVersion,
           targetEnabled
         });
-        continue;
+        // DSH plugin add selects the bundle, so only an explicit disable needs a follow-up.
+        if (!targetEnabled) {
+          operations.push({
+            kind: 'disable',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: 'Plugin is installed disabled',
+            targetEnabled
+          });
+        }
+      } else {
+        if (targetVersion && currentVersion && targetVersion !== currentVersion) {
+          operations.push({
+            kind: 'update',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
+            currentVersion,
+            targetVersion,
+            currentEnabled,
+            targetEnabled
+          });
+        }
+        if (currentEnabled !== targetEnabled) {
+          operations.push({
+            kind: targetEnabled ? 'enable' : 'disable',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: `Enable state mismatch: current ${currentEnabled} != target ${targetEnabled}`,
+            currentEnabled,
+            targetEnabled
+          });
+        }
       }
 
-      const currentVersion = installed.version;
-      const currentEnabled = installed.enabled ?? true;
-
-      if (targetVersion && currentVersion && targetVersion !== currentVersion) {
-        operations.push({
-          kind: 'update',
-          profile: profName,
-          alias,
-          package: pkgName,
-          reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
-          currentVersion,
-          targetVersion,
-          currentEnabled,
-          targetEnabled
-        });
-      } else if (currentEnabled !== targetEnabled) {
-        operations.push({
-          kind: targetEnabled ? 'enable' : 'disable',
-          profile: profName,
-          alias,
-          package: pkgName,
-          reason: `Enable state mismatch: current ${currentEnabled} != target ${targetEnabled}`,
-          currentEnabled,
-          targetEnabled
-        });
-      } else if (pluginManifest.patches && pluginManifest.patches.length > 0) {
+      if (pluginManifest.patches && pluginManifest.patches.length > 0) {
         const actualPatches = profInv?.managedPatches ?? [];
         const needsConfigure = pluginManifest.patches.some((expected) => {
           const digest = computePatchDigest(expected.config);

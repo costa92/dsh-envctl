@@ -366,4 +366,65 @@ profiles:
     expect(second.applied).toBe(false);
     expect(second.plan.hasChanges).toBe(false);
   });
+
+  it('should install, disable and configure a new plugin in a single apply', async () => {
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      agent-teams:
+        package: "@nanmicoder/dsh-agent-teams"
+        enabled: false
+        source:
+          type: npm
+          version: "0.1.21"
+        patches:
+          - id: agent-teams
+            config:
+              taskPlanning: captain
+`
+    );
+    const fakeDsh = path.join(tempHome, 'fake-dsh.mjs');
+    fs.writeFileSync(fakeDsh, `
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  console.log('0.1.7-rc.2');
+  process.exit(0);
+}
+const profile = args[args.indexOf('--profile') + 1];
+const spec = args.at(-1);
+const packageName = spec.startsWith('@') ? spec.slice(0, spec.indexOf('@', 1)) : spec.split('@')[0];
+const version = spec.slice(packageName.length + 1);
+const profileDir = path.join(process.env.DSH_HOME, 'profiles', profile);
+const packageDir = path.join(profileDir, 'node_modules', ...packageName.split('/'));
+fs.mkdirSync(packageDir, { recursive: true });
+fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+  name: 'dsh-profile-' + profile,
+  private: true,
+  dependencies: { [packageName]: version },
+  dsh: { profile: { bundles: [packageName] } }
+}));
+fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName, version }));
+`);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const result = await applyEnvironment(paths);
+    expect(result.applied).toBe(true);
+    expect(result.plan.operations.map((op) => op.kind)).toEqual(['install', 'disable', 'configure']);
+
+    const profile = JSON.parse(
+      fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), 'utf8')
+    ) as { dsh: { profile: { bundles: string[] } } };
+    expect(profile.dsh.profile.bundles).not.toContain('@nanmicoder/dsh-agent-teams');
+    const patch = fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'cordis.patch.yml'), 'utf8');
+    expect(patch).toContain('taskPlanning: captain');
+
+    const second = await applyEnvironment(paths);
+    expect(second.plan.hasChanges).toBe(false);
+  });
 });
