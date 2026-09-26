@@ -57,4 +57,40 @@ describe('applyEnvironment with an overlay', () => {
     await applyEnvironment(paths);
     expect(loadState(fs.readFileSync(paths.stateFile, 'utf8'))).not.toHaveProperty('appliedOverlay');
   });
+
+  it('installs the overlay version even when the lock holds another one', async () => {
+    const envctl = path.join(tempHome, 'envctl');
+    fs.writeFileSync(
+      path.join(envctl, 'overlays', 'laptop.yaml'),
+      'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      extra:\n        package: extra-plugin\n        source: { type: npm, version: "2.0.0" }\n'
+    );
+    fs.writeFileSync(
+      path.join(envctl, 'lock.json'),
+      JSON.stringify({
+        apiVersion: 'dshenv-lock/v1',
+        profiles: { web: { plugins: { extra: { package: 'extra-plugin', source: { type: 'npm', resolvedVersion: '1.0.0' } } } } }
+      })
+    );
+    const argsFile = path.join(tempHome, 'dsh-args.json');
+    const fakeDsh = path.join(tempHome, 'fake-dsh.mjs');
+    fs.writeFileSync(
+      fakeDsh,
+      `import fs from 'node:fs';
+const args = process.argv.slice(2);
+if (args.includes('--version')) { console.log('0.1.7-rc.2'); process.exit(0); }
+fs.writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(args));
+process.exit(1);
+`
+    );
+    const previousDshCli = process.env.DSH_CLI;
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+    try {
+      const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+      await expect(applyEnvironment(paths, { overlay: { name: 'laptop', via: 'flag' } })).rejects.toThrow();
+    } finally {
+      if (previousDshCli === undefined) delete process.env.DSH_CLI;
+      else process.env.DSH_CLI = previousDshCli;
+    }
+    expect(JSON.parse(fs.readFileSync(argsFile, 'utf8'))).toContain('extra-plugin@2.0.0');
+  });
 });

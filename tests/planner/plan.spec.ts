@@ -612,3 +612,69 @@ describe('buildStatus', () => {
     expect(summary.status).toBe('drifted');
   });
 });
+
+describe('lock versus effective manifest', () => {
+  const npmManifest = (version: string): EnvironmentManifest => ({
+    apiVersion: 'dshenv/v1',
+    profiles: { web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'npm', version } } } } }
+  });
+  const npmLock = (resolvedVersion: string): EnvironmentLock => ({
+    apiVersion: 'dshenv-lock/v1',
+    profiles: { web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'npm', resolvedVersion } } } } }
+  });
+  const installedAt = (version: string): EnvironmentInventory => ({
+    profiles: {
+      web: {
+        name: 'web',
+        path: '/dummy',
+        plugins: {
+          'demo-plugin': {
+            name: 'demo-plugin',
+            installed: true,
+            version,
+            sourceType: 'npm',
+            isSymlink: false,
+            isExternalSymlink: false,
+            enabled: true
+          }
+        }
+      }
+    }
+  });
+
+  it('targets an exact manifest version that disagrees with the lock', () => {
+    const plan = buildPlan(npmManifest('1.5.0'), npmLock('1.0.0'), installedAt('1.0.0'));
+    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: '1.5.0' })]);
+  });
+
+  it('keeps using the lock for a non-exact manifest version', () => {
+    const plan = buildPlan(npmManifest('*'), npmLock('1.2.3'), installedAt('1.0.0'));
+    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: '1.2.3' })]);
+  });
+
+  it('keeps using the lock when it matches the exact manifest version', () => {
+    const plan = buildPlan(npmManifest('1.0.0'), npmLock('1.0.0'), installedAt('1.0.0'));
+    expect(plan.hasChanges).toBe(false);
+  });
+
+  it('blocks a git plugin whose locked commit belongs to another url', () => {
+    const manifest: EnvironmentManifest = {
+      apiVersion: 'dshenv/v1',
+      profiles: { web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'git', url: 'https://example.com/fork.git' } } } } }
+    };
+    const lock: EnvironmentLock = {
+      apiVersion: 'dshenv-lock/v1',
+      profiles: {
+        web: {
+          plugins: {
+            demo: { package: 'demo-plugin', source: { type: 'git', url: 'https://example.com/demo.git', commit: 'abcdef1' } }
+          }
+        }
+      }
+    };
+    const plan = buildPlan(manifest, lock, { profiles: { web: { name: 'web', path: '/dummy', plugins: {} } } });
+    expect(plan.operations).toEqual([
+      expect.objectContaining({ kind: 'blocked', blockedReason: 'Git source has no locked commit; refusing to invent HEAD' })
+    ]);
+  });
+});

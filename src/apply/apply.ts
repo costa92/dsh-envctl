@@ -8,7 +8,7 @@ import type {
   EnvironmentState
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
-import { buildPlan, type EnvironmentPlan, type LocalSourceDigests } from '../planner/plan.js';
+import { buildPlan, lockedGitCommit, lockedNpmVersion, type EnvironmentPlan, type LocalSourceDigests } from '../planner/plan.js';
 import { loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
@@ -59,14 +59,10 @@ function packageSpec(
 
   const lockedSource = lock?.profiles[operation.profile]?.plugins[operation.alias]?.source;
   switch (plugin.source.type) {
-    case 'npm': {
-      const version = lockedSource?.type === 'npm'
-        ? lockedSource.resolvedVersion
-        : plugin.source.version;
-      return `${plugin.package}@${version}`;
-    }
+    case 'npm':
+      return `${plugin.package}@${lockedNpmVersion(plugin.source, lockedSource)}`;
     case 'git': {
-      const commit = lockedSource?.type === 'git' ? lockedSource.commit : plugin.source.commit;
+      const commit = lockedGitCommit(plugin.source, lockedSource) ?? plugin.source.commit;
       if (!commit) throw new ValidationError(`Git plugin '${plugin.package}' has no locked commit`);
       return `${plugin.source.url}#${commit}`;
     }

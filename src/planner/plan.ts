@@ -88,6 +88,25 @@ function lockedLocalDigest(
   return source?.type === type ? source.digest : undefined;
 }
 
+type LockedSource = EnvironmentLock['profiles'][string]['plugins'][string]['source'] | undefined;
+type ManifestSource = EnvironmentManifest['profiles'][string]['plugins'][string]['source'];
+
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+
+// The lock is a single per-machine file shared by every overlay, so it may only refine the
+// effective manifest (resolve a range, pin the same url), never override what it declares.
+export function lockedNpmVersion(source: ManifestSource, locked: LockedSource): string | undefined {
+  if (source.type !== 'npm') return undefined;
+  if (locked?.type !== 'npm') return source.version;
+  return EXACT_VERSION.test(source.version) && source.version !== locked.resolvedVersion
+    ? source.version
+    : locked.resolvedVersion;
+}
+
+export function lockedGitCommit(source: ManifestSource, locked: LockedSource): string | undefined {
+  return source.type === 'git' && locked?.type === 'git' && locked.url === source.url ? locked.commit : undefined;
+}
+
 function isSameCommit(a: string, b: string): boolean {
   const left = a.toLowerCase();
   const right = b.toLowerCase();
@@ -130,17 +149,10 @@ export function buildPlan(
       const targetEnabled = pluginManifest.enabled ?? true;
       const lockEntry = profLock[alias];
 
-      let targetVersion: string | undefined;
-      if (pluginManifest.source.type === 'npm') {
-        targetVersion =
-          lockEntry?.source?.type === 'npm'
-            ? lockEntry.source.resolvedVersion
-            : pluginManifest.source.version;
-      }
+      const targetVersion = lockedNpmVersion(pluginManifest.source, lockEntry?.source);
 
       const installed = profInv?.plugins?.[pkgName];
-      const gitLockCommit =
-        lockEntry?.source?.type === 'git' ? lockEntry.source.commit : undefined;
+      const gitLockCommit = lockedGitCommit(pluginManifest.source, lockEntry?.source);
 
       if (pluginManifest.source.type === 'git' && !gitLockCommit) {
         operations.push({
