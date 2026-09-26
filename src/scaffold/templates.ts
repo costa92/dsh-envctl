@@ -1,0 +1,31 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export type ComponentKind = 'skill' | 'agent' | 'tool' | 'mcp';
+export const COMPONENT_KINDS: readonly ComponentKind[] = ['skill', 'agent', 'tool', 'mcp'];
+export type TemplateVariant = 'skill' | 'agent' | 'tool' | 'tool-ts' | 'mcp';
+
+// DSH checks @deepseek-ai/dsh-* peers against its own version (prereleases included); cover the whole 0.1 line.
+export const PEER_RANGE = '>=0.1.0-0 <0.2.0';
+export const ComponentNameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+// Walks up from this module so both src/ (tsx) and the bundled lib/ find the package's templates.
+export function templatesRoot(): string {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    const candidate = path.join(dir, 'templates');
+    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      throw new Error('dshenv templates directory not found');
+    }
+    dir = parent;
+  }
+}
+
+export function templateDir(variant: TemplateVariant): string {
+  return path.join(templatesRoot(), variant);
+}
