@@ -296,6 +296,10 @@ profiles:
     const lockBefore = read(paths.lockFile);
     const snapshotsBefore = fs.existsSync(paths.backupsDir) ? fs.readdirSync(paths.backupsDir) : [];
 
+    const dryRun = await run(['apply', '--dry-run', '--overlay', 'laptop']);
+    expect(dryRun.code).toBe(3);
+    expect(dryRun.stderr).toContain("Lock entry 'web/shared' is pinned by the team lock");
+
     const { code, stderr } = await run(['apply', '--yes', '--overlay', 'laptop']);
     expect(code).toBe(3);
     expect(stderr).toContain(

@@ -388,6 +388,9 @@ async function planAndApply(
     };
   }
 
+  // Checked before the dry-run return too, so a preview reports the refusal a real apply would hit.
+  assertNoTeamEntryOverwritten(paths, lock, recordLocalDigests(lock, manifest, localDigests));
+
   if (options?.dryRun) {
     return {
       applied: false,
@@ -397,7 +400,6 @@ async function planAndApply(
     };
   }
 
-  assertNoTeamEntryOverwritten(paths, lock, recordLocalDigests(lock, manifest, localDigests));
   assertSupportedPlan(plan);
 
   const operationId = `apply-${crypto.randomBytes(6).toString('hex')}`;
