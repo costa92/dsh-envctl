@@ -139,6 +139,20 @@ suffix: true
     expect(extractManagedPatches(updated, 'web')[0].config).toEqual({ k: 1 });
   });
 
+  it.each([
+    ['a comment after the array', '# head\n[]\n# tail note\n', ['# head\n', '# tail note\n']],
+    ['a comment on the array line', '[]  # empty\n', ['# empty\n']],
+    ['spaces inside the brackets', '[ ]\n', []],
+    ['no trailing newline', '[]', []]
+  ])('replaces an empty flow array with %s and keeps everything around it', (_name, originalFile, kept) => {
+    const updated = applyPatchBlock(originalFile, 'web', 'demo', 'demo', { k: 1 });
+    const docs = YAML.parseAllDocuments(updated);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].errors).toEqual([]);
+    expect(extractManagedPatches(updated, 'web')[0].config).toEqual({ k: 1 });
+    for (const text of kept) expect(updated).toContain(text);
+  });
+
   it('leaves a top-level empty array when the last block leaves a fresh profile patch file', () => {
     const originalFile = '# Your patch layer for this dsh profile\n[]\n';
     const withBlock = applyPatchBlock(originalFile, 'web', 'demo', 'demo', { k: 1 });
