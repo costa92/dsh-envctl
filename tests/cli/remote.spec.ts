@@ -203,6 +203,18 @@ describe('CLI remote', () => {
     expect((await run(['remote', 'add', team.url, '--branch', 'main'])).code).toBe(2);
   });
 
+  it('rejects a URL starting with - with exit 3', async () => {
+    // Only after '--' does commander pass a dash-prefixed value through; the run helper appends options, so call runCli directly.
+    let stderr = '';
+    const code = await runCli(['--dsh-home', home, 'remote', 'add', '--', '-uhttps://example.com/x.git'], {
+      stdout: () => {},
+      stderr: (chunk) => { stderr += chunk; }
+    });
+    expect(code).toBe(3);
+    expect(stderr).toContain('Invalid Git URL: -uhttps://example.com/x.git');
+    expect(fs.existsSync(paths.remoteDir)).toBe(false);
+  });
+
   it('shows the subscription and the remote files and lock entries changed locally', async () => {
     await run(['remote', 'add', team.url, '--yes']);
     fs.appendFileSync(overlayFile('team'), '# local edit\n');
