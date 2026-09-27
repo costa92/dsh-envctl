@@ -162,6 +162,13 @@ Then run: dshenv restarted
 
 dshenv 改写 Profile `package.json`（启用、停用、卸载前移出 bundle）或 `cordis.patch.yml`（写入、清除受管块及回滚恢复）时持有 DSH 的 `package.json.lock`，被占用时最多等 30 秒。热加载开启时卸载插件会先移出 bundle、等待 3 秒让 DSH 卸下插件，再调用 `dsh plugin remove`。
 
+几点说明：
+
+- 「无需重启」表示 DSH 会自动重新加载；dshenv 不确认插件是否真的加载成功（DSH 只在日志里记录重新加载失败）。
+- `configure` 会列在分组里，但不写入 state，所以只含 `configure` 的 apply 之后运行 `dshenv restarted` 可能显示清除了 0 个插件。
+- 判定为无需重启的 `remove` 会连同该插件此前的 `restart-required` 条目一起删除（插件已经不在了）。
+- 等 Profile 锁超时后 apply 会回滚，但回滚本身写 bundle 与 `cordis.patch.yml` 时也可能要等这把锁；回滚未能完成时运行 `dshenv plan` 查看现状。DSH Web 安装插件时整个安装过程都持锁，可能超过 dshenv 的 30 秒等待，等安装结束后再重试。
+
 ### 7. `dshenv rollback`
 从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照。只恢复 `manifest.yaml` / `lock.json` / `state.json`，不撤销已经发生的 DSH 包安装。恢复前会把当前三个文件另存为一份新快照（输出中给出其 id，可再 rollback 回去）；快照里没有的文件会被删除。
 
