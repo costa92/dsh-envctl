@@ -115,11 +115,19 @@
 - [x] 并发验证（2026-09-27）：团队提交更新后同时启动 3 个 `sync --yes` 进程，全部退出 0；恰好 1 个接受（固定到新 commit），另 2 个等锁后报已是最新；日志只有 1 条新的 `sync-completed`、只多 1 个快照，`remote show` 无本地改动，锁文件已释放
 - [x] 全量测试套件覆盖（当前 75 个测试文件，600 项测试全部通过）
 
+### 感知热加载的 apply（已实现）
+- [x] `apply`（含 `--dry-run`）对每个有操作的 Profile 运行一次 `dsh --profile <p> --dump-config`（超时 15 秒），按 `hmr` 行判断热加载 `on` / `off` / `unknown`；Profile 尚未创建时不探测
+- [x] 热加载开启时 install、enable、disable、configure、remove 无需重启（state 记 `healthy`，remove 删除条目）；update 一律需要重启；关闭或无法判断时与原先一致，全部 `restart-required`
+- [x] 文本输出 `No restart needed:` / `Restart DSH to load:` 分组与 `Then run: dshenv restarted`；`--json` 新增 `restart` 字段；`--dry-run` 逐项标注；`plan` 不变
+- [x] 改写 Profile `package.json` 时持有与 DSH 兼容的 `package.json.lock`（`wx` 创建、内容 `<pid>\n`、权限 0600，指数退避最多等 30 秒，不删除他人的锁）
+- [x] 热加载开启时 remove 先移出 bundle、等待 3 秒再调用 `dsh plugin remove`
+- [x] 真实验证（npm 版 DSH `0.1.7-rc.2`、隔离 `DSH_HOME`、端口 13181）：install / disable / enable / remove 后插件管理器 `listPlugins` 当场反映变化且无需重启；本地源码变化触发的 update 输出需要重启；home 级 patch 关闭 hmr 后改动全部需要重启
+
 ## 延后能力
 
 下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
 
-- 动态 HMR / 调用运行时内部 service（如 `ctx.dynamicCordisRunner`）
+- 热替换已装插件的版本、确认 DSH 运行时确实加载了插件、调用运行时内部 service（如 `ctx.dynamicCordisRunner`）。DSH 已自带热加载，dshenv 负责感知与协作的部分已完成（见「感知热加载的 apply」）
 - 静态 Cordis Service DAG 分析（需插件暴露机器可读的服务贡献元数据）
 - GUI / TUI / 插件市场 / 主观发行版
 - 自动重启非本工具启动的 DSH 进程

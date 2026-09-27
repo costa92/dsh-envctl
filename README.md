@@ -140,6 +140,28 @@ dshenv apply --yes
 
 当前执行计划中的 `install/update/enable/disable/remove/configure`。`configure` 只写入 Profile `cordis.patch.yml` 的受管块。没有所有权记录的实际插件只标为 `unmanaged`，不会卸载。
 
+`apply`（含 `--dry-run`）会对有操作的 Profile 各运行一次 `dsh --profile <p> --dump-config`（超时 15 秒），读其中的 `hmr` 行判断 DSH 热加载是否开启，据此报告哪些改动无需重启：
+
+| 操作 | 热加载开启 | 热加载关闭或无法判断 |
+| --- | --- | --- |
+| `install`、`enable`、`disable`、`configure`、`remove` | 无需重启（state 记为 `healthy`，`remove` 删除条目） | 需要重启（`restart-required`） |
+| `update`（npm 版本、Git commit、本地源码变化） | 需要重启 | 需要重启 |
+
+成功后在计划之后输出分组，某组为空时省略，没有需要重启的项时不输出 `Then run` 行：
+
+```text
+No restart needed:
+  [web] enable @nanmicoder/dsh-agent-teams
+Restart DSH to load:
+  [web] update shared-plugin (package updates are not hot-reloaded)
+  [cli] install tool-x (hot reload is off for profile cli)
+Then run: dshenv restarted
+```
+
+`--dry-run` 在每个计划操作后标注 `(no restart)` 或 `(restart required: <原因>)`。`--json` 结果新增 `restart: { notRequired, required }`，每项为 `{ profile, package, kind, reason, detail? }`，`reason` 取 `hmr-on`、`package-update`、`hmr-off`、`hmr-unknown`，`detail` 只在 `hmr-unknown` 时出现，为探测失败的原因。Profile 尚未创建时不运行探测（`--dump-config` 会创建 Profile），按无法判断处理。
+
+dshenv 改写 Profile `package.json`（启用、停用、卸载前移出 bundle）时持有 DSH 的 `package.json.lock`，被占用时最多等 30 秒。热加载开启时卸载插件会先移出 bundle、等待 3 秒让 DSH 卸下插件，再调用 `dsh plugin remove`。
+
 ### 7. `dshenv rollback`
 从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照。只恢复 `manifest.yaml` / `lock.json` / `state.json`，不撤销已经发生的 DSH 包安装。恢复前会把当前三个文件另存为一份新快照（输出中给出其 id，可再 rollback 回去）；快照里没有的文件会被删除。
 
@@ -221,7 +243,7 @@ dshenv plan --no-overlay       # 单次命令只用 base
 选择优先级：`--overlay` > `--no-overlay` > `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`config set`、`source clone --profile`、`adopt`）必须带 `--layer base` 或 `--layer overlay`。
 
 ### 16. `dshenv restarted`
-`apply` 改动插件后，状态会标为 `restart-required`。重启 DSH 后运行本命令确认，清除该状态（已卸载插件的条目一并删除）。dshenv 无法自行判断 DSH 是否已重启。
+`apply` 输出 `Restart DSH to load:` 分组时，其中插件的状态标为 `restart-required`（升级了已装插件，或该 Profile 的热加载关闭、无法判断）。热加载开启时的安装、启用、停用、配置与卸载当场生效，不需要本命令。重启 DSH 后运行本命令确认，清除该状态（已卸载插件的条目一并删除）。dshenv 无法自行判断 DSH 是否已重启。
 
 ```bash
 dshenv restarted
