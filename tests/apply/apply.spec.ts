@@ -250,7 +250,7 @@ process.exit(0);
 
     const marker = path.join(tempHome, 'dsh-was-called');
     const fakeDsh = path.join(tempHome, 'must-not-run.mjs');
-    fs.writeFileSync(fakeDsh, `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)}, 'called'); process.exit(1);`);
+    fs.writeFileSync(fakeDsh, `import fs from 'node:fs'; if (process.argv.includes('--dump-config')) process.exit(1); fs.writeFileSync(${JSON.stringify(marker)}, 'called'); process.exit(1);`);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
 
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
@@ -284,7 +284,7 @@ profiles:
 
     const marker = path.join(tempHome, 'dsh-was-called');
     const fakeDsh = path.join(tempHome, 'must-not-run.mjs');
-    fs.writeFileSync(fakeDsh, `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)}, 'called'); process.exit(1);`);
+    fs.writeFileSync(fakeDsh, `import fs from 'node:fs'; if (process.argv.includes('--dump-config')) process.exit(1); fs.writeFileSync(${JSON.stringify(marker)}, 'called'); process.exit(1);`);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
 
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
@@ -569,6 +569,7 @@ if (args.includes('--version')) {
   console.log('0.1.7-rc.2');
   process.exit(0);
 }
+if (args.includes('--dump-config')) process.exit(1);
 fs.appendFileSync(${JSON.stringify(calls)}, args.at(-1) + '\\n');
 `);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
