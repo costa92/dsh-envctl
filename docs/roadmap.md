@@ -1,7 +1,5 @@
 # dshenv 后续规划与路线图
 
-本路线图基于 `docs/superpowers/specs/2026-09-25-dsh-environment-manager-design.md` 设计。
-
 ---
 
 ## 阶段规划

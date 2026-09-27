@@ -357,3 +357,7 @@ dshenv remote remove --yes                                   # 取消订阅，�
 见 `docs/roadmap.md`。后续版本计划交付：
 - 配置补丁之外的 live manager 写能力
 - 细粒度 live manager service 双向通讯
+
+## 许可证
+
+[MIT](LICENSE)

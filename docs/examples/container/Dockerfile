@@ -8,7 +8,7 @@ FROM node:${NODE_VERSION}-slim AS dshenv-build
 ARG PNPM_VERSION=10.30.3
 RUN npm install -g "pnpm@${PNPM_VERSION}"
 WORKDIR /src
-# dsh-envctl is private and unpublished, so its checkout comes in as a named build context.
+# dsh-envctl is not published to npm, so its checkout comes in as a named build context.
 # Copy only build inputs: the checkout has no .dockerignore and may hold host node_modules.
 COPY --from=dshenv package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json tsdown.config.ts README.md ./
 COPY --from=dshenv bin ./bin

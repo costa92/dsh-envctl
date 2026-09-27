@@ -2,6 +2,13 @@
   "name": "dsh-envctl",
   "version": "0.1.0",
   "description": "Environment-as-Code manager for DeepSeek Harness",
+  "license": "MIT",
+  "author": "costa",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/costa92/dsh-envctl.git"
+  },
+  "homepage": "https://github.com/costa92/dsh-envctl#readme",
   "type": "module",
   "bin": {
     "dshenv": "./bin/dshenv.js"
@@ -9,6 +16,7 @@
   "main": "./lib/cli.js",
   "types": "./lib/cli.d.ts",
   "files": [
+    "LICENSE",
     "bin",
     "lib",
     "templates",
