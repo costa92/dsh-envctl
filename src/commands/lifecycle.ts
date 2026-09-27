@@ -4,7 +4,7 @@ import { rollbackEnvironment } from '../rollback/rollback.js';
 import { gcEnvironment } from '../gc/gc.js';
 import { purgePlugin } from '../purge/purge.js';
 import { markRestarted } from '../restart/restart.js';
-import { renderPlan } from '../output/render.js';
+import { renderPlan, renderRestartSummary } from '../output/render.js';
 import { ValidationError } from '../errors.js';
 import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
 import { loadState } from '../manifest/files.js';
@@ -48,10 +48,13 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
           writeOut(overlayBanner(selection));
         }
         if (res.dryRun) {
-          writeOut(`[DRY-RUN] Planned operations:\n` + renderPlan(res.plan));
+          writeOut(`[DRY-RUN] Planned operations:\n` + renderPlan(res.plan, res.restart));
         } else if (res.applied) {
           writeOut(`Successfully applied changes (Operation ID: ${res.operationId})\n`);
           writeOut(renderPlan(res.plan));
+          if (res.restart) {
+            writeOut(renderRestartSummary(res.restart));
+          }
         } else {
           writeOut(`${res.message ?? 'No changes applied.'}\n`);
         }
