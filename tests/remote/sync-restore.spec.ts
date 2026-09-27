@@ -10,7 +10,7 @@ import { readRemoteConfig, remoteRepoDir } from '../../src/remote/schema.js';
 import { acceptSync, prepareSync } from '../../src/remote/sync.js';
 import { TEAM_MANIFEST, TEAM_OVERLAY, commitTeamFiles, createTeamRepo, type TeamRepo } from '../helpers/team-repo.js';
 
-const failOn = vi.hoisted(() => ({ file: null as string | null }));
+const failOn = vi.hoisted(() => ({ file: null as string | null, then: null as string | null }));
 
 vi.mock('../../src/io/atomic-file.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/io/atomic-file.js')>();
@@ -19,8 +19,9 @@ vi.mock('../../src/io/atomic-file.js', async (importOriginal) => {
     // Fails the first write to one file, like a full disk or a permission error in the middle of a sync.
     writeAtomic: async (file: string, contents: string | Uint8Array, mode?: 'create' | 'overwrite') => {
       if (file === failOn.file) {
-        failOn.file = null;
-        throw new Error('injected write failure');
+        failOn.file = failOn.then;
+        failOn.then = null;
+        throw new Error(`injected write failure: ${file.split('/').pop()}`);
       }
       return actual.writeAtomic(file, contents, mode);
     }
@@ -47,6 +48,7 @@ describe('acceptSync failure recovery', () => {
 
   beforeEach(async () => {
     failOn.file = null;
+    failOn.then = null;
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-remote-sync-restore-'));
     paths = resolveEnvironmentPaths({ cliDshHome: path.join(root, 'home') });
     team = await createTeamRepo(root);
@@ -131,5 +133,27 @@ describe('acceptSync failure recovery', () => {
     expect(fs.existsSync(paths.lockFile)).toBe(false);
     expect(fs.existsSync(overlayFile('team'))).toBe(false);
     expect(fs.existsSync(paths.remoteFile)).toBe(false);
+  });
+
+  it('names the rollback command when restoring the snapshot also fails', async () => {
+    await subscribeWithLocalEntry();
+    await commitTeamFiles(team, { 'envctl/manifest.yaml': `${TEAM_MANIFEST}# v2\n`, 'envctl/overlays/team.yaml': `${TEAM_OVERLAY}# v2\n` }, 'v2');
+    const preview = await prepare();
+    failOn.file = overlayFile('team');
+    failOn.then = paths.manifestFile;
+
+    const err = await acceptSync(paths, preview).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    const entries = await readJournalEntries(paths);
+    const started = entries.find((entry) => entry.type === 'sync-started' && entry.details?.to === preview.to);
+    const operationId = started!.operationId;
+    expect((err as Error).message).toBe(
+      'injected write failure: team.yaml; restoring the snapshot also failed (injected write failure: manifest.yaml), ' +
+        `run dshenv rollback ${operationId} --yes`
+    );
+    expect(entries.filter((entry) => entry.operationId === operationId).map((entry) => entry.type)).toEqual([
+      'sync-started',
+      'sync-rollback-failed'
+    ]);
   });
 });

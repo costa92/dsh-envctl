@@ -231,8 +231,18 @@ export async function acceptSync(paths: EnvironmentPaths, preview: SyncPreview):
         timestamp: new Date().toISOString(),
         details: { reason: err instanceof Error ? err.message : String(err) }
       });
-    } catch {
-      // keep the original error
+    } catch (restoreErr) {
+      const reason = restoreErr instanceof Error ? restoreErr.message : String(restoreErr);
+      await appendJournalEntry(paths, {
+        operationId,
+        type: 'sync-rollback-failed',
+        timestamp: new Date().toISOString(),
+        details: { reason: err instanceof Error ? err.message : String(err), restoreError: reason }
+      }).catch(() => {});
+      // Keep the original error (and its exit code), but tell the user the files are half-written and how to recover.
+      if (err instanceof Error) {
+        err.message += `; restoring the snapshot also failed (${reason}), run dshenv rollback ${operationId} --yes`;
+      }
     }
     throw err;
   }
