@@ -26,7 +26,11 @@ describe('container example', () => {
   });
 
   it('applies the manifest as a non-root user and fails the build on drift', () => {
-    expect(dockerfile).toMatch(/^USER dsh$/m);
+    expect(Array.from(dockerfile.matchAll(/^USER\s+(.*)$/gm), (match) => match[1])).toEqual(['dsh']);
+    const userAt = dockerfile.indexOf('USER dsh');
+    for (const step of ['mkdir -p /home/dsh/.dsh/sessions', 'COPY --chown=dsh:dsh envctl/', 'COPY --chown=dsh:dsh cordis.patch.yml']) {
+      expect(dockerfile.indexOf(step)).toBeGreaterThan(userAt);
+    }
     expect(dockerfile).toMatch(/^ENV DSH_HOME=\/home\/dsh\/\.dsh$/m);
     expect(dockerfile).toContain('dshenv apply --yes');
     expect(dockerfile).toContain('dshenv plan');

@@ -36,6 +36,13 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 
 `dshenv` 尚未发布到 npm，因此 `--build-context dshenv=...`（或 compose 的 `DSHENV_SRC`）必须指向一份 dsh-envctl 源码检出，构建阶段会从中打包安装。
 
+启动后在 `docker logs <容器名>`（或 `docker compose logs dsh`）里找 `dsh web: http://127.0.0.1:3080/?token=...` 链接完成首次认证：
+
+- 同一行还会打印 `LAN: http://172.x.x.x:3080/?token=...`，那是容器网络内的地址，宿主机回环发布下用不上，也不要转发或分享（它带着 token）。
+- 认证 cookie 绑定登录时使用的地址：用 `127.0.0.1` 登录后改用 `localhost`（或反之）会再次 401，需要重新打开 token 链接。
+
+可复现性：`NODE_VERSION` 只固定大版本，需要逐字节可复现时把基础镜像改成 `node:22-slim@sha256:<digest>`。`npm install -g @deepseek-ai/dsh@${DSH_VERSION}` 只固定 DSH 本身，其依赖按版本范围解析、没有 lockfile，不同时间构建可能装到不同的依赖版本。
+
 构建参数：
 
 | 参数 | 默认值 | 说明 |
@@ -51,7 +58,7 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 
 **DSH Web 能让连接方执行 shell 命令。** 容器内 `cordis.patch.yml` 把 webserver 的 `host` 设为 `0.0.0.0`，这只是为了让 Docker 能把端口转发进容器。由此带来两道边界：
 
-- **宿主机与局域网**：端口只发布到宿主机回环 `127.0.0.1:3080:3080`，局域网上的其他机器连不到。把发布改成 `3080:3080`、用 `docker run -P`（镜像没有 `EXPOSE`，但加上后 `-P` 会发布到宿主机所有接口的随机端口），或放到反向代理后对外公开，都会把远程代码执行能力暴露出去。
+- **宿主机与局域网**：端口只发布到宿主机回环 `127.0.0.1:3080:3080`，局域网上的其他机器连不到。把发布改成 `3080:3080`、用 `docker run -P`（镜像有意不写 `EXPOSE`；一旦加上，`-P` 会把端口发布到宿主机所有接口的随机端口），或放到反向代理后对外公开，都会把远程代码执行能力暴露出去。
 - **同一 Docker 网络内的容器**：回环发布挡不住它们。同网络的任何容器都能直接访问 `<容器 IP>:3080`，并且能通过 DSH 的 Host 校验（监听所有接口时 DSH 自动信任本容器的网卡 IP），此时唯一的防线是每次进程启动时生成的 token。直接 `docker run` 不指定网络时，默认 bridge 上的**所有**容器都属于这一类，因此应放到独立的自定义网络（如上面的 `dsh-net`）。`compose` 默认给每个项目建一个独立网络，已满足要求；但同一 compose 项目里再加的其他服务会共享这个网络，也能访问它。
 
 `DEEPSEEK_API_KEY` 只能在 `docker run -e` / `docker compose` 的运行时环境变量里提供，不要写进 `ENV`、`ARG` 或构建参数，也不要提交进镜像。

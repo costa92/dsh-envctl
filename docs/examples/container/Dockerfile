@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # DSH Web image whose plugin environment is applied from this repository's dshenv manifest.
 # Build: docker build --build-context dshenv=/path/to/dsh-envctl -t my-dsh .
+# For reproducible builds, pin the base image by digest, e.g. node:22-slim@sha256:<digest>.
 ARG NODE_VERSION=22
 
 FROM node:${NODE_VERSION}-slim AS dshenv-build
