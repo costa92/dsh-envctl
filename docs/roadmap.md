@@ -155,7 +155,7 @@
 
 原因：profile 以 pnpm `nodeLinker: hoisted` 安装，任何版本都位于同一个 `node_modules/<包名>` 路径，ESM 缓存按 URL 记忆且从不清除；DSH 插件管理器对已安装包的再次安装直接返回 `restart-required`（`packages/boot/plugin-manager/src/index.ts` 的 `installBundle`）。`dsh-hmr` 的 `partialReload` 会删除模块缓存后重新导入，但只作用于它监视到的已加载源文件。
 
-结论：dshenv 无法在不修改 DSH 的前提下热替换版本，升级继续报「需要重启」。可向 DSH 提需求：插件管理器升级插件时清除该包的模块缓存并重新导入（`partialReload` 已有同类做法）。
+结论：dshenv 无法在不修改 DSH 的前提下热替换版本，升级继续报「需要重启」。可向 DSH 提需求：插件管理器升级插件时清除该包的模块缓存并重新导入（`partialReload` 已有同类做法）。需求草稿见 [`docs/dsh-requests/`](dsh-requests/dsh-plugin-manager-requests.zh.md)。
 
 ## Service DAG 调研（2026-09-27，结论：静态分析不可靠）
 
@@ -166,4 +166,4 @@
 - 插件还会在函数内部用 `ctx.inject([...], ...)`、`ctx.get(...)` 按需依赖（agent-teams 即如此），静态读不全。
 - 一个包常含多个插件，是否启用由 profile 补丁与 `!!js` 条件决定，依赖应按插件行而非按包计算。
 
-结论：静态 DAG 误报与漏报都多，不作为 `apply` 前的拦截。已做的替代：`dshenv runtime` 在插件处于 `pending`（Cordis 在注入的 service 齐备前保持该阶段）时说明 `plugin <moduleName> is waiting for services it injects`。根本解法需 DSH 在插件清单接口中暴露每个插件缺少的 service，可向 DSH 提需求。
+结论：静态 DAG 误报与漏报都多，不作为 `apply` 前的拦截。已做的替代：`dshenv runtime` 在插件处于 `pending`（Cordis 在注入的 service 齐备前保持该阶段）时说明 `plugin <moduleName> is waiting for services it injects`。根本解法需 DSH 在插件清单接口中暴露每个插件缺少的 service，可向 DSH 提需求。需求草稿见 [`docs/dsh-requests/`](dsh-requests/dsh-plugin-manager-requests.zh.md)。
