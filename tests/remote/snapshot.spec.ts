@@ -143,4 +143,13 @@ describe('loadRemoteSnapshot', () => {
     await fetchBranch(repoDir, 'main');
     await expect(loadRemoteSnapshot(repoDir, commit, 'envctl')).rejects.toThrow('Remote file envctl/manifest.yaml must be a regular file');
   });
+
+  it('refuses a symlink in place of the team lock', async () => {
+    const team = await createTeamRepo(root, { 'envctl/manifest.yaml': TEAM_MANIFEST, 'envctl/real.json': TEAM_LOCK });
+    fs.symlinkSync('real.json', path.join(team.work, 'envctl', 'lock.json'));
+    const commit = await commitTeamFiles(team, {}, 'symlink');
+    await cloneRemoteRepo(team.url, repoDir);
+    await fetchBranch(repoDir, 'main');
+    await expect(loadRemoteSnapshot(repoDir, commit, 'envctl')).rejects.toThrow('Remote file envctl/lock.json must be a regular file');
+  });
 });

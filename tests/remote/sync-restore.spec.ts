@@ -122,6 +122,28 @@ describe('acceptSync failure recovery', () => {
     expect(read(paths.remoteFile)).toBe(remoteBefore);
   });
 
+  it('brings back a removed overlay when writing remote.json fails', async () => {
+    await subscribeWithLocalEntry();
+    const remoteBefore = read(paths.remoteFile);
+    const lockBefore = read(paths.lockFile);
+    await commitTeamFiles(
+      team,
+      { 'envctl/manifest.yaml': `${TEAM_MANIFEST}# v2\n`, 'envctl/overlays/team.yaml': null, 'envctl/lock.json': TEAM_LOCK_V2 },
+      'v2'
+    );
+    const preview = await prepare();
+    expect(preview.files.removed).toEqual(['overlays/team.yaml']);
+    failOn.file = paths.remoteFile;
+
+    await expect(acceptSync(paths, preview)).rejects.toThrow('injected write failure: remote.json');
+    expect(read(paths.manifestFile)).toBe(TEAM_MANIFEST);
+    expect(read(overlayFile('team'))).toBe(TEAM_OVERLAY);
+    expect(read(overlayFile('mine'))).toBe(LOCAL_OVERLAY);
+    expect(read(paths.lockFile)).toBe(lockBefore);
+    expect(read(paths.remoteFile)).toBe(remoteBefore);
+    expect((await readJournalEntries(paths)).map((entry) => entry.type)).toContain('sync-rollback');
+  });
+
   it('removes new files and leaves no remote.json when a first subscription fails', async () => {
     fs.mkdirSync(paths.overlaysDir, { recursive: true });
     fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles: {}\n');
