@@ -216,6 +216,19 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     expect(JSON.parse(fs.readFileSync(profileJson(), 'utf8')).dsh.profile.bundles).toEqual([]);
   });
 
+  it('does not wait before uninstalling a plugin that was not in the bundle list, since DSH never loaded it', async () => {
+    install('0.1.21', []);
+    manifest('    plugins: {}\n');
+    own();
+    configureFakeDsh();
+
+    const started = Date.now();
+    const result = await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'on' }), hmrSettleMs: 3000 });
+
+    expect(Date.now() - started).toBeLessThan(2500);
+    expect(result.restart?.notRequired).toEqual([{ profile: 'web', package: PKG, kind: 'remove', reason: 'hmr-on' }]);
+  });
+
   it('does not wait before uninstalling when hot reload is off', async () => {
     install('0.1.21', [PKG]);
     manifest('    plugins: {}\n');

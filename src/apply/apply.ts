@@ -164,7 +164,8 @@ async function executeWithDsh(
       if (!command) {
         throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
       }
-      if (hmrByProfile.get(operation.profile)?.state === 'on') {
+      // Only a plugin that was in the bundle list is loaded, so only then is there an unload to wait for.
+      if (previousIndex !== -1 && hmrByProfile.get(operation.profile)?.state === 'on') {
         await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS);
       }
       const removeResult = await execa(
