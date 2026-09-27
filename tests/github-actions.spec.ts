@@ -15,6 +15,8 @@ interface Step {
   with?: Record<string, unknown>;
 }
 interface Workflow {
+  on?: unknown;
+  permissions?: Record<string, string>;
   jobs: Record<string, { steps: Step[]; strategy?: { matrix?: { node?: unknown[] } } }>;
 }
 
@@ -22,7 +24,9 @@ const readWorkflow = (relative: string): Workflow =>
   YAML.parse(fs.readFileSync(path.join(projectDir, relative), 'utf8')) as Workflow;
 const ci = readWorkflow('.github/workflows/ci.yml');
 const example = readWorkflow('docs/examples/github-actions/dshenv-check.yml');
+const release = readWorkflow('.github/workflows/release.yml');
 const packageJson = JSON.parse(fs.readFileSync(path.join(projectDir, 'package.json'), 'utf8')) as {
+  version: string;
   scripts: Record<string, string>;
 };
 
@@ -47,7 +51,7 @@ describe('repository CI workflow', () => {
   });
 
   it('pins one exact pnpm version, shared with the example, and covers both supported Node majors', async () => {
-    const versions = [...pnpmVersions(ci), ...pnpmVersions(example)];
+    const versions = [...pnpmVersions(ci), ...pnpmVersions(example), ...pnpmVersions(release)];
     expect(new Set(versions).size).toBe(1);
     expect(versions[0]).toMatch(/^\d+\.\d+\.\d+$/);
     expect(ci.jobs.check.strategy?.matrix?.node).toEqual([22, 24]);
@@ -121,4 +125,51 @@ describe('dshenv example workflow scripts', () => {
     expect(drifted.exitCode).toBe(1);
     expect(drifted.stdout).toContain('::error::');
   }, 60000);
+});
+
+describe('release workflow', () => {
+  let workDir: string;
+
+  const runStep = (id: string, env: Record<string, string>, cwd = projectDir) =>
+    execa('bash', ['-c', stepScript(release, id)], { cwd, env: { ...process.env, ...env }, reject: false });
+
+  beforeEach(() => {
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-release-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it('runs on v* tags with permission to create releases, after the same quality gates as CI', () => {
+    expect(release.on).toEqual({ push: { tags: ['v*'] } });
+    expect(release.permissions).toEqual({ contents: 'write' });
+    const runs = allSteps(release).flatMap((step) => (step.run && !step.id ? [step.run.trim()] : []));
+    expect(runs.slice(0, 4)).toEqual(['pnpm install --frozen-lockfile', 'pnpm typecheck', 'pnpm test', 'pnpm build']);
+  });
+
+  it('accepts only the tag that matches the package.json version', async () => {
+    expect((await runStep('verify-tag', { GITHUB_REF_NAME: `v${packageJson.version}` })).exitCode).toBe(0);
+    const mismatch = await runStep('verify-tag', { GITHUB_REF_NAME: 'v99.0.0' });
+    expect(mismatch.exitCode).toBe(1);
+    expect(mismatch.stderr).toContain(`Tag v99.0.0 does not match package.json version ${packageJson.version}`);
+  });
+
+  it('takes the release notes from the CHANGELOG section of the tagged version', async () => {
+    fs.writeFileSync(
+      path.join(workDir, 'CHANGELOG.md'),
+      '# Changelog\n\n## 1.1.0 - 2026-10-01\n\n- newer\n\n## 1.0.0 - 2026-09-27\n\n### Added\n\n- first\n'
+    );
+    expect((await runStep('notes', { GITHUB_REF_NAME: 'v1.0.0' }, workDir)).exitCode).toBe(0);
+    expect(fs.readFileSync(path.join(workDir, 'release-notes.md'), 'utf8').trim()).toBe('### Added\n\n- first');
+
+    const missing = await runStep('notes', { GITHUB_REF_NAME: 'v2.0.0' }, workDir);
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain('CHANGELOG.md has no section for 2.0.0');
+  });
+
+  it('has a CHANGELOG section for the current package.json version', async () => {
+    fs.copyFileSync(path.join(projectDir, 'CHANGELOG.md'), path.join(workDir, 'CHANGELOG.md'));
+    expect((await runStep('notes', { GITHUB_REF_NAME: `v${packageJson.version}` }, workDir)).exitCode).toBe(0);
+  });
 });

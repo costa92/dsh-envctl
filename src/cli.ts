@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import { DshError, ValidationError } from './errors.js';
 import type { CommandContext } from './commands/context.js';
@@ -10,6 +11,9 @@ import { registerOverlayCommands } from './commands/overlay.js';
 import { registerNewCommand } from './commands/new.js';
 import { registerRemoteCommands } from './commands/remote.js';
 import { registerRuntimeCommand } from './commands/runtime.js';
+
+// src/cli.ts and the bundled lib/*.js both sit one level below package.json.
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
 export interface CliIO {
   stdout?: (chunk: string) => void;
@@ -26,7 +30,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   program
     .name('dshenv')
     .description('Environment-as-Code manager for DeepSeek Harness')
-    .version('0.1.0', '-v, --version', 'output the current version')
+    .version(version, '-v, --version', 'output the current version')
     .option('--dsh-home <path>', 'custom DSH home directory')
     .option('--harness-source <path>', 'custom DSH source directory')
     .option('--allow-untested-dsh', 'allow untested or experimental DSH runtime versions')

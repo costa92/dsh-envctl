@@ -42,14 +42,24 @@ DSH 运行时命令解析优先级：
 
 ## 安装与快速上手
 
-### 从 Git 地址安装
+### 从 Release 安装（推荐）
 
 ```bash
-pnpm add -g --allow-build=dsh-envctl "git+https://github.com/costa92/dsh-envctl.git#master"
+npm install -g https://github.com/costa92/dsh-envctl/releases/download/v0.1.0/dsh-envctl-0.1.0.tgz
+# 或
+pnpm add -g https://github.com/costa92/dsh-envctl/releases/download/v0.1.0/dsh-envctl-0.1.0.tgz
 dshenv --version
 ```
 
-`#` 后可换成 tag 或 commit 以固定版本。安装时 pnpm 会在克隆中执行 `prepare` 构建 `lib/`；pnpm 10 默认不运行依赖的构建脚本，所以必须带 `--allow-build=dsh-envctl`，否则安装后缺少 `lib/` 无法运行。npm 从 Git 地址安装时会在准备阶段崩溃（npm 10.9 arborist 缺陷），请使用 pnpm。
+发布包已含构建好的 `lib/`，安装时不需要构建。各版本见 [Releases](https://github.com/costa92/dsh-envctl/releases)，变更见 [CHANGELOG](CHANGELOG.md)。
+
+### 从 Git 地址安装
+
+```bash
+pnpm add -g --allow-build=dsh-envctl "git+https://github.com/costa92/dsh-envctl.git#v0.1.0"
+```
+
+`#` 后可换成其他 tag、commit 或 `master`（未发布的最新代码）。安装时 pnpm 会在克隆中执行 `prepare` 构建 `lib/`；pnpm 10 默认不运行依赖的构建脚本，所以必须带 `--allow-build=dsh-envctl`，否则安装后缺少 `lib/` 无法运行。npm 从 Git 地址安装时会在准备阶段崩溃（npm 10.9 arborist 缺陷），请使用 pnpm。
 
 ### 本地链接安装
 
@@ -68,6 +78,8 @@ dshenv --version
 完整流程、能力边界、agent-teams 示例和常见问题见 [中文使用教程](docs/使用教程.md)。
 
 DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容性，放宽版本门禁的步骤见 [DSH 新版本兼容验证](docs/DSH版本升级.md)。
+
+发布新版本的步骤见 [发布流程](docs/发布流程.md)。
 
 ---
 
