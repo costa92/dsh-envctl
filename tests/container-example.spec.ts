@@ -34,6 +34,28 @@ describe('container example', () => {
     expect(dockerfile).toMatch(/COPY --from=dshenv /);
   });
 
+  it('ignores machine-local envctl state so builds depend only on the manifest', () => {
+    // Without --no-overlay an empty DSHENV_OVERLAY falls back to envctl/overlay-selection.json.
+    expect(dockerfile).toContain('--no-overlay');
+    expect(dockerfile).toContain('--overlay "${DSHENV_OVERLAY}"');
+    const ignored = read('.dockerignore')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+    expect(ignored).toEqual(
+      expect.arrayContaining([
+        '.git',
+        'envctl/state.json',
+        'envctl/overlay-selection.json',
+        'envctl/dshenv.lock',
+        'envctl/backups',
+        'envctl/logs',
+        'envctl/trash',
+        'envctl/sources'
+      ])
+    );
+  });
+
   it('starts dsh web without --host and trusts only loopback authorities', () => {
     const cmd = dockerfile.match(/^CMD (\[.*\])$/m)?.[1];
     expect(cmd).toBeDefined();

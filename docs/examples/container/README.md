@@ -6,10 +6,11 @@
 
 ## 2. 目录约定
 
-本目录的 `Dockerfile`、`cordis.patch.yml`、`compose.yaml` 要复制到你的配置仓库根目录，与该仓库已有的 `envctl/manifest.yaml`（可选 `lock.json`、`overlays/`）放在一起：
+本目录的 `Dockerfile`、`cordis.patch.yml`、`compose.yaml`、`.dockerignore` 要复制到你的配置仓库根目录，与该仓库已有的 `envctl/manifest.yaml`（可选 `lock.json`、`overlays/`）放在一起：
 
 ```
 your-config-repo/
+├── .dockerignore
 ├── Dockerfile
 ├── cordis.patch.yml
 ├── compose.yaml
@@ -20,6 +21,8 @@ your-config-repo/
 ```
 
 清单中要使用的 profile 名固定为 `web`，因为镜像启动命令是 `dsh web`。
+
+`.dockerignore` 不能省：`Dockerfile` 会 `COPY` 整个 `envctl/`，而本机用过 dshenv 的配置仓库里可能还有 `state.json`、`overlay-selection.json`、`dshenv.lock`、`backups/`、`logs/`、`trash/`、`sources/` 等本机状态。它们会让镜像内的 `apply`/`plan` 依赖本机状态而不只是清单，`.dockerignore` 把它们（以及 `.git`）排除在构建上下文之外。
 
 ## 3. 构建与运行
 
@@ -39,7 +42,9 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 | `DSH_VERSION` | `0.1.7-rc.2` | npm 上的 `latest` 仍是 `0.1.5` 系列，不可用 |
 | `PNPM_VERSION` | `10.30.3` | 与仓库 CI 一致 |
 | `NODE_VERSION` | `22` | 基础镜像 `node:${NODE_VERSION}-slim` |
-| `DSHENV_OVERLAY` | 空 | 非空时对应 `envctl/overlays/<name>.yaml`，构建期 `apply`/`plan` 会带上 `--overlay` |
+| `DSHENV_OVERLAY` | 空 | 非空时对应 `envctl/overlays/<name>.yaml`，构建期 `apply`/`plan` 会带上 `--overlay`；为空时带 `--no-overlay`，不读 `envctl/overlay-selection.json` |
+
+构建期选用的 overlay 不会写进镜像：镜像内没有 `overlay-selection.json`，在用 overlay 构建的容器里手动跑 `dshenv plan` 时必须带同一个 `--overlay <name>`（或设置环境变量 `DSHENV_OVERLAY=<name>`），否则会按 base 清单比对并报漂移。
 
 ## 4. 安全警告
 
