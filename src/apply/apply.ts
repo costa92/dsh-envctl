@@ -20,6 +20,8 @@ import { readLocalSourceDigests } from '../source/local.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
 import { probeDsh, resolveDshCommand } from '../dsh/command.js';
 import { capabilitiesFor } from '../dsh/capabilities.js';
+import { readRemoteConfig } from '../remote/schema.js';
+import { lockEntryId } from '../remote/lock-entries.js';
 import { setProfileBundleEnabled } from './bundles.js';
 import { clearManagedPatches, snapshotProfilePatchFile, writeManagedPatches } from './patches.js';
 
@@ -250,6 +252,36 @@ function recordLocalDigests(
   return next;
 }
 
+// A local entry written over a team entry would be reported as a local change by every later sync.
+function assertNoTeamEntryOverwritten(
+  paths: EnvironmentPaths,
+  lock: EnvironmentLock | null,
+  nextLock: EnvironmentLock | null
+): void {
+  if (!nextLock || nextLock === lock) {
+    return;
+  }
+  const config = readRemoteConfig(paths);
+  if (!config) {
+    return;
+  }
+  for (const [profileName, { plugins }] of Object.entries(nextLock.profiles)) {
+    for (const [alias, entry] of Object.entries(plugins)) {
+      if (!config.lockEntries[profileName]?.[alias]) {
+        continue;
+      }
+      if (JSON.stringify(lock?.profiles[profileName]?.plugins[alias]) === JSON.stringify(entry)) {
+        continue;
+      }
+      throw new ValidationError(
+        `Lock entry '${lockEntryId(profileName, alias)}' is pinned by the team lock of remote ${config.url}; ` +
+          'a local overlay cannot switch it to a local source. ' +
+          'Disable it with remove: true in the overlay and add the local plugin under a new alias'
+      );
+    }
+  }
+}
+
 function pruneOwnership(
   ownership: EnvironmentState['ownership'],
   manifest: EnvironmentManifest
@@ -365,6 +397,7 @@ async function planAndApply(
     };
   }
 
+  assertNoTeamEntryOverwritten(paths, lock, recordLocalDigests(lock, manifest, localDigests));
   assertSupportedPlan(plan);
 
   const operationId = `apply-${crypto.randomBytes(6).toString('hex')}`;

@@ -270,6 +270,35 @@ profiles:
     expect(JSON.parse((await run(['remote', 'show', '--json'])).stdout)).toMatchObject({ drift: [], lockDrift: [] });
   });
 
+  it('refuses to apply an overlay that switches a team-pinned lock entry to a local source', async () => {
+    const sourceDir = path.join(root, 'src', 'shared');
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, 'package.json'), JSON.stringify({ name: 'shared-plugin', version: '0.1.0' }));
+    fs.writeFileSync(
+      overlayFile('laptop'),
+      `apiVersion: dshenv-overlay/v1
+profiles:
+  web:
+    plugins:
+      shared:
+        source: { type: local-file, path: "${sourceDir}" }
+`
+    );
+    const lockBefore = read(paths.lockFile);
+    const snapshotsBefore = fs.existsSync(paths.backupsDir) ? fs.readdirSync(paths.backupsDir) : [];
+
+    const { code, stderr } = await run(['apply', '--yes', '--overlay', 'laptop']);
+    expect(code).toBe(3);
+    expect(stderr).toContain(
+      `Lock entry 'web/shared' is pinned by the team lock of remote ${team.url}; a local overlay cannot switch it to a local source. ` +
+        'Disable it with remove: true in the overlay and add the local plugin under a new alias'
+    );
+    expect(read(paths.lockFile)).toBe(lockBefore);
+    expect(fs.existsSync(paths.backupsDir) ? fs.readdirSync(paths.backupsDir) : []).toEqual(snapshotsBefore);
+    expect(fs.existsSync(path.join(home, 'profiles', 'web'))).toBe(false);
+    expect((await run(['sync'])).code).toBe(0);
+  });
+
   it('is undone by rollback, after which sync still fast-forwards', async () => {
     const second = await commitTeamFiles(team, { 'envctl/manifest.yaml': V2_MANIFEST }, 'v2');
     expect((await run(['sync', '--yes'])).code).toBe(0);
