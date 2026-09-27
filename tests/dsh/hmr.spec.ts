@@ -135,11 +135,20 @@ process.stdout.write(${JSON.stringify(dumpWithHmr("  disabled: !!js '!ctx.get(''
   });
 
   it('reports a command that cannot start as unknown', async () => {
-    const status = await probeProfileHmr('web', { command: { file: path.join(dir, 'missing-dsh'), args: [] }, dshHome: dir });
-    expect(status.state).toBe('unknown');
-    if (status.state === 'unknown') {
-      expect(status.reason).toContain('ENOENT');
-    }
+    expect(await probeProfileHmr('web', { command: { file: path.join(dir, 'missing-dsh'), args: [] }, dshHome: dir })).toEqual({
+      state: 'unknown',
+      reason: 'failed to start dsh (ENOENT)'
+    });
+  });
+
+  it('never puts the command line into the reason, since DSH_CLI args can carry credentials', async () => {
+    const secretArgs = ['--Authorization', "'Bearer SECRET'"];
+    const silentExit = fakeDsh(`process.exit(3);`);
+    expect(
+      await probeProfileHmr('web', { command: { ...silentExit, args: [...silentExit.args, ...secretArgs] }, dshHome: dir })
+    ).toEqual({ state: 'unknown', reason: 'dsh --dump-config exited with code 3' });
+    const missing = await probeProfileHmr('web', { command: { file: path.join(dir, 'missing-dsh'), args: secretArgs }, dshHome: dir });
+    expect(JSON.stringify(missing)).not.toContain('SECRET');
   });
 
   it('reports a timeout as unknown', async () => {

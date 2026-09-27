@@ -233,6 +233,21 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     expect(stateEntry()?.status).toBe('restart-required');
   });
 
+  it('keeps DSH_CLI arguments out of the restart detail', async () => {
+    install('0.1.21', []);
+    manifest(declared(true));
+    const fakeDsh = path.join(tempHome, 'failing-dsh.mjs');
+    fs.writeFileSync(fakeDsh, `process.exit(2);`);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh, '--Authorization', "'Bearer SECRET'"]);
+
+    const result = await applyEnvironment(paths, { dryRun: true });
+
+    expect(result.restart?.required).toEqual([
+      { profile: 'web', package: PKG, kind: 'enable', reason: 'hmr-unknown', detail: 'dsh --dump-config exited with code 2' }
+    ]);
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
+
   it('reads the hmr row through the default probe', async () => {
     install('0.1.21', []);
     manifest(declared(true));

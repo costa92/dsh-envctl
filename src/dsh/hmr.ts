@@ -80,9 +80,16 @@ export async function probeProfileHmr(profile: string, options: ProbeHmrOptions)
   if (result.timedOut) {
     return { state: 'unknown', reason: `dsh --dump-config timed out after ${timeoutMs} ms` };
   }
+  // Never use execa's messages here: they include the command line, and DSH_CLI args can carry credentials.
   if (result.failed) {
-    const detail = firstLine(String(result.stderr ?? '')) || firstLine(result.shortMessage ?? '');
-    return { state: 'unknown', reason: detail || `dsh --dump-config exited with code ${String(result.exitCode)}` };
+    const stderrLine = firstLine(String(result.stderr ?? ''));
+    if (stderrLine) {
+      return { state: 'unknown', reason: stderrLine };
+    }
+    if (result.exitCode === undefined && result.code) {
+      return { state: 'unknown', reason: `failed to start dsh (${result.code})` };
+    }
+    return { state: 'unknown', reason: `dsh --dump-config exited with code ${String(result.exitCode)}` };
   }
   return parseHmrFromDump(String(result.stdout));
 }
