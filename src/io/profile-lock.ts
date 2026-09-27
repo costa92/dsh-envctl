@@ -28,7 +28,7 @@ async function tryCreate(lockPath: string, content: string): Promise<boolean> {
 }
 
 // Same protocol as DSH's atomic-write `<file>.lock`, so dshenv and DSH never write package.json at once.
-// Unlike DSH, an existing lock is never taken over: dshenv only waits for it.
+// Neither DSH nor dshenv ever takes over an existing lock; a leftover one must be removed by hand.
 export async function withProfilePackageLock<T>(
   packageJsonPath: string,
   operation: () => Promise<T>,
