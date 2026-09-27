@@ -94,13 +94,20 @@
 - [x] 终审修复：模板中 `{{name}}` 标量加引号（`123`、`true` 等名称不再被 YAML 解析为非字符串）；`--dir` 为非目录或符号链接时报错且不删除；失败清理包括本次新建的父目录
 - [x] 全量测试套件覆盖（当前 62 个测试文件，467 项测试全部通过）
 
+### 容器示例（已实现）
+- [x] `docs/examples/container/{Dockerfile,cordis.patch.yml,compose.yaml}`：镜像构建期把当前 dshenv 源码打包安装并 `COPY` 配置仓库的 `envctl/`，`dshenv apply --yes`、`dshenv plan` 校验无漂移后再 `dsh web`
+- [x] home 级 `cordis.patch.yml` 把 webserver 监听改为 `0.0.0.0`（供 Docker 转发），CLI 本身拒绝 `--host`；端口只发布到 `127.0.0.1:3080:3080`，`--trusted-host` 仅 `localhost:3080`、`127.0.0.1:3080`
+- [x] 命名构建上下文传入私有 dshenv 源码（未发布 npm）；DSH 版本固定 `0.1.7-rc.2`
+- [x] 会话日志挂载命名卷 `dsh-data:/home/dsh/.dsh/sessions`，`profiles/`、`envctl/` 仍来自镜像不进卷
+- [x] 真实 Docker 构建验证（2026-09-27）：scratch 配置仓库 apply/plan 通过，端口只回环可达、外部 Host 头访问 `/api` 被拒，容器重建后会话数据经卷保留、`storages/workspace.json` 按预期不保留
+
 ## 延后能力
 
 下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
 
 - 动态 HMR / 调用运行时内部 service（如 `ctx.dynamicCordisRunner`）
 - 静态 Cordis Service DAG 分析（需插件暴露机器可读的服务贡献元数据）
-- 容器示例、远程环境分发
+- 远程环境分发
 - GUI / TUI / 插件市场 / 主观发行版
 - 自动重启非本工具启动的 DSH 进程
 - Desktop 内嵌 Harness 管理

@@ -246,6 +246,10 @@ dshenv new mcp docs-server              # MCP server 配置包
 - 名称必须是 kebab-case；目标目录非空时拒绝。
 - `-p` 等同于随后执行 `dshenv install <目录> -p <profile>`（支持 `--as`、`--layer`）；登记失败时删除生成的目录。不会自动 `apply`。
 
+### 19. 容器示例
+
+`docs/examples/container/` 提供构建 DSH Web 容器镜像的 `Dockerfile`、`compose.yaml` 与 `cordis.patch.yml`，镜像构建期执行 `dshenv apply` 装好清单声明的插件。安全要点：容器内监听 `0.0.0.0` 只是为了让 Docker 转发端口，宿主机端口必须只发布到 `127.0.0.1`，否则会把 DSH Web 的 shell 执行能力暴露给外部。完整用法、构建参数与数据卷说明见 `docs/examples/container/README.md`。
+
 ---
 
 ## 退出码规范
