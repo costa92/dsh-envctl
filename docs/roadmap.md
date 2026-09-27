@@ -100,6 +100,7 @@
 - [x] 命名构建上下文传入私有 dshenv 源码（未发布 npm）；DSH 版本固定 `0.1.7-rc.2`
 - [x] 会话日志挂载命名卷 `dsh-data:/home/dsh/.dsh/sessions`，`profiles/`、`envctl/` 仍来自镜像不进卷
 - [x] 真实 Docker 构建验证（2026-09-27）：scratch 配置仓库 apply/plan 通过，端口只回环可达、外部 Host 头访问 `/api` 被拒，容器重建后会话数据经卷保留、`storages/workspace.json` 按预期不保留
+- [x] 真实对话验证（2026-09-27）：运行时 `-e DEEPSEEK_API_KEY` 传入 key，经 DSH Web `/api` 发送消息得到模型回复；无 key 时以 `MISSING_CREDENTIAL` 结束；镜像历史与容器 `$DSH_HOME` 中无 key
 
 ### 远程分发：团队共享基线（已实现）
 - [x] `dshenv remote add/show/remove` 与 `dshenv sync`：订阅团队 Git 配置仓库（裸克隆于 `envctl/remote/repo.git`），采用 `<path>/manifest.yaml`、`lock.json`、`overlays/*.yaml`，固定到明确 commit 并记录于 `envctl/remote.json`（文件与 lock 条目的 sha256 摘要）

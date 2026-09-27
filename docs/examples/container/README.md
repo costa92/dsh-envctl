@@ -40,6 +40,7 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 
 - 同一行还会打印 `LAN: http://172.x.x.x:3080/?token=...`，那是容器网络内的地址，宿主机回环发布下用不上，也不要转发或分享（它带着 token）。
 - 认证 cookie 绑定登录时使用的地址：用 `127.0.0.1` 登录后改用 `localhost`（或反之）会再次 401，需要重新打开 token 链接。
+- 链接里的端口是容器内的 `3080`。宿主机映射到其他端口（例如 `127.0.0.1:13080:3080`）时，把链接里的端口改成宿主机端口再打开。
 
 可复现性：`NODE_VERSION` 只固定大版本，需要逐字节可复现时把基础镜像改成 `node:22-slim@sha256:<digest>`。`npm install -g @deepseek-ai/dsh@${DSH_VERSION}` 只固定 DSH 本身，其依赖按版本范围解析、没有 lockfile，不同时间构建可能装到不同的依赖版本。
 
@@ -62,6 +63,8 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 - **同一 Docker 网络内的容器**：回环发布挡不住它们。同网络的任何容器都能直接访问 `<容器 IP>:3080`，并且能通过 DSH 的 Host 校验（监听所有接口时 DSH 自动信任本容器的网卡 IP），此时唯一的防线是每次进程启动时生成的 token。直接 `docker run` 不指定网络时，默认 bridge 上的**所有**容器都属于这一类，因此应放到独立的自定义网络（如上面的 `dsh-net`）。`compose` 默认给每个项目建一个独立网络，已满足要求；但同一 compose 项目里再加的其他服务会共享这个网络，也能访问它。
 
 `DEEPSEEK_API_KEY` 只能在 `docker run -e` / `docker compose` 的运行时环境变量里提供，不要写进 `ENV`、`ARG` 或构建参数，也不要提交进镜像。
+
+没有提供 key 时，对话会以 `MISSING_CREDENTIAL` 结束，界面会引导你到 Web 的 Models 页录入 key。不要在那里录入：录入的 key 会存进容器内的 `$DSH_HOME`（不在会话数据卷里），容器重建即丢失，也让 key 留在容器文件系统中。应停掉容器，改用 `-e DEEPSEEK_API_KEY` 重新启动。
 
 ## 5. 数据
 
@@ -91,4 +94,6 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 - **首次访问需要启动 token**：DSH Web 没有匿名访问，任何没有 token 的请求都会返回 401；启动 token 打印在 `docker logs <容器名>`（或 `docker compose logs dsh`）里，形如 `http://127.0.0.1:3080/?token=...`，第一次必须打开这个链接完成认证。因此用 `curl -f` 做就绪轮询永远不会成功，只能按“有 HTTP 响应（包括 401）”判断服务已启动。
 - 挂载 `dsh-data` 卷后，`compose down`（不带 `-v`）再 `up` 重建容器，会话日志与 `session/list` 结果保留；`storages/workspace.json` 按预期不保留；插件环境（`profiles/`、`envctl/`）来自镜像，不受卷影响。
 
-未验证：把端口发布到宿主机真实 `3080`（本机端口被占用，验证用的是 `127.0.0.1:13080:3080`，仅端口号不同）；带 `DEEPSEEK_API_KEY` 的真实模型对话；Docker Desktop（macOS/Windows）。
+真实对话（2026-09-27）：运行时以 `-e DEEPSEEK_API_KEY` 传入 key，通过 DSH Web 的 `/api`（与 Web UI 相同的 HTTP 接口：登录、`session/create`、`session/prompt`、`session/page`）发送一条消息，模型正常回复；不带 key 的对照容器以 `MISSING_CREDENTIAL` 结束。key 只在运行时传入，镜像历史与容器内 `$DSH_HOME` 中都查不到。
+
+未验证：把端口发布到宿主机真实 `3080`（本机端口被占用，验证用的是 `127.0.0.1:13080:3080`，仅端口号不同）；WebSocket 流式通道；Docker Desktop（macOS/Windows）。
