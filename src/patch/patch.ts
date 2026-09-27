@@ -74,6 +74,15 @@ export function extractPluginBlocks(content: string, profileName: string, plugin
     .join('');
 }
 
+function emptyFlowArrayRange(content: string): [number, number] | null {
+  const doc = YAML.parseDocument(content);
+  const root = doc.contents;
+  if (doc.errors.length > 0 || !YAML.isSeq(root) || !root.flow || root.items.length > 0 || !root.range) {
+    return null;
+  }
+  return [root.range[0], root.range[1]];
+}
+
 // Replaces every managed block of one plugin with one block per patch, written where the first old block was.
 export function replacePluginBlocks(
   existingContent: string,
@@ -93,9 +102,13 @@ export function splicePluginBlocks(existingContent: string, profileName: string,
     if (existingContent.length === 0) return blocks;
     // A fresh profile's cordis.patch.yml is a single top-level `[]`. Appending a block
     // sequence after it would start a second YAML document, which DSH's parser rejects.
-    const emptyArrayMatch = existingContent.match(/^﻿?([\s\S]*?)^\[\]\s*$/m);
-    if (emptyArrayMatch) {
-      return `${emptyArrayMatch[1]}${blocks}`;
+    const emptyArray = emptyFlowArrayRange(existingContent);
+    if (emptyArray) {
+      const [start, end] = emptyArray;
+      const lineEnd = existingContent.indexOf('\n', end);
+      const restOfLine = existingContent.slice(end, lineEnd === -1 ? undefined : lineEnd).trim();
+      const after = lineEnd === -1 ? '' : existingContent.slice(lineEnd + 1);
+      return `${existingContent.slice(0, start)}${restOfLine ? `${restOfLine}\n` : ''}${blocks}${after}`;
     }
     return `${existingContent}${existingContent.endsWith('\n') ? '\n' : '\n\n'}${blocks}`;
   }
