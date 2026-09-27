@@ -134,6 +134,14 @@
 - [x] 跳过被配置停用的行与其他已选中 bundle 共享的行；按安装包集合核对运行中的 DSH 是否为该 profile
 - [ ] 核对内存中加载的版本（DSH 未暴露）
 
+## 错误输出、Git 安装与版本冒烟（已实现）
+
+- [x] 带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr；解析前抛出的错误按 `--` 之前的 argv 判断；commander 参数错误仍为纯文本
+- [x] `prepare` 构建 `lib/`，支持 `pnpm add -g --allow-build=dsh-envctl "git+ssh://…#<ref>"`；隔离 `PNPM_HOME` 实测全局安装可运行。npm 从 Git 地址安装在准备阶段崩溃（npm 10.9 arborist），只支持 pnpm
+- [x] `make smoke-dsh DSH_VERSION=<v>`：临时目录安装 npm 版 DSH，隔离 `DSH_HOME` 下跑 doctor、install/disable/remove 的 apply 与 plan；门禁拒绝时带 `--allow-untested-dsh` 继续。放宽门禁的步骤见 [`DSH版本升级.md`](DSH版本升级.md)
+- [x] 真实冒烟（2026-09-27）：`0.1.7-rc.2` 13 步全部通过；`0.1.6-alpha.2` 被门禁拒绝，带覆盖参数全部通过。npm 上尚无更新的版本
+- [x] 全量测试套件覆盖（当前 89 个测试文件，798 项测试全部通过）
+
 ## 延后能力
 
 下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
