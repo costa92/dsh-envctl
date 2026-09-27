@@ -99,7 +99,8 @@ describe('renderDoctor', () => {
       }
     });
     expect(text).toContain('0.1.7-rc.2');
-    expect(text).toContain('Not enabled in prototype');
+    expect(text).toContain('Mutation Capability: Planned apply steps only (no general environment mutation)');
+    expect(text).not.toContain('read-only mode');
     expect(text).toContain('Capability details:');
     expect(text).toContain('packageOperations: disabled (source: operations-export; reason: Official operations export was not verified)');
     expect(text).toContain('bundleSelection: requires-live-service (source: live-service; reason: none)');
