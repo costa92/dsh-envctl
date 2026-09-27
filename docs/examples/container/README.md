@@ -94,6 +94,6 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 - **首次访问需要启动 token**：DSH Web 没有匿名访问，任何没有 token 的请求都会返回 401；启动 token 打印在 `docker logs <容器名>`（或 `docker compose logs dsh`）里，形如 `http://127.0.0.1:3080/?token=...`，第一次必须打开这个链接完成认证。因此用 `curl -f` 做就绪轮询永远不会成功，只能按“有 HTTP 响应（包括 401）”判断服务已启动。
 - 挂载 `dsh-data` 卷后，`compose down`（不带 `-v`）再 `up` 重建容器，会话日志与 `session/list` 结果保留；`storages/workspace.json` 按预期不保留；插件环境（`profiles/`、`envctl/`）来自镜像，不受卷影响。
 
-真实对话（2026-09-27）：运行时以 `-e DEEPSEEK_API_KEY` 传入 key，通过 DSH Web 的 `/api`（与 Web UI 相同的 HTTP 接口：登录、`session/create`、`session/prompt`、`session/page`）发送一条消息，模型正常回复；不带 key 的对照容器以 `MISSING_CREDENTIAL` 结束。key 只在运行时传入，镜像历史与容器内 `$DSH_HOME` 中都查不到。
+真实对话（2026-09-27）：运行时以 `-e DEEPSEEK_API_KEY` 传入 key，通过 DSH Web 的 `/api`（与 Web UI 相同的 HTTP 接口：登录、`session/create`、`session/prompt`、`session/page`）发送一条消息，模型正常回复；Web UI 的流式通道（WebSocket `/api/remote.mux` 上的 `session/follow`）也验证过，回复以多个 `text-delta` 帧陆续推送到达，拼接结果与最终保存的回复一致；不带 key 的对照容器以 `MISSING_CREDENTIAL` 结束。key 只在运行时传入，镜像历史与容器内 `$DSH_HOME` 中都查不到。
 
-未验证：把端口发布到宿主机真实 `3080`（本机端口被占用，验证用的是 `127.0.0.1:13080:3080`，仅端口号不同）；WebSocket 流式通道；Docker Desktop（macOS/Windows）。
+未验证：把端口发布到宿主机真实 `3080`（本机端口被占用，验证用的是 `127.0.0.1:13080:3080`，仅端口号不同）；Docker Desktop（macOS/Windows）。
