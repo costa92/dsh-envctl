@@ -34,7 +34,7 @@ WORKDIR /home/dsh
 # Created as dsh so the compose named volume mounted here is initialized with dsh ownership.
 RUN mkdir -p /home/dsh/.dsh/sessions
 COPY --chown=dsh:dsh envctl/ /home/dsh/.dsh/envctl/
-# Binds the web server to all container interfaces; see the file for why the port must stay on host loopback.
+# Binds the web server to all container interfaces; see the file for the network exposure this implies.
 COPY --chown=dsh:dsh cordis.patch.yml /home/dsh/.dsh/cordis.patch.yml
 # plan exits non-zero when the applied environment still differs from the manifest, failing the build.
 # --no-overlay stops an empty DSHENV_OVERLAY from falling back to envctl/overlay-selection.json.
@@ -43,5 +43,6 @@ RUN set -eu; \
   dshenv apply --yes "$@"; \
   dshenv plan "$@"
 
-EXPOSE 3080
-CMD ["dsh", "web", "--no-open", "--trusted-host", "localhost:3080", "--trusted-host", "127.0.0.1:3080"]
+# No EXPOSE: `docker run -P` would then publish the port on every host interface.
+# No --trusted-host: loopback is always trusted, and an all-interface bind already trusts the container IPs.
+CMD ["dsh", "web", "--no-open"]

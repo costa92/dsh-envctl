@@ -28,7 +28,8 @@ your-config-repo/
 
 ```bash
 docker build --build-context dshenv=/path/to/dsh-envctl -t my-dsh .
-docker run --rm -p 127.0.0.1:3080:3080 -e DEEPSEEK_API_KEY my-dsh
+docker network create dsh-net   # 独立网络，见第 4 节
+docker run --rm --network dsh-net -p 127.0.0.1:3080:3080 -e DEEPSEEK_API_KEY my-dsh
 # 或
 DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 ```
@@ -48,7 +49,10 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 
 ## 4. 安全警告
 
-**DSH Web 能让连接方执行 shell 命令。** 容器内 `cordis.patch.yml` 把 webserver 的 `host` 设为 `0.0.0.0`，这只是为了让 Docker 能把端口转发进容器；宿主机端口发布必须限定在 `127.0.0.1:3080:3080`。把发布改成 `3080:3080`、挂到共享网络，或放到反向代理后对外公开，都会把远程代码执行能力暴露给任何能连到该端口的人。
+**DSH Web 能让连接方执行 shell 命令。** 容器内 `cordis.patch.yml` 把 webserver 的 `host` 设为 `0.0.0.0`，这只是为了让 Docker 能把端口转发进容器。由此带来两道边界：
+
+- **宿主机与局域网**：端口只发布到宿主机回环 `127.0.0.1:3080:3080`，局域网上的其他机器连不到。把发布改成 `3080:3080`、用 `docker run -P`（镜像没有 `EXPOSE`，但加上后 `-P` 会发布到宿主机所有接口的随机端口），或放到反向代理后对外公开，都会把远程代码执行能力暴露出去。
+- **同一 Docker 网络内的容器**：回环发布挡不住它们。同网络的任何容器都能直接访问 `<容器 IP>:3080`，并且能通过 DSH 的 Host 校验（监听所有接口时 DSH 自动信任本容器的网卡 IP），此时唯一的防线是每次进程启动时生成的 token。直接 `docker run` 不指定网络时，默认 bridge 上的**所有**容器都属于这一类，因此应放到独立的自定义网络（如上面的 `dsh-net`）。`compose` 默认给每个项目建一个独立网络，已满足要求；但同一 compose 项目里再加的其他服务会共享这个网络，也能访问它。
 
 `DEEPSEEK_API_KEY` 只能在 `docker run -e` / `docker compose` 的运行时环境变量里提供，不要写进 `ENV`、`ARG` 或构建参数，也不要提交进镜像。
 
@@ -76,7 +80,7 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 
 - 用 scratch 配置仓库（`envctl/manifest.yaml` 声明 profile `web`、npm 插件 `@nanmicoder/dsh-agent-teams@0.1.21`）构建镜像成功；构建期 `dshenv apply --yes` 安装成功、`dshenv plan` 退出 0；容器内 `dshenv plan` 同样退出 0。
 - 镜像内 `dsh --version` 为 `0.1.7-rc.2`；`dump-config` 中 webserver 行为 `host: 0.0.0.0`、`port: 3080`。
-- 端口只发布到 `127.0.0.1` 时，宿主机非回环 IP 无法连接；带外部 `Host` 头访问 `/api` 会被拒绝（403）。
+- 端口只发布到 `127.0.0.1` 时，宿主机非回环 IP 无法连接；带外部 `Host` 头访问 `/api` 会被拒绝（403）；但 `Host` 为容器网络地址（如 `172.17.0.5:3080`）时通过了 Host 校验，只因缺 token 返回 401，印证了第 4 节同网络容器的风险。
 - **首次访问需要启动 token**：DSH Web 没有匿名访问，任何没有 token 的请求都会返回 401；启动 token 打印在 `docker logs <容器名>`（或 `docker compose logs dsh`）里，形如 `http://127.0.0.1:3080/?token=...`，第一次必须打开这个链接完成认证。因此用 `curl -f` 做就绪轮询永远不会成功，只能按“有 HTTP 响应（包括 401）”判断服务已启动。
 - 挂载 `dsh-data` 卷后，`compose down`（不带 `-v`）再 `up` 重建容器，会话日志与 `session/list` 结果保留；`storages/workspace.json` 按预期不保留；插件环境（`profiles/`、`envctl/`）来自镜像，不受卷影响。
 

@@ -2,9 +2,12 @@
 #
 # SECURITY: DSH Web drives an agent that runs shell commands. `dsh web --host 0.0.0.0` is refused
 # on purpose because listening beyond loopback exposes remote code execution. Inside the container
-# the server must listen on all interfaces so Docker can forward to it; publish the port ONLY to
-# host loopback (127.0.0.1:3080:3080). Publishing 3080:3080 or attaching a shared network exposes
-# remote code execution to everyone who can reach it.
+# the server must listen on all interfaces so Docker can forward to it.
+# - Publish the port ONLY to host loopback (127.0.0.1:3080:3080); that keeps it off the LAN.
+# - Any container on the same Docker network can still reach <container-ip>:3080 and passes the Host
+#   check (an all-interface bind trusts the container's own IPs). With plain `docker run` that is every
+#   container on the default bridge. The per-process startup token is then the only guard, so run it
+#   on its own user-defined network (compose's project network, shared only by services you add there).
 #
 # A patch replaces the row's whole config, so every webserver field is restated.
 - id: webserver

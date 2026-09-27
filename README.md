@@ -248,7 +248,7 @@ dshenv new mcp docs-server              # MCP server 配置包
 
 ### 19. 容器示例
 
-`docs/examples/container/` 提供构建 DSH Web 容器镜像的 `Dockerfile`、`compose.yaml` 与 `cordis.patch.yml`，镜像构建期执行 `dshenv apply` 装好清单声明的插件。安全要点：容器内监听 `0.0.0.0` 只是为了让 Docker 转发端口，宿主机端口必须只发布到 `127.0.0.1`，否则会把 DSH Web 的 shell 执行能力暴露给外部。完整用法、构建参数与数据卷说明见 `docs/examples/container/README.md`。
+`docs/examples/container/` 提供构建 DSH Web 容器镜像的 `Dockerfile`、`compose.yaml` 与 `cordis.patch.yml`，镜像构建期执行 `dshenv apply` 装好清单声明的插件。安全要点：容器内监听 `0.0.0.0` 只是为了让 Docker 转发端口，宿主机端口必须只发布到 `127.0.0.1`（不要用 `-P`），否则会把 DSH Web 的 shell 执行能力暴露到局域网；回环发布挡不住同一 Docker 网络内的其他容器，它们能直接访问容器 IP 并通过 Host 校验，只剩启动 token 一道防线，因此应放在独立的自定义网络上（compose 的项目网络即可，但同项目新增的服务也能访问）。完整用法、构建参数与数据卷说明见 `docs/examples/container/README.md`。
 
 ---
 

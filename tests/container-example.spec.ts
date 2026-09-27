@@ -56,14 +56,14 @@ describe('container example', () => {
     );
   });
 
-  it('starts dsh web without --host and trusts only loopback authorities', () => {
+  it('starts dsh web without --host or extra trusted authorities', () => {
     const cmd = dockerfile.match(/^CMD (\[.*\])$/m)?.[1];
     expect(cmd).toBeDefined();
-    const argv = JSON.parse(cmd as string) as string[];
-    expect(argv.slice(0, 3)).toEqual(['dsh', 'web', '--no-open']);
-    expect(argv).not.toContain('--host');
-    const trusted = argv.flatMap((arg, i) => (argv[i - 1] === '--trusted-host' ? [arg] : []));
-    expect(trusted.sort()).toEqual(['127.0.0.1:3080', 'localhost:3080']);
+    expect(JSON.parse(cmd as string)).toEqual(['dsh', 'web', '--no-open']);
+  });
+
+  it('does not EXPOSE the port, so docker run -P cannot publish it on all host interfaces', () => {
+    expect(dockerfile).not.toMatch(/^EXPOSE\b/m);
   });
 
   it('binds the webserver to all container interfaces while restating its full config', () => {
