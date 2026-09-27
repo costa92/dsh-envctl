@@ -4,6 +4,7 @@ import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { loadManifest, serializeManifest, serializeOverlay } from '../manifest/files.js';
 import { setAtPath } from '../config/config.js';
+import { assertNotRemoteOwned } from '../remote/ownership.js';
 import { mergeManifest } from './merge.js';
 import { readOverlay } from './effective.js';
 import { overlayFilePath, type OverlaySelection } from './selection.js';
@@ -89,8 +90,10 @@ export async function saveOverlay(
   base: EnvironmentManifest,
   doc: EnvironmentOverlay
 ): Promise<void> {
+  const file = overlayFilePath(paths, name);
+  assertNotRemoteOwned(paths, file);
   mergeManifest(base, doc, name);
-  await writeAtomic(overlayFilePath(paths, name), serializeOverlay(doc), 'overwrite');
+  await writeAtomic(file, serializeOverlay(doc), 'overwrite');
 }
 
 // A base edit must not leave the active overlay unmergeable, or every later command would fail.

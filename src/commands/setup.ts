@@ -8,6 +8,7 @@ import { CaptureDocumentSchema } from '../manifest/schema.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
 import type { CaptureDocument } from '../domain.js';
+import { assertNotRemoteOwned } from '../remote/ownership.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, type CommandContext } from './context.js';
 
@@ -75,6 +76,8 @@ export function registerSetupCommands(ctx: CommandContext): void {
       if (resolveWriteLayer(selection, cmdOpts.layer) === 'overlay') {
         throw new ValidationError('adopt only writes the base manifest; use --layer base');
       }
+      // Adopt rewrites the base and the whole lock; a subscription always owns the base, so team lock entries stay intact too.
+      assertNotRemoteOwned(paths, paths.manifestFile);
 
       const candidatePath = path.isAbsolute(cmdOpts.from)
         ? cmdOpts.from

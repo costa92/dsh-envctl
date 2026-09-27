@@ -1,0 +1,97 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { EnvironmentLock } from '../domain.js';
+import type { EnvironmentPaths } from '../environment/paths.js';
+import { ValidationError } from '../errors.js';
+import { loadLock } from '../manifest/files.js';
+import { findLockEntryDrift, lockEntryId, type LockEntryDrift } from './lock-entries.js';
+import { compareRemoteKeys, overlayNameFromKey, readRemoteConfig, remoteFilePath, sha256Hex, type RemoteConfig } from './schema.js';
+
+export interface RemoteFileDrift {
+  file: string;
+  status: 'modified' | 'missing';
+}
+
+export function localFileDigest(file: string): string | null {
+  try {
+    return sha256Hex(fs.readFileSync(file));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
+}
+
+export function findLocalDrift(paths: EnvironmentPaths, config: RemoteConfig): RemoteFileDrift[] {
+  const drift: RemoteFileDrift[] = [];
+  for (const key of Object.keys(config.files).sort(compareRemoteKeys)) {
+    const digest = localFileDigest(remoteFilePath(paths, key));
+    if (digest === null) {
+      drift.push({ file: key, status: 'missing' });
+    } else if (digest !== config.files[key]) {
+      drift.push({ file: key, status: 'modified' });
+    }
+  }
+  return drift;
+}
+
+// An unreadable lock may still hold this machine's own entries, so nothing may overwrite or reinterpret it.
+export function readLocalLock(paths: EnvironmentPaths): EnvironmentLock | null {
+  if (!fs.existsSync(paths.lockFile)) {
+    return null;
+  }
+  try {
+    return loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      throw new ValidationError(
+        `Cannot parse local lock file ${paths.lockFile}: ${err.message}; it may hold local entries, so fix it by hand, then run the command again`
+      );
+    }
+    throw err;
+  }
+}
+
+export function findRemoteLockDrift(paths: EnvironmentPaths, config: RemoteConfig): LockEntryDrift[] {
+  return findLockEntryDrift(readLocalLock(paths), config.lockEntries);
+}
+
+export function describeRemoteDrift(files: RemoteFileDrift[], entries: LockEntryDrift[]): string[] {
+  return [
+    ...files.map((entry) => `${entry.file} (${entry.status})`),
+    ...entries.map((entry) => `lock entry ${entry.entry} (${entry.status})`)
+  ];
+}
+
+export function remoteOwnedKey(paths: EnvironmentPaths, config: RemoteConfig, file: string): string | null {
+  const target = path.resolve(file);
+  return Object.keys(config.files).find((key) => remoteFilePath(paths, key) === target) ?? null;
+}
+
+// Remote files change only through sync; local customisation belongs in a local overlay.
+export function assertNotRemoteOwned(paths: EnvironmentPaths, file: string): void {
+  const config = readRemoteConfig(paths);
+  if (!config) {
+    return;
+  }
+  const key = remoteOwnedKey(paths, config, file);
+  if (key === null) {
+    return;
+  }
+  if (key === 'manifest.yaml') {
+    throw new ValidationError(`The base manifest is owned by remote ${config.url}; put local changes in a local overlay and write with --layer overlay`);
+  }
+  throw new ValidationError(`Overlay '${overlayNameFromKey(key)}' is owned by remote ${config.url}; use a local overlay with a different name`);
+}
+
+// The lock is shared per entry: team entries change only through sync, local entries stay writable.
+export function assertLockEntryNotRemoteOwned(paths: EnvironmentPaths, profile: string, alias: string): void {
+  const config = readRemoteConfig(paths);
+  if (!config || !Object.hasOwn(config.lockEntries, profile) || !Object.hasOwn(config.lockEntries[profile], alias)) {
+    return;
+  }
+  throw new ValidationError(
+    `Lock entry '${lockEntryId(profile, alias)}' is pinned by the team lock of remote ${config.url}; change it in the team repository and run dshenv sync`
+  );
+}
