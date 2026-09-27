@@ -42,6 +42,15 @@ DSH 运行时命令解析优先级：
 
 ## 安装与快速上手
 
+### 从 Git 地址安装
+
+```bash
+pnpm add -g --allow-build=dsh-envctl "git+ssh://git@github.com/costa92/dsh-envctl.git#master"
+dshenv --version
+```
+
+`#` 后可换成 tag 或 commit 以固定版本。安装时 pnpm 会在克隆中执行 `prepare` 构建 `lib/`；pnpm 10 默认不运行依赖的构建脚本，所以必须带 `--allow-build=dsh-envctl`，否则安装后缺少 `lib/` 无法运行。npm 从 Git 地址安装时会在准备阶段崩溃（npm 10.9 arborist 缺陷），请使用 pnpm。
+
 ### 本地链接安装
 
 ```bash
