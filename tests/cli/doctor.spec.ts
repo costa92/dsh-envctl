@@ -258,7 +258,7 @@ exit 0
       });
       expect(code).toBe(5);
       expect(stdout).toBe('');
-      expect(stderr).toBe('DSH runtime probe execution failed\n');
+      expect(JSON.parse(stderr).error).toEqual({ type: 'DegradedError', message: 'DSH runtime probe execution failed', exitCode: 5 });
       expect(stderr).not.toContain('doctor-secret');
       expect(stderr).not.toContain('Authorization');
       expect(stderr).not.toContain('--argv-marker');
@@ -285,7 +285,7 @@ exit 0
       });
       expect(code).toBe(5);
       expect(stdout).toBe('');
-      expect(stderr).toBe('Unable to parse DSH runtime version\n');
+      expect(JSON.parse(stderr).error).toEqual({ type: 'DegradedError', message: 'Unable to parse DSH runtime version', exitCode: 5 });
       expect(stderr).not.toContain('doctor-secret');
       expect(stderr).not.toContain('Authorization');
       expect(stderr).not.toContain('malformed-version');
@@ -316,7 +316,8 @@ exit 0
         });
         expect(code).toBe(exitCode);
         expect(stdout).toBe('');
-        expect(stderr).toBe(exitCode === 4 ? 'Unsupported DSH version\n' : 'Unable to parse DSH runtime version\n');
+        const message = exitCode === 4 ? 'Unsupported DSH version' : 'Unable to parse DSH runtime version';
+        expect(jsonArgs.length ? JSON.parse(stderr).error.message : stderr).toBe(jsonArgs.length ? message : `${message}\n`);
         expect(stderr).not.toContain('doctor-secret');
         expect(stderr).not.toContain('Authorization');
       }

@@ -1,4 +1,4 @@
-.PHONY: help install build typecheck test test-watch check clean demo-prepare check-harness-source demo-init demo-status demo-plan demo-doctor demo-capture demo-apply demo-list demo-rollback demo-gc
+.PHONY: help install build typecheck test test-watch check clean demo-prepare check-harness-source demo-init demo-status demo-plan demo-doctor demo-capture demo-apply demo-list demo-rollback demo-gc smoke-dsh
 
 SHELL := /bin/bash
 DSH_WORKSPACE ?= $(HOME)/code/dsh
@@ -26,6 +26,8 @@ help:
 	@echo "  make demo-list    - List declared plugins in demo directory"
 	@echo "  make demo-rollback - Preview restoring the latest envctl snapshot"
 	@echo "  make demo-gc      - Preview expired trash cleanup"
+	@echo ""
+	@echo "  make smoke-dsh DSH_VERSION=<v> - Install npm DSH <v> in a temp dir and run doctor/apply/plan against it"
 	@echo ""
 	@echo "Demo paths (override with make TARGET VARIABLE=/path):"
 	@echo "  DSH_WORKSPACE=$(DSH_WORKSPACE)"
@@ -90,3 +92,10 @@ demo-rollback: build demo-prepare
 
 demo-gc: build demo-prepare
 	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js gc --dry-run
+
+smoke-dsh: build
+	@if [ -z "$(DSH_VERSION)" ]; then \
+		echo "Set DSH_VERSION, e.g. make smoke-dsh DSH_VERSION=0.1.7-rc.2" >&2; \
+		exit 2; \
+	fi
+	scripts/smoke-dsh.sh "$(DSH_VERSION)"

@@ -39,4 +39,15 @@ describe('Makefile demo paths', () => {
     expect(`${result.stdout}\n${result.stderr}`).toContain(`Harness source directory not found: ${missingHarness}`);
     expect(fs.existsSync(missingHarness)).toBe(false);
   });
+
+  it('requires DSH_VERSION for the DSH smoke test', async () => {
+    const result = await execa('make', ['smoke-dsh'], {
+      cwd: projectDir,
+      env: { ...process.env, HOME: userHome, DSH_VERSION: '' },
+      reject: false
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain('Set DSH_VERSION, e.g. make smoke-dsh DSH_VERSION=0.1.7-rc.2');
+  });
 });
