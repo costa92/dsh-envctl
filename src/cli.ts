@@ -8,6 +8,7 @@ import { registerPluginCommands } from './commands/plugins.js';
 import { registerSourceCommands } from './commands/source.js';
 import { registerOverlayCommands } from './commands/overlay.js';
 import { registerNewCommand } from './commands/new.js';
+import { registerRemoteCommands } from './commands/remote.js';
 
 export interface CliIO {
   stdout?: (chunk: string) => void;
@@ -52,6 +53,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   registerSourceCommands(ctx);
   registerOverlayCommands(ctx);
   registerNewCommand(ctx, plugins);
+  registerRemoteCommands(ctx);
 
   try {
     // commander keeps only the last of the two flags, so a conflict must be detected on argv.
