@@ -140,7 +140,7 @@
 
 - 调用运行时内部 service（如 `ctx.dynamicCordisRunner`）。DSH 已自带热加载，dshenv 负责感知与协作（见「感知热加载的 apply」），并可用 `dshenv runtime` 核对运行时加载状态
 - 热替换已装插件的版本：依赖 DSH，暂不可行（见下节调研结论），升级插件仍需重启 DSH
-- 静态 Cordis Service DAG 分析（需插件暴露机器可读的服务贡献元数据）
+- 静态 Cordis Service DAG 分析：静态分析不可靠，暂不做（见下节调研结论）；运行时以 `dshenv runtime` 的 pending 说明代替
 - GUI / TUI / 插件市场 / 主观发行版
 - 自动重启非本工具启动的 DSH 进程
 - Desktop 内嵌 Harness 管理
@@ -156,3 +156,14 @@
 原因：profile 以 pnpm `nodeLinker: hoisted` 安装，任何版本都位于同一个 `node_modules/<包名>` 路径，ESM 缓存按 URL 记忆且从不清除；DSH 插件管理器对已安装包的再次安装直接返回 `restart-required`（`packages/boot/plugin-manager/src/index.ts` 的 `installBundle`）。`dsh-hmr` 的 `partialReload` 会删除模块缓存后重新导入，但只作用于它监视到的已加载源文件。
 
 结论：dshenv 无法在不修改 DSH 的前提下热替换版本，升级继续报「需要重启」。可向 DSH 提需求：插件管理器升级插件时清除该包的模块缓存并重新导入（`partialReload` 已有同类做法）。
+
+## Service DAG 调研（2026-09-27，结论：静态分析不可靠）
+
+扫描 npm 版 DSH `0.1.7-rc.2` 自带的 281 个包与第三方插件 `@nanmicoder/dsh-agent-teams`：
+
+- `package.json` 没有服务端 service 元数据；`dsh.client.inject` 只是网页端的包级注入。
+- 76 个包有字面量 `inject` 声明，另有 69 个包的 `inject` 在运行时计算；96 个包能读出字面量的服务名，17 个包动态注册服务（含 Cordis 核心与 loader）。被依赖的 53 个服务中有 10 个找不到字面量提供者（如 `loader`、`profileContext`、`remote.session`）。
+- 插件还会在函数内部用 `ctx.inject([...], ...)`、`ctx.get(...)` 按需依赖（agent-teams 即如此），静态读不全。
+- 一个包常含多个插件，是否启用由 profile 补丁与 `!!js` 条件决定，依赖应按插件行而非按包计算。
+
+结论：静态 DAG 误报与漏报都多，不作为 `apply` 前的拦截。已做的替代：`dshenv runtime` 在插件处于 `pending`（Cordis 在注入的 service 齐备前保持该阶段）时说明 `plugin <moduleName> is waiting for services it injects`。根本解法需 DSH 在插件清单接口中暴露每个插件缺少的 service，可向 DSH 提需求。
