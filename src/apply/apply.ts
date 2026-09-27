@@ -144,14 +144,14 @@ async function executeWithDsh(
       if (!plugin) {
         throw new ValidationError(`Plugin '${operation.alias}' is missing from profile '${operation.profile}'`);
       }
-      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile));
+      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile, operation.alias));
       await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches ?? []);
       continue;
     }
 
     if (operation.kind === 'remove') {
       const undoStart = rollback.undo.length;
-      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile));
+      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile, operation.alias));
       await clearManagedPatches(paths, operation.profile, operation.alias);
       const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
       rollback.undo.push(async () => {

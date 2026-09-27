@@ -5,7 +5,7 @@ import type { PatchEntry } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { withProfilePackageLock } from '../io/profile-lock.js';
-import { removePatchBlock, replacePluginBlocks } from '../patch/patch.js';
+import { extractPluginBlocks, removePatchBlock, replacePluginBlocks, splicePluginBlocks } from '../patch/patch.js';
 
 const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
 const MAX_PATCH_BYTES = 1024 * 1024;
@@ -38,6 +38,14 @@ async function withPatchFileLock<T>(file: string, operation: () => Promise<T>): 
   return withProfilePackageLock(path.join(profileDir, 'package.json'), operation);
 }
 
+// What dshenv last wrote to each patch file, so a rollback can tell whether DSH has written it since.
+const lastWritten = new Map<string, string>();
+
+async function writePatchFile(file: string, content: string): Promise<void> {
+  await writeAtomic(file, content, 'overwrite');
+  lastWritten.set(file, content);
+}
+
 export async function readProfilePatchFile(paths: EnvironmentPaths, profileName: string): Promise<string> {
   const file = profilePatchFile(paths, profileName);
   if (!fs.existsSync(file)) {
@@ -50,19 +58,27 @@ export async function readProfilePatchFile(paths: EnvironmentPaths, profileName:
   return fs.readFileSync(file, 'utf8');
 }
 
+// Restores the file as it was, unless DSH wrote it after dshenv did; then only this plugin's blocks go back.
 export async function snapshotProfilePatchFile(
   paths: EnvironmentPaths,
-  profileName: string
+  profileName: string,
+  pluginAlias: string
 ): Promise<() => Promise<void>> {
   const file = profilePatchFile(paths, profileName);
   const existed = fs.existsSync(file);
   const content = await readProfilePatchFile(paths, profileName);
   return () =>
     withPatchFileLock(file, async () => {
-      if (existed) {
-        await writeAtomic(file, content, 'overwrite');
+      const current = fs.existsSync(file) ? await readProfilePatchFile(paths, profileName) : null;
+      const expected = lastWritten.get(file) ?? (existed ? content : null);
+      if (current !== null && current !== expected) {
+        const blocks = extractPluginBlocks(content, profileName, pluginAlias);
+        await writePatchFile(file, splicePluginBlocks(current, profileName, pluginAlias, blocks));
+      } else if (existed) {
+        await writePatchFile(file, content);
       } else {
         await fs.promises.rm(file, { force: true });
+        lastWritten.delete(file);
       }
     });
 }
@@ -77,7 +93,7 @@ export async function writeManagedPatches(
   const file = profilePatchFile(paths, profileName);
   await withPatchFileLock(file, async () => {
     const content = replacePluginBlocks(await readProfilePatchFile(paths, profileName), profileName, pluginAlias, active);
-    await writeAtomic(file, content.endsWith('\n') ? content : `${content}\n`, 'overwrite');
+    await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
   });
 }
 
@@ -92,6 +108,6 @@ export async function clearManagedPatches(
   }
   await withPatchFileLock(file, async () => {
     const next = removePatchBlock(await readProfilePatchFile(paths, profileName), profileName, pluginAlias);
-    await writeAtomic(file, next, 'overwrite');
+    await writePatchFile(file, next);
   });
 }
