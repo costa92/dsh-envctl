@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { execa } from 'execa';
 import { runCli } from '../../src/cli.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 import { loadLock, serializeLock } from '../../src/manifest/files.js';
@@ -190,6 +191,16 @@ describe('CLI remote', () => {
     expect(missing.code).toBe(1);
     expect(missing.stderr).toMatch(/^git clone failed: \S/);
     expect(fs.existsSync(paths.remoteDir)).toBe(false);
+  });
+
+  it('refuses a remote default branch it cannot follow, without leaving a clone', async () => {
+    await commitTeamFiles(team, {}, 'plus branch', 'team+x');
+    await execa('git', ['--git-dir', team.bare, 'symbolic-ref', 'HEAD', 'refs/heads/team+x']);
+    const { code, stderr } = await run(['remote', 'add', team.url]);
+    expect(code).toBe(3);
+    expect(stderr).toContain("Remote default branch 'team+x' is not a supported branch name; pass --branch");
+    expect(fs.existsSync(paths.remoteDir)).toBe(false);
+    expect((await run(['remote', 'add', team.url, '--branch', 'main'])).code).toBe(2);
   });
 
   it('shows the subscription and the remote files and lock entries changed locally', async () => {

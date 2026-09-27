@@ -115,6 +115,9 @@ export function registerRemoteCommands(ctx: CommandContext): void {
         try {
           await cloneRemoteRepo(url, repoDir);
           const branch = cmdOpts.branch ?? (await defaultBranch(repoDir));
+          if (!isValidBranchName(branch)) {
+            throw new ValidationError(`Remote default branch '${branch}' is not a supported branch name; pass --branch`);
+          }
           const target = await fetchBranch(repoDir, branch);
           const subscription = { url, branch, path: cmdOpts.path };
           const preview = await prepareSync({
