@@ -121,6 +121,11 @@ function expectLoaded(
       ? { result: 'not-loaded' }
       : { result: 'loading', detail: 'selected on disk; waiting for DSH to hot-reload it' };
   }
+  // Cordis keeps a fiber pending until every injected service exists, so a lasting pending means a missing service.
+  const pending = live.find((found) => found.fiberPhase === 'pending');
+  if (pending) {
+    return { result: 'loading', detail: `plugin ${pending.moduleName} is waiting for services it injects` };
+  }
   if (live.some((found) => TRANSIENT_PHASES.has(found.fiberPhase))) {
     return { result: 'loading' };
   }
