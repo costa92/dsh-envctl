@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
+import { readRemoteConfig, remoteFilePath, remoteOverlayKeys, type RemoteConfig } from '../remote/schema.js';
 import { writeAtomic } from './atomic-file.js';
 
 export interface EnvironmentSnapshot {
@@ -9,9 +10,15 @@ export interface EnvironmentSnapshot {
   timestamp: string;
 }
 
+export interface SnapshotOptions {
+  // Overlay keys (overlays/<name>.yaml) to save besides the remote-owned ones, e.g. local files a sync will overwrite.
+  overlayKeys?: string[];
+}
+
 export async function createEnvironmentSnapshot(
   paths: EnvironmentPaths,
-  operationId: string
+  operationId: string,
+  options?: SnapshotOptions
 ): Promise<EnvironmentSnapshot> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const snapshotId = `${timestamp}-${operationId}`;
@@ -27,11 +34,54 @@ export async function createEnvironmentSnapshot(
     }
   }
 
+  const remote = readRemoteConfig(paths);
+  if (remote) {
+    await fs.promises.copyFile(paths.remoteFile, path.join(snapshotDir, 'remote.json'));
+  }
+  for (const key of new Set([...remoteOverlayKeys(remote), ...(options?.overlayKeys ?? [])])) {
+    const file = remoteFilePath(paths, key);
+    if (fs.existsSync(file) && fs.statSync(file).isFile()) {
+      const dest = path.join(snapshotDir, key);
+      await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+      await fs.promises.copyFile(file, dest);
+    }
+  }
+
   return {
     snapshotId,
     snapshotDir,
     timestamp
   };
+}
+
+function currentRemoteConfig(paths: EnvironmentPaths): RemoteConfig | null {
+  try {
+    return readRemoteConfig(paths);
+  } catch {
+    // A corrupt remote.json names no files to clean up; it is replaced or removed below.
+    return null;
+  }
+}
+
+async function restoreRemoteFiles(snapshot: EnvironmentSnapshot, paths: EnvironmentPaths): Promise<void> {
+  // Overlays the remote owns now but the snapshot does not hold did not exist as saved, so they go.
+  for (const key of remoteOverlayKeys(currentRemoteConfig(paths))) {
+    if (!fs.existsSync(path.join(snapshot.snapshotDir, key))) {
+      await fs.promises.rm(remoteFilePath(paths, key), { force: true });
+    }
+  }
+  const savedOverlays = path.join(snapshot.snapshotDir, 'overlays');
+  if (fs.existsSync(savedOverlays)) {
+    for (const name of await fs.promises.readdir(savedOverlays)) {
+      await writeAtomic(path.join(paths.overlaysDir, name), await fs.promises.readFile(path.join(savedOverlays, name)), 'overwrite');
+    }
+  }
+  const savedRemote = path.join(snapshot.snapshotDir, 'remote.json');
+  if (fs.existsSync(savedRemote)) {
+    await writeAtomic(paths.remoteFile, await fs.promises.readFile(savedRemote), 'overwrite');
+  } else {
+    await fs.promises.rm(paths.remoteFile, { force: true });
+  }
 }
 
 export async function restoreEnvironmentSnapshot(
@@ -47,6 +97,7 @@ export async function restoreEnvironmentSnapshot(
       await fs.promises.rm(file, { force: true });
     }
   }
+  await restoreRemoteFiles(snapshot, paths);
 }
 
 export async function listEnvironmentSnapshots(paths: EnvironmentPaths): Promise<EnvironmentSnapshot[]> {
