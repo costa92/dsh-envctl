@@ -182,6 +182,40 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     expect(stateEntry()).toBeUndefined();
   });
 
+  it('restores the bundle and leaves state untouched when dsh plugin remove fails with hot reload on', async () => {
+    install('0.1.21', [PKG]);
+    manifest('    plugins: {}\n');
+    const state = JSON.parse(fs.readFileSync(paths.stateFile, 'utf8'));
+    state.profiles = { web: { plugins: { [PKG]: { package: PKG, status: 'healthy', installedVersion: '0.1.21' } } } };
+    fs.writeFileSync(paths.stateFile, JSON.stringify(state));
+    own();
+    const stateBefore = fs.readFileSync(paths.stateFile, 'utf8');
+    const fakeDsh = path.join(tempHome, 'failing-remove-dsh.mjs');
+    fs.writeFileSync(fakeDsh, `if (process.argv.includes('--version')) { console.log('0.1.7-rc.2'); process.exit(0); }\nprocess.exit(1);\n`);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+
+    await expect(
+      applyEnvironment(paths, { probeHmr: probeReturning({ state: 'on' }), hmrSettleMs: 50 })
+    ).rejects.toThrow(/exited with code 1/);
+
+    expect(JSON.parse(fs.readFileSync(profileJson(), 'utf8')).dsh.profile.bundles).toEqual([PKG]);
+    expect(fs.readFileSync(paths.stateFile, 'utf8')).toBe(stateBefore);
+  });
+
+  it('does not wait when removing an in-box plugin with hot reload on', async () => {
+    fs.mkdirSync(profileDir(), { recursive: true });
+    fs.writeFileSync(profileJson(), JSON.stringify({ name: 'dsh-profile-web', private: true, dsh: { profile: { bundles: [PKG] } } }));
+    manifest('    plugins: {}\n');
+    own();
+
+    const started = Date.now();
+    const result = await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'on' }), hmrSettleMs: 5000 });
+
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(result.restart?.notRequired).toEqual([{ profile: 'web', package: PKG, kind: 'remove', reason: 'hmr-on' }]);
+    expect(JSON.parse(fs.readFileSync(profileJson(), 'utf8')).dsh.profile.bundles).toEqual([]);
+  });
+
   it('does not wait before uninstalling when hot reload is off', async () => {
     install('0.1.21', [PKG]);
     manifest('    plugins: {}\n');
