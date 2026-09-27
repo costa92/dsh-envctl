@@ -16,7 +16,7 @@
 - **声明式漂移检测**：自动计算实际安装态与目标清单差异（`plan` / `status`）。
 - **无损环境捕获与接管**：将现有 DSH Profile 盘点为可审阅的候选清单（`capture`），确认事实未过期后再建立所有权（`adopt`）。
 - **多运行时与能力探测**：无缝支持源码运行模式（`--harness-source`）、环境变量（`DSH_CLI`）及全局 PATH 探测（`doctor`）。
-- **结构化成功输出**：所有命令的成功结果均支持 `--json` 格式；错误当前仍以纯文本写入 stderr。
+- **结构化输出**：所有命令的成功结果均支持 `--json` 格式；带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr（命令行参数解析错误除外，仍为 commander 的纯文本）。
 - **组件脚手架**：`dshenv new` 从模板生成 skill/agent/tool/mcp 组件包，可选直接登记进清单。
 - **团队共享基线**：`dshenv remote add` 订阅团队 Git 配置仓库，`dshenv sync` 预览并显式接受固定 commit 的更新；远程文件与团队 lock 条目只读，本机定制写本地 overlay，其插件的 lock 条目照常由本机维护。
 

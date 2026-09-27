@@ -72,10 +72,16 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     }
 
     const message = err instanceof Error ? err.message : String(err);
-    writeErr(`${message}\n`);
-    if (err instanceof DshError) {
-      return err.exitCode;
+    const exitCode = err instanceof DshError ? err.exitCode : 1;
+    // Errors thrown before parsing leave program.opts() empty, so read argv (up to `--`) as well.
+    const endOfOptions = argv.indexOf('--');
+    const json = program.opts().json === true || (endOfOptions === -1 ? argv : argv.slice(0, endOfOptions)).includes('--json');
+    if (json) {
+      const type = err instanceof Error ? err.name : 'Error';
+      writeErr(`${JSON.stringify({ error: { type, message, exitCode } })}\n`);
+    } else {
+      writeErr(`${message}\n`);
     }
-    return 1;
+    return exitCode;
   }
 }
