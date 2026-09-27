@@ -65,6 +65,13 @@ describe('container example', () => {
     for (const service of Object.values(compose.services)) {
       expect(JSON.stringify(service.build?.args ?? {})).not.toMatch(/KEY|TOKEN|SECRET/i);
     }
-    expect(dockerfile).not.toMatch(/DEEPSEEK_API_KEY|ARG .*KEY|ARG .*TOKEN/i);
+    // Reject any ARG or ENV instruction whose variable name matches secret-like patterns
+    const instructionMatches = Array.from(dockerfile.matchAll(/^(ARG|ENV)\s+([A-Za-z_][A-Za-z0-9_]*)/gm));
+    const secretLikeNames = instructionMatches
+      .map(([, , varName]) => varName)
+      .filter((name) => /KEY|TOKEN|SECRET|PASS|CREDENTIAL/i.test(name));
+    expect(secretLikeNames).toEqual([]);
+    // Also check for the literal DEEPSEEK_API_KEY
+    expect(dockerfile).not.toContain('DEEPSEEK_API_KEY');
   });
 });
