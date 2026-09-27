@@ -10,4 +10,8 @@ describe('test isolation from a real dsh', () => {
     expect(result.exitCode).toBe(127);
     expect(result.stdout).toBe('');
   });
+
+  it('starts every test without a DSH_CLI from the developer shell', () => {
+    expect(process.env.DSH_CLI).toBeUndefined();
+  });
 });
