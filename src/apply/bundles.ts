@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
+import { withProfilePackageLock } from '../io/profile-lock.js';
 import { PackageNameRegex } from '../manifest/schema.js';
 
 const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
@@ -42,32 +43,35 @@ export async function setProfileBundleEnabled(
     throw new ValidationError(`Profile package.json not found: ${packageJsonPath}`);
   }
 
-  const raw = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as unknown;
-  if (!isRecord(raw)) {
-    throw new ValidationError(`Profile package.json is not an object: ${packageJsonPath}`);
-  }
-
-  const dsh = isRecord(raw.dsh) ? raw.dsh : {};
-  const profile = isRecord(dsh.profile) ? dsh.profile : {};
-  const currentBundles = Array.isArray(profile.bundles)
-    ? profile.bundles.filter((name): name is string => typeof name === 'string')
-    : [];
-
-  const previousIndex = currentBundles.indexOf(packageName);
-  const nextBundles = enabled
-    ? previousIndex !== -1
-      ? currentBundles
-      : [...currentBundles.slice(0, insertAt ?? currentBundles.length), packageName, ...currentBundles.slice(insertAt ?? currentBundles.length)]
-    : currentBundles.filter((name) => name !== packageName);
-
-  raw.dsh = {
-    ...dsh,
-    profile: {
-      ...profile,
-      bundles: nextBundles
+  // DSH's HMR watches this file; its own writers hold the same lock.
+  return withProfilePackageLock(packageJsonPath, async () => {
+    const raw = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as unknown;
+    if (!isRecord(raw)) {
+      throw new ValidationError(`Profile package.json is not an object: ${packageJsonPath}`);
     }
-  };
 
-  await writeAtomic(packageJsonPath, `${JSON.stringify(raw, null, 2)}\n`, 'overwrite');
-  return previousIndex;
+    const dsh = isRecord(raw.dsh) ? raw.dsh : {};
+    const profile = isRecord(dsh.profile) ? dsh.profile : {};
+    const currentBundles = Array.isArray(profile.bundles)
+      ? profile.bundles.filter((name): name is string => typeof name === 'string')
+      : [];
+
+    const previousIndex = currentBundles.indexOf(packageName);
+    const nextBundles = enabled
+      ? previousIndex !== -1
+        ? currentBundles
+        : [...currentBundles.slice(0, insertAt ?? currentBundles.length), packageName, ...currentBundles.slice(insertAt ?? currentBundles.length)]
+      : currentBundles.filter((name) => name !== packageName);
+
+    raw.dsh = {
+      ...dsh,
+      profile: {
+        ...profile,
+        bundles: nextBundles
+      }
+    };
+
+    await writeAtomic(packageJsonPath, `${JSON.stringify(raw, null, 2)}\n`, 'overwrite');
+    return previousIndex;
+  });
 }

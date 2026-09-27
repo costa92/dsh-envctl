@@ -2,8 +2,19 @@ import type { EnvironmentPlan, EnvironmentStatusSummary } from '../planner/plan.
 import type { DshCapabilities } from '../dsh/capabilities.js';
 import type { LockEntryDrift } from '../remote/lock-entries.js';
 import { describeRemoteDrift, type RemoteFileDrift } from '../remote/ownership.js';
+import { describeRestartReason, type RestartItem, type RestartSummary } from '../apply/restart-plan.js';
 
-export function renderPlan(plan: EnvironmentPlan): string {
+function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: RestartSummary): string {
+  const matches = (item: RestartItem): boolean =>
+    item.profile === op.profile && item.package === op.package && item.kind === op.kind;
+  if (restart.notRequired.some(matches)) {
+    return ' (no restart)';
+  }
+  const required = restart.required.find(matches);
+  return required ? ` (restart required: ${describeRestartReason(required)})` : '';
+}
+
+export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): string {
   const lines: string[] = [];
 
   if (!plan.hasChanges && plan.unmanaged.length === 0) {
@@ -27,7 +38,8 @@ export function renderPlan(plan: EnvironmentPlan): string {
       } else if (op.kind === 'blocked') {
         details = `[BLOCKED: ${op.blockedReason ?? op.reason}]`;
       }
-      lines.push(`  ${symbol} [${op.profile}] ${op.package} (${op.alias}) ${details}`.trimEnd());
+      const annotation = restart ? restartAnnotation(op, restart) : '';
+      lines.push(`  ${symbol} [${op.profile}] ${op.package} (${op.alias}) ${details}`.trimEnd() + annotation);
       if (op.reason) {
         lines.push(`      Reason: ${op.reason}`);
       }
@@ -43,6 +55,24 @@ export function renderPlan(plan: EnvironmentPlan): string {
   }
 
   return lines.join('\n') + '\n';
+}
+
+export function renderRestartSummary(restart: RestartSummary): string {
+  const lines: string[] = [];
+  if (restart.notRequired.length > 0) {
+    lines.push('No restart needed:');
+    for (const item of restart.notRequired) {
+      lines.push(`  [${item.profile}] ${item.kind} ${item.package}`);
+    }
+  }
+  if (restart.required.length > 0) {
+    lines.push('Restart DSH to load:');
+    for (const item of restart.required) {
+      lines.push(`  [${item.profile}] ${item.kind} ${item.package} (${describeRestartReason(item)})`);
+    }
+    lines.push('Then run: dshenv restarted');
+  }
+  return lines.length > 0 ? lines.join('\n') + '\n' : '';
 }
 
 function getOpSymbol(kind: string): string {

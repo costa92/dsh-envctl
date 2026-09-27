@@ -1,5 +1,7 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { execa } from 'execa';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type {
@@ -20,10 +22,15 @@ import { readLocalSourceDigests } from '../source/local.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
 import { probeDsh, resolveDshCommand } from '../dsh/command.js';
 import { capabilitiesFor } from '../dsh/capabilities.js';
+import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { lockEntryId } from '../remote/lock-entries.js';
 import { setProfileBundleEnabled } from './bundles.js';
 import { clearManagedPatches, snapshotProfilePatchFile, writeManagedPatches } from './patches.js';
+import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
+
+// Longer than the ~2 s awaitWriteFinish window of DSH's HMR watcher, so it unloads the plugin before its files go.
+export const HMR_SETTLE_MS = 3000;
 
 export interface ApplyOptions {
   dryRun?: boolean;
@@ -31,6 +38,8 @@ export interface ApplyOptions {
   harnessSource?: string;
   overlay?: OverlaySelection | null;
   executor?: (plan: EnvironmentPlan, paths: EnvironmentPaths) => Promise<{ success: boolean; error?: string }>;
+  probeHmr?: (profile: string) => Promise<HmrStatus>;
+  hmrSettleMs?: number;
 }
 
 export interface ApplyResult {
@@ -40,6 +49,7 @@ export interface ApplyResult {
   plan: EnvironmentPlan;
   message?: string;
   snapshotId?: string;
+  restart?: RestartSummary;
 }
 
 interface ProfileRollback {
@@ -84,6 +94,7 @@ async function executeWithDsh(
   lock: EnvironmentLock | null,
   inventory: EnvironmentInventory,
   rollback: ProfileRollback,
+  hmrByProfile: ReadonlyMap<string, HmrStatus>,
   options?: ApplyOptions
 ): Promise<{ success: boolean; error?: string }> {
   assertSupportedPlan(plan);
@@ -153,6 +164,9 @@ async function executeWithDsh(
       if (!command) {
         throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
       }
+      if (hmrByProfile.get(operation.profile)?.state === 'on') {
+        await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS);
+      }
       const removeResult = await execa(
         command.file,
         [...command.args, 'plugin', '--profile', operation.profile, 'remove', operation.package],
@@ -194,16 +208,18 @@ async function executeWithDsh(
   return { success: true };
 }
 
-function markRestartRequired(
+function recordRestartState(
   profiles: EnvironmentState['profiles'] | undefined,
   plan: EnvironmentPlan,
   verifiedInventory: EnvironmentInventory,
-  timestamp: string
+  timestamp: string,
+  restart: RestartSummary
 ): EnvironmentState['profiles'] {
   const next: EnvironmentState['profiles'] = {};
   for (const [profileName, profile] of Object.entries(profiles ?? {})) {
     next[profileName] = { plugins: { ...profile.plugins } };
   }
+  const restartRequired = new Set(restart.required.map((item) => `${item.profile}\0${item.package}`));
   for (const operation of plan.operations) {
     if (
       operation.kind !== 'install' &&
@@ -217,10 +233,18 @@ function markRestartRequired(
     if (!next[operation.profile]) {
       next[operation.profile] = { plugins: {} };
     }
+    const plugins = next[operation.profile].plugins;
+    const needsRestart = restartRequired.has(`${operation.profile}\0${operation.package}`);
+    if (!needsRestart && operation.kind === 'remove') {
+      delete plugins[operation.package];
+      continue;
+    }
+    // A hot-reloaded change must not clear a restart an earlier apply still owes.
+    const pending = plugins[operation.package]?.status === 'restart-required';
     const installedVersion = verifiedInventory.profiles[operation.profile]?.plugins[operation.package]?.version;
-    next[operation.profile].plugins[operation.package] = {
+    plugins[operation.package] = {
       package: operation.package,
-      status: 'restart-required',
+      status: needsRestart || pending ? 'restart-required' : 'healthy',
       ...(installedVersion ? { installedVersion } : {}),
       lastVerified: timestamp
     };
@@ -308,6 +332,24 @@ function pruneOwnership(
   return next;
 }
 
+function defaultHmrProbe(
+  paths: EnvironmentPaths,
+  manifest: EnvironmentManifest,
+  options?: ApplyOptions
+): (profile: string) => Promise<HmrStatus> {
+  const command = resolveDshCommand({
+    cliHarnessSource: options?.harnessSource,
+    manifestHarnessSource: manifest.environment?.harness?.sourceDir
+  });
+  return async (profile) => {
+    // dsh --dump-config creates a missing profile, which a dry run must not do.
+    if (!fs.existsSync(path.join(paths.profilesDir, profile, 'package.json'))) {
+      return { state: 'unknown', reason: `profile ${profile} does not exist yet` };
+    }
+    return probeProfileHmr(profile, { command, dshHome: paths.home });
+  };
+}
+
 function assertSupportedPlan(plan: EnvironmentPlan): void {
   const blocked = plan.operations.find((operation) => operation.kind === 'blocked');
   if (blocked) {
@@ -391,16 +433,26 @@ async function planAndApply(
   // Checked before the dry-run return too, so a preview reports the refusal a real apply would hit.
   assertNoTeamEntryOverwritten(paths, lock, recordLocalDigests(lock, manifest, localDigests));
 
+  // A real apply refuses a blocked plan before spending up to a probe timeout per profile; a dry run still previews it.
+  if (!options?.dryRun) {
+    assertSupportedPlan(plan);
+  }
+
+  const probe = options?.probeHmr ?? defaultHmrProbe(paths, manifest, options);
+  const profiles = profilesToProbe(plan);
+  const statuses = await Promise.all(profiles.map((profile) => probe(profile)));
+  const hmrByProfile = new Map<string, HmrStatus>(profiles.map((profile, index) => [profile, statuses[index]]));
+  const restart = buildRestartSummary(plan, hmrByProfile);
+
   if (options?.dryRun) {
     return {
       applied: false,
       dryRun: true,
       plan,
-      message: 'Dry run completed. Planned operations ready.'
+      message: 'Dry run completed. Planned operations ready.',
+      restart
     };
   }
-
-  assertSupportedPlan(plan);
 
   const operationId = `apply-${crypto.randomBytes(6).toString('hex')}`;
   const now = new Date().toISOString();
@@ -427,7 +479,7 @@ async function planAndApply(
     // 3. Execute operations via executor (or the DSH CLI adapter)
     const execRes = options?.executor
       ? await options.executor(plan, paths)
-      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, options);
+      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, hmrByProfile, options);
     if (!execRes.success) {
       throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
     }
@@ -451,7 +503,7 @@ async function planAndApply(
       apiVersion: 'dshenv-state/v1',
       lastApplied: now,
       appliedLockHash: lockHash,
-      profiles: markRestartRequired(state?.profiles, plan, verifiedInventory, now),
+      profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),
       ownership: pruneOwnership(state?.ownership, manifest),
       ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {})
     };
@@ -474,7 +526,8 @@ async function planAndApply(
       operationId,
       snapshotId: snapshot.snapshotId,
       plan,
-      message: `Successfully applied ${plan.operations.length} operation(s).`
+      message: `Successfully applied ${plan.operations.length} operation(s).`,
+      restart
     };
   } catch (err: unknown) {
     for (const step of [...[...rollback.undo].reverse(), ...rollback.keep]) {
