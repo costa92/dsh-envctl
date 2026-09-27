@@ -19,6 +19,7 @@ import { hasEmbeddedCredentials } from '../manifest/schema.js';
 import { readPackageJsonName } from '../source/local.js';
 import { assertLockEntryNotRemoteOwned, assertNotRemoteOwned } from '../remote/ownership.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
+import { overlayFilePath } from '../overlay/selection.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, aliasOption, type CommandContext } from './context.js';
 
 function overlaySuffix(name: string): string {
@@ -133,6 +134,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
           assertLockEntryNotRemoteOwned(paths, cmdOpts.profile, alias);
           if (layer !== 'overlay') {
             assertNotRemoteOwned(paths, paths.manifestFile);
+          } else if (selection) {
+            assertNotRemoteOwned(paths, overlayFilePath(paths, selection.name));
           }
         }
         res = await cloneManagedGit(url, cloneDir, cmdOpts.ref);

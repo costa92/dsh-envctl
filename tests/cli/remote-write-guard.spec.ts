@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { execa } from 'execa';
 import { runCli } from '../../src/cli.js';
 import type { EnvironmentPaths } from '../../src/environment/paths.js';
-import { loadLock, parseOverlay } from '../../src/manifest/files.js';
+import { loadLock, loadManifest, parseOverlay } from '../../src/manifest/files.js';
 import { findLocalDrift, findRemoteLockDrift } from '../../src/remote/ownership.js';
 import { readRemoteConfig } from '../../src/remote/schema.js';
 import { FIXTURE_REMOTE_URL, LOCAL_OVERLAY, OWNED_LOCK, OWNED_MANIFEST, OWNED_OVERLAY, writeRemoteOwnedFixture } from '../helpers/remote-fixture.js';
@@ -114,6 +114,24 @@ describe('CLI writes to remote-owned files and lock entries', () => {
     const config = readRemoteConfig(paths)!;
     expect(findRemoteLockDrift(paths, config)).toEqual([]);
     expect(findLocalDrift(paths, config)).toEqual([]);
+  });
+
+  it('refuses source clone into a remote-owned overlay before cloning', async () => {
+    const { code, stderr } = await run(['source', 'clone', 'file:///nonexistent/other.git', '-p', 'web', '--as', 'other', '--overlay', 'team', '--layer', 'overlay']);
+    expect(code).toBe(3);
+    expect(stderr).toContain(`Overlay 'team' is owned by remote ${FIXTURE_REMOTE_URL}; use a local overlay with a different name`);
+    expect(fs.existsSync(path.join(paths.managerDir, 'sources'))).toBe(false);
+    expectUnchanged();
+  });
+
+  it('leaves an unsubscribed update failing where it always did on a corrupt lock file', async () => {
+    fs.rmSync(paths.remoteFile);
+    fs.writeFileSync(paths.lockFile, '{');
+    const { code, stderr } = await run(['update', 'shared', '--to', '1.1.0', '-p', 'web']);
+    expect(code).toBe(3);
+    expect(stderr).toContain('Invalid JSON in lock file');
+    // The manifest layer is written before pinLockVersion parses the lock, exactly as before this guard existed.
+    expect(loadManifest(read(paths.manifestFile)).profiles.web.plugins.shared.source).toEqual({ type: 'npm', version: '1.1.0' });
   });
 
   it('refuses adopt', async () => {

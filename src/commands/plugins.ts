@@ -14,6 +14,7 @@ import { assertBaseMergesWithOverlay, removeOverlayPlugin, resolveWriteLayer, sa
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { assertLockEntryNotRemoteOwned, assertNotRemoteOwned } from '../remote/ownership.js';
+import { readRemoteConfig } from '../remote/schema.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, aliasOption, type CommandContext } from './context.js';
 import { withEnvironmentLock } from '../io/lock.js';
 import { readPackageJsonName } from '../source/local.js';
@@ -286,7 +287,8 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       const version: string = cmdOpts.to;
       const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
       // The lock pin runs after the manifest write, so a team-pinned entry must be refused before anything is written.
-      if (lockPinsNpm(paths, profile, alias)) {
+      // Skip the lock read entirely when unsubscribed, so a corrupt lock.json still fails where it always did.
+      if (readRemoteConfig(paths) && lockPinsNpm(paths, profile, alias)) {
         assertLockEntryNotRemoteOwned(paths, profile, alias);
       }
       const npmOnly = (type: string) => new ValidationError(`update --to currently supports npm sources only (got ${type})`);
