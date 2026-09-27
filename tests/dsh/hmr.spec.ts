@@ -151,6 +151,14 @@ process.stdout.write(${JSON.stringify(dumpWithHmr("  disabled: !!js '!ctx.get(''
     expect(JSON.stringify(missing)).not.toContain('SECRET');
   });
 
+  it('names the signal when dsh is killed without writing stderr', async () => {
+    const command = fakeDsh(`process.kill(process.pid, 'SIGKILL');`);
+    expect(await probeProfileHmr('web', { command, dshHome: dir })).toEqual({
+      state: 'unknown',
+      reason: 'dsh --dump-config was killed by SIGKILL'
+    });
+  });
+
   it('reports a timeout as unknown', async () => {
     const command = fakeDsh(`setTimeout(() => {}, 10000);`);
     expect(await probeProfileHmr('web', { command, dshHome: dir, timeoutMs: 200 })).toEqual({

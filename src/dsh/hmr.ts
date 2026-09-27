@@ -89,6 +89,9 @@ export async function probeProfileHmr(profile: string, options: ProbeHmrOptions)
     if (result.exitCode === undefined && result.code) {
       return { state: 'unknown', reason: `failed to start dsh (${result.code})` };
     }
+    if (result.signal) {
+      return { state: 'unknown', reason: `dsh --dump-config was killed by ${result.signal}` };
+    }
     return { state: 'unknown', reason: `dsh --dump-config exited with code ${String(result.exitCode)}` };
   }
   return parseHmrFromDump(String(result.stdout));
