@@ -78,6 +78,12 @@ export function replacePluginBlocks(
   if (matches.length === 0) {
     if (blocks.length === 0) return existingContent;
     if (existingContent.length === 0) return blocks;
+    // A fresh profile's cordis.patch.yml is a single top-level `[]`. Appending a block
+    // sequence after it would start a second YAML document, which DSH's parser rejects.
+    const emptyArrayMatch = existingContent.match(/^﻿?([\s\S]*?)^\[\]\s*$/m);
+    if (emptyArrayMatch) {
+      return `${emptyArrayMatch[1]}${blocks}`;
+    }
     return `${existingContent}${existingContent.endsWith('\n') ? '\n' : '\n\n'}${blocks}`;
   }
 

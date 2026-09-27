@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as YAML from 'yaml';
 import {
   computePatchDigest,
   renderPatchBlock,
@@ -123,6 +124,19 @@ suffix: true
     expect(extractManagedPatches(removePatchBlock(both, 'web', 'a.b'), 'web').map((patch) => patch.plugin)).toEqual(['axb']);
     expect(() => applyPatchBlock('', 'web', 'c++', 'c++', { k: 1 })).not.toThrow();
     expect(extractManagedPatches(applyPatchBlock('', 'web', 'c++', 'c++', { k: 1 }), 'web')[0].plugin).toBe('c++');
+  });
+
+  it('inserts into a fresh profile patch file whose base is an empty flow array', () => {
+    const originalFile = `# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; \`!!js\` expressions allowed).
+[]
+`;
+    const updated = applyPatchBlock(originalFile, 'web', 'demo', 'demo', { k: 1 });
+    expect(() => YAML.parseAllDocuments(updated).forEach((doc) => doc.errors.forEach((error) => {
+      throw error;
+    }))).not.toThrow();
+    expect(extractManagedPatches(updated, 'web')[0].config).toEqual({ k: 1 });
   });
 
   it('removes a block without collapsing blank lines elsewhere in the file', () => {
