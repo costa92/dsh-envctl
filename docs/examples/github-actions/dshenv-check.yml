@@ -16,7 +16,7 @@ on:
     - cron: '0 2 * * *'
 
 env:
-  # dshenv is not published to npm yet; pin this to a costa92/dsh-envctl commit you have reviewed.
+  # dshenv is built from source here; pin this to a costa92/dsh-envctl commit you have reviewed.
   DSHENV_REF: master
 
 jobs:
