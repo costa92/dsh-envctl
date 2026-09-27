@@ -120,7 +120,8 @@
 - [x] 热加载开启时 install、enable、disable、configure、remove 无需重启（state 记 `healthy`，remove 删除条目）；update 一律需要重启；关闭或无法判断时与原先一致，全部 `restart-required`
 - [x] 文本输出 `No restart needed:` / `Restart DSH to load:` 分组与 `Then run: dshenv restarted`；`--json` 新增 `restart` 字段；`--dry-run` 逐项标注；`plan` 不变
 - [x] 改写 Profile `package.json` 时持有与 DSH 兼容的 `package.json.lock`（`wx` 创建、内容 `<pid>\n`、权限 0600，指数退避最多等 30 秒，不删除他人的锁）
-- [x] 热加载开启时 remove 先移出 bundle、等待 3 秒再调用 `dsh plugin remove`
+- [x] 热加载开启时 remove 先移出 bundle、等待 3 秒再调用 `dsh plugin remove`（插件不在 bundle 列表中时不等待）
+- [x] 失败回滚 `cordis.patch.yml` 时，DSH 在 dshenv 写入后改过该文件则只恢复该插件的受管块，不覆盖 DSH 的改动
 - [x] 真实验证（npm 版 DSH `0.1.7-rc.2`、隔离 `DSH_HOME`、端口 13181）：install / disable / enable / remove 后插件管理器 `listPlugins` 当场反映变化且无需重启；本地源码变化触发的 update 输出需要重启；home 级 patch 关闭 hmr 后改动全部需要重启
 - [x] configure 真实验证（端口 13182）：用 `dshenv new tool` 生成的本地插件在每次重组时记录配置值，`apply --yes` 改配置后数秒内运行中的 DSH（进程号不变）打出新值，输出列在 `No restart needed:`，dry-run 标注 `(no restart)`
 - [x] 修复新建 Profile 的 `cordis.patch.yml`（DSH 生成的 `[]`）首次 configure 时追加出第二个 YAML 文档导致 DSH 拒绝解析；最后一个受管块移除后若只剩注释则写回 `[]`

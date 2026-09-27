@@ -144,14 +144,14 @@ async function executeWithDsh(
       if (!plugin) {
         throw new ValidationError(`Plugin '${operation.alias}' is missing from profile '${operation.profile}'`);
       }
-      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile));
+      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile, operation.alias));
       await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches ?? []);
       continue;
     }
 
     if (operation.kind === 'remove') {
       const undoStart = rollback.undo.length;
-      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile));
+      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile, operation.alias));
       await clearManagedPatches(paths, operation.profile, operation.alias);
       const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
       rollback.undo.push(async () => {
@@ -164,7 +164,8 @@ async function executeWithDsh(
       if (!command) {
         throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
       }
-      if (hmrByProfile.get(operation.profile)?.state === 'on') {
+      // Only a plugin that was in the bundle list is loaded, so only then is there an unload to wait for.
+      if (previousIndex !== -1 && hmrByProfile.get(operation.profile)?.state === 'on') {
         await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS);
       }
       const removeResult = await execa(

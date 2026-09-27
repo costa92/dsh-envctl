@@ -58,7 +58,7 @@ describe('cordis.patch.yml profile lock', () => {
 
   it('waits for a lock held by DSH before restoring a patch snapshot', async () => {
     fs.writeFileSync(patchFile(), 'original\n');
-    const restore = await snapshotProfilePatchFile(paths, 'web');
+    const restore = await snapshotProfilePatchFile(paths, 'web', 'demo');
     fs.writeFileSync(lockFile(), '999999\n', { mode: 0o600 });
     setTimeout(() => fs.rmSync(lockFile(), { force: true }), 300);
     const started = Date.now();
@@ -66,6 +66,62 @@ describe('cordis.patch.yml profile lock', () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(250);
     expect(fs.readFileSync(patchFile(), 'utf8')).toBe('original\n');
     expect(fs.existsSync(lockFile())).toBe(false);
+  });
+
+  it('restores the snapshot byte for byte when nothing else touched the file after dshenv wrote it', async () => {
+    await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }]);
+    fs.appendFileSync(patchFile(), `# kept comment\n${dshPatch}`);
+    const before = fs.readFileSync(patchFile(), 'utf8');
+    const restore = await snapshotProfilePatchFile(paths, 'web', 'demo');
+    await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 2 } }]);
+    await restore();
+    expect(fs.readFileSync(patchFile(), 'utf8')).toBe(before);
+  });
+
+  it('keeps an edit DSH made after dshenv wrote the file and only puts the plugin blocks back', async () => {
+    await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }]);
+    await writeManagedPatches(paths, 'web', 'other', [{ id: 'o1', config: { b: 1 } }]);
+    const before = fs.readFileSync(patchFile(), 'utf8');
+    const demoBlock = before.slice(before.indexOf('# dshenv:begin profile=web plugin=demo'), before.indexOf('# dshenv:begin profile=web plugin=other'));
+    const restore = await snapshotProfilePatchFile(paths, 'web', 'demo');
+    await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 2 } }, { id: 'p2', config: { c: 3 } }]);
+    fs.appendFileSync(patchFile(), dshPatch);
+
+    await restore();
+
+    const content = fs.readFileSync(patchFile(), 'utf8');
+    expect(content).toContain(dshPatch);
+    expect(content).toContain(demoBlock);
+    expect(extractManagedPatches(content, 'web').map((patch) => [patch.plugin, patch.id, patch.config])).toEqual([
+      ['demo', 'p1', { a: 1 }],
+      ['other', 'o1', { b: 1 }]
+    ]);
+  });
+
+  it('drops the plugin blocks but keeps a DSH edit when the file did not exist before dshenv wrote it', async () => {
+    const restore = await snapshotProfilePatchFile(paths, 'web', 'demo');
+    await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }]);
+    fs.appendFileSync(patchFile(), dshPatch);
+
+    await restore();
+
+    const content = fs.readFileSync(patchFile(), 'utf8');
+    expect(content).toContain(dshPatch);
+    expect(extractManagedPatches(content, 'web')).toEqual([]);
+  });
+
+  it('puts removed plugin blocks back without losing a DSH edit made after the clear', async () => {
+    await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }]);
+    const restore = await snapshotProfilePatchFile(paths, 'web', 'demo');
+    await clearManagedPatches(paths, 'web', 'demo');
+    // The clear left `[]`; DSH writes its entry as the new top-level array.
+    fs.writeFileSync(patchFile(), dshPatch);
+
+    await restore();
+
+    const content = fs.readFileSync(patchFile(), 'utf8');
+    expect(content).toContain(dshPatch);
+    expect(extractManagedPatches(content, 'web').map((patch) => patch.id)).toEqual(['p1']);
   });
 
   it('writes patches for a profile whose directory does not exist yet without locking', async () => {

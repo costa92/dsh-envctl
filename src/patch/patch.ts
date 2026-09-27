@@ -58,23 +58,36 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function pluginBlockRegex(profileName: string, pluginAlias: string): RegExp {
+  const profile = escapeRegExp(profileName);
+  const plugin = escapeRegExp(pluginAlias);
+  return new RegExp(
+    `# dshenv:begin profile=${profile} plugin=${plugin}(?: digest=[^\\s]+)?\\n[\\s\\S]*?# dshenv:end profile=${profile} plugin=${plugin}\\n?`,
+    'g'
+  );
+}
+
+// The managed blocks of one plugin exactly as written, so they can be spliced back without re-rendering.
+export function extractPluginBlocks(content: string, profileName: string, pluginAlias: string): string {
+  return [...content.matchAll(pluginBlockRegex(profileName, pluginAlias))]
+    .map(([block]) => (block.endsWith('\n') ? block : `${block}\n`))
+    .join('');
+}
+
 // Replaces every managed block of one plugin with one block per patch, written where the first old block was.
-// Surrounding bytes are spliced rather than passed through String.replace, which would expand `$` patterns in values.
 export function replacePluginBlocks(
   existingContent: string,
   profileName: string,
   pluginAlias: string,
   patches: Array<{ id: string; config: Record<string, unknown> }>
 ): string {
-  const profile = escapeRegExp(profileName);
-  const plugin = escapeRegExp(pluginAlias);
-  const regex = new RegExp(
-    `# dshenv:begin profile=${profile} plugin=${plugin}(?: digest=[^\\s]+)?\\n[\\s\\S]*?# dshenv:end profile=${profile} plugin=${plugin}\\n?`,
-    'g'
-  );
   const blocks = patches.map((patch) => `${renderPatchBlock(profileName, pluginAlias, patch.id, patch.config)}\n`).join('');
+  return splicePluginBlocks(existingContent, profileName, pluginAlias, blocks);
+}
 
-  const matches = [...existingContent.matchAll(regex)];
+// Surrounding bytes are spliced rather than passed through String.replace, which would expand `$` patterns in values.
+export function splicePluginBlocks(existingContent: string, profileName: string, pluginAlias: string, blocks: string): string {
+  const matches = [...existingContent.matchAll(pluginBlockRegex(profileName, pluginAlias))];
   if (matches.length === 0) {
     if (blocks.length === 0) return existingContent;
     if (existingContent.length === 0) return blocks;
