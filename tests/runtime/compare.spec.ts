@@ -126,6 +126,17 @@ describe('checkRuntime for a plugin the manifest enables', () => {
     expect(one(declared(), [bundle()], [entry(phase)]).result).toBe('loading');
   });
 
+  it('says a pending plugin is waiting for the services it injects', () => {
+    expect(one(declared(), [bundle()], [entry('pending')])).toMatchObject({
+      result: 'loading',
+      detail: `plugin ${PKG} is waiting for services it injects`
+    });
+  });
+
+  it.each(['loading', 'unloading'] as const)('adds no detail while an entry is %s', (phase) => {
+    expect(one(declared(), [bundle()], [entry(phase)]).detail).toBeUndefined();
+  });
+
   it('reports unverifiable for a bundle without rows', () => {
     expect(one(declared(), [bundle({ rows: [] })], [])).toMatchObject({
       result: 'unverifiable',
