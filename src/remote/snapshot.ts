@@ -38,6 +38,22 @@ function assertNoLocalSources(lock: EnvironmentLock): void {
   }
 }
 
+// Same reason as the lock: a machine-local path from untrusted remote content would also be hashed by preview.
+function assertNoLocalPluginSources(
+  profiles: Record<string, { plugins?: Record<string, { source?: { type: string } }> }> | undefined
+): void {
+  for (const [profile, { plugins }] of Object.entries(profiles ?? {})) {
+    for (const [alias, plugin] of Object.entries(plugins ?? {})) {
+      const type = plugin.source?.type;
+      if (type === 'local-link' || type === 'local-file') {
+        throw new ValidationError(
+          `Plugin '${lockEntryId(profile, alias)}' has a ${type} source; a team configuration cannot reference machine-local paths`
+        );
+      }
+    }
+  }
+}
+
 function withFile<T>(file: string, fn: () => T): T {
   try {
     return fn();
@@ -80,7 +96,11 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
   if (!files['manifest.yaml']) {
     throw new ValidationError(`Remote commit ${commit} has no ${where('manifest.yaml')}`);
   }
-  const manifest = withFile(where('manifest.yaml'), () => loadManifest(files['manifest.yaml'].toString('utf8')));
+  const manifest = withFile(where('manifest.yaml'), () => {
+    const parsed = loadManifest(files['manifest.yaml'].toString('utf8'));
+    assertNoLocalPluginSources(parsed.profiles);
+    return parsed;
+  });
   const lockText = lockData?.toString('utf8') ?? null;
   const lock = lockText !== null
     ? withFile(where('lock.json'), () => {
@@ -89,12 +109,28 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
         return parsed;
       })
     : null;
+  // Overlay names are file names, and on a case-insensitive file system these two would be one file.
+  const byLowerCase = new Map<string, string>();
+  for (const key of Object.keys(files)) {
+    if (overlayNameFromKey(key) === null) {
+      continue;
+    }
+    const other = byLowerCase.get(key.toLowerCase());
+    if (other !== undefined) {
+      throw new ValidationError(`Remote overlays ${where(other)} and ${where(key)} differ only by case`);
+    }
+    byLowerCase.set(key.toLowerCase(), key);
+  }
   for (const key of Object.keys(files)) {
     const name = overlayNameFromKey(key);
     if (name === null) {
       continue;
     }
-    withFile(where(key), () => mergeManifest(manifest, parseOverlay(files[key].toString('utf8'), where(key)), name));
+    withFile(where(key), () => {
+      const overlay = parseOverlay(files[key].toString('utf8'), where(key));
+      assertNoLocalPluginSources(overlay.profiles);
+      mergeManifest(manifest, overlay, name);
+    });
   }
 
   const digests = Object.fromEntries(Object.entries(files).map(([key, data]) => [key, sha256Hex(data)]));

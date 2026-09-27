@@ -109,6 +109,27 @@ describe('loadRemoteSnapshot', () => {
         })
       },
       /Lock entry 'cli\/pkg' has a local-file source/
+    ],
+    [
+      'manifest with a local-file plugin',
+      {
+        'envctl/manifest.yaml': `${TEAM_MANIFEST}      mine:\n        package: mine\n        source: { type: local-file, path: /home/someone/mine }\n`
+      },
+      /^Remote file envctl\/manifest\.yaml: Plugin 'web\/mine' has a local-file source; a team configuration cannot reference machine-local paths$/
+    ],
+    [
+      'overlay with a local-link plugin',
+      {
+        'envctl/manifest.yaml': TEAM_MANIFEST,
+        'envctl/overlays/dev.yaml':
+          'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      shared:\n        source: { type: local-link, path: /etc }\n'
+      },
+      /^Remote file envctl\/overlays\/dev\.yaml: Plugin 'web\/shared' has a local-link source; a team configuration cannot reference machine-local paths$/
+    ],
+    [
+      'pair of overlays differing only by case',
+      { 'envctl/manifest.yaml': TEAM_MANIFEST, 'envctl/overlays/Team.yaml': TEAM_OVERLAY, 'envctl/overlays/team.yaml': TEAM_OVERLAY },
+      /^Remote overlays envctl\/overlays\/Team\.yaml and envctl\/overlays\/team\.yaml differ only by case$/
     ]
   ])('refuses an invalid %s', async (_label, files, message) => {
     await expect(snapshotOf(files)).rejects.toThrow(message);
