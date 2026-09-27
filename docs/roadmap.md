@@ -138,8 +138,21 @@
 
 下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
 
-- 热替换已装插件的版本、调用运行时内部 service（如 `ctx.dynamicCordisRunner`）。DSH 已自带热加载，dshenv 负责感知与协作（见「感知热加载的 apply」），并可用 `dshenv runtime` 核对运行时加载状态
+- 调用运行时内部 service（如 `ctx.dynamicCordisRunner`）。DSH 已自带热加载，dshenv 负责感知与协作（见「感知热加载的 apply」），并可用 `dshenv runtime` 核对运行时加载状态
+- 热替换已装插件的版本：依赖 DSH，暂不可行（见下节调研结论），升级插件仍需重启 DSH
 - 静态 Cordis Service DAG 分析（需插件暴露机器可读的服务贡献元数据）
 - GUI / TUI / 插件市场 / 主观发行版
 - 自动重启非本工具启动的 DSH 进程
 - Desktop 内嵌 Harness 管理
+
+## 热替换插件版本调研（2026-09-27，结论：依赖 DSH）
+
+用 npm 版 DSH `0.1.7-rc.2` 与一个加载时写出自身版本的探针插件实测：
+
+- 插件保持选中时升级：不触发任何重载，运行中的仍是旧版本。
+- 先取消选中、再重新选中：插件重新 `apply`，但模块执行时间戳不变，Node 的 ESM 缓存返回旧模块，磁盘上的新版本未被读取。
+- 用 profile 补丁把 `hmr` 的 `root` 指向插件安装目录（`ignored` 清空）后升级或直接改文件：仍不触发重载。
+
+原因：profile 以 pnpm `nodeLinker: hoisted` 安装，任何版本都位于同一个 `node_modules/<包名>` 路径，ESM 缓存按 URL 记忆且从不清除；DSH 插件管理器对已安装包的再次安装直接返回 `restart-required`（`packages/boot/plugin-manager/src/index.ts` 的 `installBundle`）。`dsh-hmr` 的 `partialReload` 会删除模块缓存后重新导入，但只作用于它监视到的已加载源文件。
+
+结论：dshenv 无法在不修改 DSH 的前提下热替换版本，升级继续报「需要重启」。可向 DSH 提需求：插件管理器升级插件时清除该包的模块缓存并重新导入（`partialReload` 已有同类做法）。
