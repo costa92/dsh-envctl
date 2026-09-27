@@ -1,6 +1,6 @@
 {
-  "name": "dsh-envctl",
-  "version": "0.1.0",
+  "name": "dshenv",
+  "version": "0.1.1",
   "description": "Environment-as-Code manager for DeepSeek Harness",
   "license": "MIT",
   "author": "costa",

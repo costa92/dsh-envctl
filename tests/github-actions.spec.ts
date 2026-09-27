@@ -13,6 +13,7 @@ interface Step {
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
+  env?: Record<string, string>;
 }
 interface Workflow {
   on?: unknown;
@@ -141,11 +142,21 @@ describe('release workflow', () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  it('runs on v* tags with permission to create releases, after the same quality gates as CI', () => {
+  it('runs on v* tags with permission to create releases and sign provenance, after the same quality gates as CI', () => {
     expect(release.on).toEqual({ push: { tags: ['v*'] } });
-    expect(release.permissions).toEqual({ contents: 'write' });
+    expect(release.permissions).toEqual({ contents: 'write', 'id-token': 'write' });
     const runs = allSteps(release).flatMap((step) => (step.run && !step.id ? [step.run.trim()] : []));
     expect(runs.slice(0, 4)).toEqual(['pnpm install --frozen-lockfile', 'pnpm typecheck', 'pnpm test', 'pnpm build']);
+  });
+
+  it('publishes the packed tarball to npm with provenance before creating the GitHub release', () => {
+    const steps = allSteps(release);
+    const setupNode = steps.find((step) => step.uses?.startsWith('actions/setup-node@'));
+    expect(setupNode?.with?.['registry-url']).toBe('https://registry.npmjs.org');
+    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish dist/*.tgz --access public --provenance');
+    expect(publish).toBeGreaterThan(-1);
+    expect(steps[publish].env).toEqual({ NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' });
+    expect(publish).toBeLessThan(steps.findIndex((step) => step.run?.startsWith('gh release create')));
   });
 
   it('accepts only the tag that matches the package.json version', async () => {

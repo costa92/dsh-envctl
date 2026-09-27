@@ -2,6 +2,14 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。发布流程见 [docs/发布流程.md](docs/发布流程.md)。
 
+## 0.1.1 - 2026-09-27
+
+### 变更
+
+- npm 包名改为 `dshenv`，发布到 npm registry：`npm install -g dshenv`。命令名不变。
+- 从 Git 地址用 pnpm 安装时，放行参数改为 `--allow-build=dshenv`；卸载改为 `pnpm remove --global dshenv`。
+- Release 工作流把同一份 `.tgz` 发布到 npm（带 provenance）并附在 GitHub Release 上。
+
 ## 0.1.0 - 2026-09-27
 
 首个公开版本。支持的 DSH 版本族：`0.1.7`（含预发布版）。
