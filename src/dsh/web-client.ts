@@ -1,0 +1,131 @@
+import { DshError, ValidationError } from '../errors.js';
+
+export const DSH_URL_ENV = 'DSHENV_DSH_URL';
+export const DSH_WEB_TIMEOUT_MS = 10_000;
+
+// The token grants a full dsh web login, so it only goes to this machine unless the user says otherwise.
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+export interface DshWebTarget {
+  origin: string;
+  endpoint: string;
+  token: string;
+}
+
+export interface DshWebSession {
+  target: DshWebTarget;
+  cookie: string;
+}
+
+const RELOGIN_HINT = 'export the URL dsh web printed again';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function parseDshWebUrl(value: string | undefined, options: { allowRemote?: boolean } = {}): DshWebTarget {
+  if (value === undefined || value.trim() === '') {
+    throw new ValidationError(`${DSH_URL_ENV} is not set; export the URL dsh web printed at startup`);
+  }
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new ValidationError(`${DSH_URL_ENV} is not a valid URL`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new ValidationError(`${DSH_URL_ENV} must be an http or https URL`);
+  }
+  const tokens = url.searchParams.getAll('token');
+  if (tokens.length !== 1 || tokens[0] === '') {
+    throw new ValidationError(`${DSH_URL_ENV} must carry exactly one token query parameter, as dsh web prints it`);
+  }
+  if (!LOOPBACK_HOSTS.has(url.hostname) && !options.allowRemote) {
+    throw new ValidationError(`Refusing to send the dsh web token to ${url.host}; pass --allow-remote to allow a non-loopback host`);
+  }
+  return { origin: url.origin, endpoint: url.host, token: tokens[0] };
+}
+
+// Only the error name or code is reported: fetch messages can echo the request URL, which carries the token.
+function describeFetchError(error: unknown, timeoutMs: number): string {
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return `timed out after ${timeoutMs} ms`;
+  }
+  const cause = error instanceof Error && isRecord(error.cause) ? error.cause : undefined;
+  return typeof cause?.code === 'string' ? cause.code : 'request failed';
+}
+
+async function send(
+  target: DshWebTarget,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<{ status: number; headers: Headers; text: string }> {
+  try {
+    const res = await fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
+    return { status: res.status, headers: res.headers, text: await res.text() };
+  } catch (error) {
+    throw new DshError(`Could not reach DSH at ${target.endpoint}: ${describeFetchError(error, timeoutMs)}`);
+  }
+}
+
+export async function loginDshWeb(target: DshWebTarget, options: { timeoutMs?: number } = {}): Promise<DshWebSession> {
+  const url = new URL('/', target.origin);
+  url.searchParams.set('token', target.token);
+  const res = await send(target, url.href, { method: 'GET' }, options.timeoutMs ?? DSH_WEB_TIMEOUT_MS);
+  const cookies = res.headers
+    .getSetCookie()
+    .map((header) => header.split(';')[0].trim())
+    .filter((pair) => pair !== '');
+  if (res.status !== 303 || cookies.length === 0) {
+    const hint = res.status === 401 ? `; the token is wrong or dsh web restarted, ${RELOGIN_HINT}` : '';
+    throw new DshError(
+      `Could not log in to DSH at ${target.endpoint}: expected a 303 with a session cookie, got ${res.status}${hint}`
+    );
+  }
+  return { target, cookie: cookies.join('; ') };
+}
+
+let nextRpcId = 0;
+
+export async function callDshWeb(
+  session: DshWebSession,
+  service: string,
+  method: string,
+  options: { timeoutMs?: number } = {}
+): Promise<unknown> {
+  const { target } = session;
+  const endpointPath = `${service}/${method}`;
+  nextRpcId += 1;
+  const res = await send(
+    target,
+    `${target.origin}/api/${endpointPath}`,
+    {
+      method: 'POST',
+      headers: { cookie: session.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: String(nextRpcId), method: endpointPath, payload: { args: {} } })
+    },
+    options.timeoutMs ?? DSH_WEB_TIMEOUT_MS
+  );
+  if (res.status === 401) {
+    throw new DshError(`DSH at ${target.endpoint} rejected the session for ${method}; ${RELOGIN_HINT}`);
+  }
+  if (res.status < 200 || res.status >= 300) {
+    throw new DshError(`DSH at ${target.endpoint} answered ${method} with HTTP ${res.status}`);
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(res.text);
+  } catch {
+    throw new DshError(`DSH at ${target.endpoint} answered ${method} with a response that is not JSON`);
+  }
+  const result = isRecord(body) && isRecord(body.result) ? body.result : undefined;
+  if (result === undefined || typeof result.ok !== 'boolean') {
+    throw new DshError(`DSH at ${target.endpoint} answered ${method} with an unexpected response shape`);
+  }
+  if (!result.ok) {
+    const code = isRecord(result.error) && typeof result.error.code === 'string' ? result.error.code : 'unknown error';
+    throw new DshError(`DSH rejected ${method}: ${code}`);
+  }
+  return result.value;
+}

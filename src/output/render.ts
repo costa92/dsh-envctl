@@ -3,6 +3,7 @@ import type { DshCapabilities } from '../dsh/capabilities.js';
 import type { LockEntryDrift } from '../remote/lock-entries.js';
 import { describeRemoteDrift, type RemoteFileDrift } from '../remote/ownership.js';
 import { describeRestartReason, type RestartItem, type RestartSummary } from '../apply/restart-plan.js';
+import type { RuntimeCheckItem } from '../runtime/compare.js';
 
 function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: RestartSummary): string {
   const matches = (item: RestartItem): boolean =>
@@ -116,6 +117,21 @@ export function renderStatus(status: EnvironmentStatusSummary): string {
   }
 
   return lines.join('\n') + '\n';
+}
+
+export function renderRuntimeReport(profile: string, endpoint: string, items: RuntimeCheckItem[]): string {
+  if (items.length === 0) {
+    return `No plugins declared for profile ${profile}.\n`;
+  }
+  const resultWidth = Math.max(...items.map((item) => item.result.length));
+  const aliasWidth = Math.max(...items.map((item) => item.alias.length));
+  const lines = [`Runtime check for profile ${profile} (${endpoint})`];
+  for (const item of items) {
+    const note = [item.detail, item.hint].filter((part): part is string => part !== undefined).join('; ');
+    lines.push(`  ${item.result.padEnd(resultWidth)}  ${item.alias.padEnd(aliasWidth)}  ${item.package}${note === '' ? '' : ` (${note})`}`);
+  }
+  lines.push('Versions are not checked: DSH reports the version on disk, not the one loaded in memory.');
+  return `${lines.join('\n')}\n`;
 }
 
 export interface DoctorReport {

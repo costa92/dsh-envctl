@@ -127,11 +127,18 @@
 - [x] 修复新建 Profile 的 `cordis.patch.yml`（DSH 生成的 `[]`）首次 configure 时追加出第二个 YAML 文档导致 DSH 拒绝解析；最后一个受管块移除后若只剩注释则写回 `[]`
 - [x] 写 Profile 的 `cordis.patch.yml` 时同样持有 `package.json.lock`（DSH 插件管理器改该文件时持同一把锁）；有 blocked 操作的正式 apply 先报错再探测；多个 Profile 并行探测
 
+## 运行时加载核对（已实现）
+
+- [x] `dshenv runtime` 经 `DSHENV_DSH_URL` 登录运行中的 `dsh web`，用 Plugin Manager 的 `listBundles` 与 `listPlugins` 核对清单插件是否已加载或卸下
+- [x] token 与 cookie 不出现在输出与错误中；默认只连回环地址
+- [x] 跳过被配置停用的行与其他已选中 bundle 共享的行；按安装包集合核对运行中的 DSH 是否为该 profile
+- [ ] 核对内存中加载的版本（DSH 未暴露）
+
 ## 延后能力
 
 下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
 
-- 热替换已装插件的版本、确认 DSH 运行时确实加载了插件、调用运行时内部 service（如 `ctx.dynamicCordisRunner`）。DSH 已自带热加载，dshenv 负责感知与协作的部分已完成（见「感知热加载的 apply」）
+- 热替换已装插件的版本、调用运行时内部 service（如 `ctx.dynamicCordisRunner`）。DSH 已自带热加载，dshenv 负责感知与协作（见「感知热加载的 apply」），并可用 `dshenv runtime` 核对运行时加载状态
 - 静态 Cordis Service DAG 分析（需插件暴露机器可读的服务贡献元数据）
 - GUI / TUI / 插件市场 / 主观发行版
 - 自动重启非本工具启动的 DSH 进程
