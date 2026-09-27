@@ -104,6 +104,16 @@ describe('CLI remote', () => {
     const { code, stderr } = await run(['remote', 'add', team.url, '--yes']);
     expect(code).toBe(3);
     expect(stderr).toContain('A remote is already configured');
+    expect(fs.existsSync(path.join(paths.remoteDir, 'repo.git', 'HEAD'))).toBe(true);
+    expect((await run(['sync'])).code).toBe(0);
+  });
+
+  it('replaces a leftover clone when no remote.json exists', async () => {
+    fs.mkdirSync(path.join(paths.remoteDir, 'repo.git'), { recursive: true });
+    fs.writeFileSync(path.join(paths.remoteDir, 'repo.git', 'stale'), 'left behind');
+    expect((await run(['remote', 'add', team.url, '--yes'])).code).toBe(0);
+    expect(fs.existsSync(path.join(paths.remoteDir, 'repo.git', 'stale'))).toBe(false);
+    expect(fs.existsSync(path.join(paths.remoteDir, 'repo.git', 'HEAD'))).toBe(true);
   });
 
   it('refuses a local manifest without --replace', async () => {
