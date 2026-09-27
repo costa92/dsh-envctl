@@ -208,7 +208,7 @@ async function executeWithDsh(
   return { success: true };
 }
 
-function markRestartRequired(
+function recordRestartState(
   profiles: EnvironmentState['profiles'] | undefined,
   plan: EnvironmentPlan,
   verifiedInventory: EnvironmentInventory,
@@ -433,11 +433,15 @@ async function planAndApply(
   // Checked before the dry-run return too, so a preview reports the refusal a real apply would hit.
   assertNoTeamEntryOverwritten(paths, lock, recordLocalDigests(lock, manifest, localDigests));
 
-  const probe = options?.probeHmr ?? defaultHmrProbe(paths, manifest, options);
-  const hmrByProfile = new Map<string, HmrStatus>();
-  for (const profile of profilesToProbe(plan)) {
-    hmrByProfile.set(profile, await probe(profile));
+  // A real apply refuses a blocked plan before spending up to a probe timeout per profile; a dry run still previews it.
+  if (!options?.dryRun) {
+    assertSupportedPlan(plan);
   }
+
+  const probe = options?.probeHmr ?? defaultHmrProbe(paths, manifest, options);
+  const profiles = profilesToProbe(plan);
+  const statuses = await Promise.all(profiles.map((profile) => probe(profile)));
+  const hmrByProfile = new Map<string, HmrStatus>(profiles.map((profile, index) => [profile, statuses[index]]));
   const restart = buildRestartSummary(plan, hmrByProfile);
 
   if (options?.dryRun) {
@@ -449,8 +453,6 @@ async function planAndApply(
       restart
     };
   }
-
-  assertSupportedPlan(plan);
 
   const operationId = `apply-${crypto.randomBytes(6).toString('hex')}`;
   const now = new Date().toISOString();
@@ -501,7 +503,7 @@ async function planAndApply(
       apiVersion: 'dshenv-state/v1',
       lastApplied: now,
       appliedLockHash: lockHash,
-      profiles: markRestartRequired(state?.profiles, plan, verifiedInventory, now, restart),
+      profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),
       ownership: pruneOwnership(state?.ownership, manifest),
       ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {})
     };

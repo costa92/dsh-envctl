@@ -315,4 +315,35 @@ process.stdout.write("- id: hmr\\n  name: '@deepseek-ai/dsh-hmr'\\n  disabled: !
       { profile: 'web', package: PKG, kind: 'install', reason: 'hmr-unknown', detail: 'profile web does not exist yet' }
     ]);
   });
+
+  it('refuses a blocked plan before probing hot reload', async () => {
+    install('0.1.21', []);
+    manifest(`${declared(true)}      pinned:\n        package: "git-plugin"\n        source:\n          type: git\n          url: "https://example.com/p.git"\n`);
+    const probeHmr = probeReturning({ state: 'on' });
+
+    await expect(applyEnvironment(paths, { probeHmr })).rejects.toThrow('Apply is blocked');
+    expect(probeHmr).not.toHaveBeenCalled();
+  });
+
+  it('probes the profiles of one apply concurrently', async () => {
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1\nprofiles:\n  web:\n${declared(true)}  cli:\n${declared(true)}`
+    );
+    let active = 0;
+    let peak = 0;
+    const probeHmr = vi.fn(async (_profile: string): Promise<HmrStatus> => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      active -= 1;
+      return { state: 'off' };
+    });
+
+    const result = await applyEnvironment(paths, { probeHmr, dryRun: true });
+
+    expect(probeHmr).toHaveBeenCalledTimes(2);
+    expect(peak).toBe(2);
+    expect(result.restart?.required.map((item) => item.profile).sort()).toEqual(['cli', 'web']);
+  });
 });
