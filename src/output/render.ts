@@ -149,7 +149,7 @@ export function renderDoctor(report: DoctorReport): string {
   lines.push(`DSH Runtime Version: ${report.runtime.version}`);
   lines.push(`DSH Command: ${report.runtime.command}`);
   lines.push(`Discovery Capability: ${report.runtime.discoverySupported ? 'Supported (✓)' : 'Unsupported (✗)'}`);
-  lines.push(`Mutation Capability: ${report.runtime.mutationsSupported ? 'Supported (✓)' : 'Not enabled in prototype (read-only mode)'}`);
+  lines.push(`Mutation Capability: ${report.runtime.mutationsSupported ? 'Supported (✓)' : 'Planned apply steps only (no general environment mutation)'}`);
   lines.push('');
   lines.push('Capability details:');
   for (const name of [
