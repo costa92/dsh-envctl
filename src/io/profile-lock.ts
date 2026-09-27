@@ -14,9 +14,15 @@ async function tryCreate(lockPath: string, content: string): Promise<boolean> {
   try {
     const handle = await fs.promises.open(lockPath, 'wx', 0o600);
     try {
-      await handle.writeFile(content);
-    } finally {
-      await handle.close();
+      try {
+        await handle.writeFile(content);
+      } finally {
+        await handle.close();
+      }
+    } catch (writeErr: unknown) {
+      // This lock is ours; left behind it would block DSH until someone deletes it by hand.
+      await fs.promises.rm(lockPath, { force: true });
+      throw writeErr;
     }
     return true;
   } catch (err: unknown) {

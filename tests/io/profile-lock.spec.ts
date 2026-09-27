@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -17,6 +17,7 @@ describe('withProfilePackageLock', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -28,6 +29,19 @@ describe('withProfilePackageLock', () => {
     });
     expect(result).toBe(42);
     expect(seen).toEqual({ content: `${process.pid}\n`, mode: 0o600 });
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
+  it('does not leave an empty lock behind when writing the pid fails', async () => {
+    const realOpen = fs.promises.open;
+    vi.spyOn(fs.promises, 'open').mockImplementation(async (...args: Parameters<typeof realOpen>) => {
+      const handle = await realOpen(...args);
+      vi.spyOn(handle, 'writeFile').mockRejectedValue(Object.assign(new Error('disk full'), { code: 'ENOSPC' }));
+      return handle;
+    });
+    const operation = vi.fn(async () => 1);
+    await expect(withProfilePackageLock(packageJson, operation)).rejects.toThrow('disk full');
+    expect(operation).not.toHaveBeenCalled();
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
