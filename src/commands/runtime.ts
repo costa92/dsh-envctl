@@ -45,7 +45,12 @@ function assertSameProfile(
   if (!fs.existsSync(file)) {
     throw new DshError(`Profile ${profile} has no package.json at ${file}; cannot tell whether DSH at ${endpoint} runs it`);
   }
-  const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { dependencies?: unknown };
+  let raw: { dependencies?: unknown };
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { dependencies?: unknown };
+  } catch {
+    throw new DshError(`Profile ${profile} package.json is not valid JSON: ${file}`);
+  }
   const dependencies = new Set(
     raw.dependencies !== null && typeof raw.dependencies === 'object' ? Object.keys(raw.dependencies as object) : []
   );
@@ -79,7 +84,8 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
       const plugins = parseRuntimePlugins(await callDshWeb(session, 'pluginManager', 'listPlugins'), target.endpoint);
 
       const entries = Object.entries(manifest.profiles[profile]?.plugins ?? {});
-      assertSameProfile(paths, profile, entries.map(([, plugin]) => plugin.package), bundles, target.endpoint);
+      const enabledPackages = entries.filter(([, plugin]) => plugin.enabled !== false).map(([, plugin]) => plugin.package);
+      assertSameProfile(paths, profile, enabledPackages, bundles, target.endpoint);
 
       const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
       const declared: DeclaredPlugin[] = entries.map(([alias, plugin]) => ({

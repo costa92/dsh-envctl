@@ -92,7 +92,6 @@ describe('checkRuntime for a plugin the manifest enables', () => {
 
   it.each([
     ['a row has no entry id', [bundle({ rows: [{ rowId: 'demo', moduleName: PKG }] })], []],
-    ['the entry is not listed', [bundle()], []],
     ['an enabled entry has no fiber', [bundle()], [entry(null)]]
   ])('reports not-loaded when %s and a restart is owed', (_name, bundles, plugins) => {
     expect(one(declared({ restartRequired: true }), bundles, plugins).result).toBe('not-loaded');
@@ -100,12 +99,26 @@ describe('checkRuntime for a plugin the manifest enables', () => {
 
   it.each([
     ['a row has no entry id', [bundle({ rows: [{ rowId: 'demo', moduleName: PKG }] })], []],
-    ['the entry is not listed', [bundle()], []],
     ['an enabled entry has no fiber', [bundle()], [entry(null)]]
   ])('reports loading when %s and no restart is owed', (_name, bundles, plugins) => {
     expect(one(declared({ restartRequired: false }), bundles, plugins)).toMatchObject({
       result: 'loading',
       detail: 'selected on disk; waiting for DSH to hot-reload it'
+    });
+  });
+
+  it('reports loaded when a group row is unlisted by listPlugins but an active child row is enabled', () => {
+    const rows = [
+      { rowId: 'grp', moduleName: 'cordis:group', entryId: 'include:grp' },
+      { rowId: 'demo', moduleName: PKG, entryId: 'include:demo' }
+    ];
+    expect(one(declared(), [bundle({ rows })], [entry('active')]).result).toBe('loaded');
+  });
+
+  it('reports unverifiable when the only row is unlisted by listPlugins', () => {
+    expect(one(declared(), [bundle()], [])).toMatchObject({
+      result: 'unverifiable',
+      detail: 'no plugin rows are listed as enabled by DSH'
     });
   });
 
@@ -127,7 +140,7 @@ describe('checkRuntime for a plugin the manifest enables', () => {
   it('reports unverifiable when configuration disables every row', () => {
     expect(one(declared(), [bundle()], [entry(null, { enabled: false })])).toMatchObject({
       result: 'unverifiable',
-      detail: 'all plugin rows are disabled by configuration'
+      detail: 'no plugin rows are listed as enabled by DSH'
     });
   });
 });
@@ -180,10 +193,13 @@ describe('restart hint', () => {
 
   it.each([
     ['loaded', declared({ restartRequired: true }), [bundle()], [entry('active')]],
-    ['unloaded', declared({ restartRequired: true, enabled: false }), [], []],
     ['unverifiable', declared({ restartRequired: true }), [bundle({ rows: [] })], []]
-  ])('leaves out the hint for %s', (_name, plugin, bundles, plugins) => {
-    expect(one(plugin, bundles, plugins).hint).toBeUndefined();
+  ])('adds the hint for %s when a restart is owed', (_name, plugin, bundles, plugins) => {
+    expect(one(plugin, bundles, plugins).hint).toBe(RESTART_HINT);
+  });
+
+  it('leaves out the hint for unloaded', () => {
+    expect(one(declared({ restartRequired: true, enabled: false }), [], []).hint).toBeUndefined();
   });
 });
 

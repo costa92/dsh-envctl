@@ -155,6 +155,23 @@ describe('CLI runtime', () => {
     expect(out.stderr).toMatch(/does not look like profile web/);
   });
 
+  it('does not flag an unseen package for a disabled non-bundle dependency', async () => {
+    writeManifest(webProfile(false));
+    writeProfileJson({ [PKG]: '0.1.21' });
+    await serve({ bundles: [], plugins: [] });
+    const out = await run(['runtime']);
+    expect(out.code).toBe(0);
+    expect(out.stdout).toContain(`  unloaded  agent-teams  ${PKG}\n`);
+  });
+
+  it('exits 1 with a clear message when the profile package.json is not valid JSON', async () => {
+    fs.writeFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), '{');
+    await serve({ bundles: [agentTeamsBundle()], plugins: [agentTeamsEntry('active')] });
+    const out = await run(['runtime']);
+    expect(out.code).toBe(1);
+    expect(out.stderr).toMatch(/package\.json is not valid JSON/);
+  });
+
   it('exits 1 when the profile has no package.json', async () => {
     fs.rmSync(path.join(tempHome, 'profiles', 'web', 'package.json'));
     await serve({ bundles: [agentTeamsBundle()], plugins: [agentTeamsEntry('active')] });

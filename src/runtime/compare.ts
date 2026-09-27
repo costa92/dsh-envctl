@@ -82,7 +82,6 @@ export function parseRuntimePlugins(value: unknown, endpoint: string): RuntimePl
 type Outcome = Pick<RuntimeCheckItem, 'result' | 'detail'>;
 
 const TRANSIENT_PHASES: ReadonlySet<FiberPhase> = new Set(['pending', 'loading', 'unloading']);
-const SETTLED_RESULTS: ReadonlySet<RuntimeResult> = new Set(['loaded', 'unloaded', 'unverifiable']);
 const BROKEN_RESULTS: ReadonlySet<RuntimeResult> = new Set(['missing', 'failed', 'not-loaded', 'still-loaded']);
 
 function firstLine(text: string): string {
@@ -101,9 +100,14 @@ function expectLoaded(
     const diagnostic = bundle.error.diagnostic === undefined ? '' : firstLine(bundle.error.diagnostic);
     return { result: 'failed', detail: diagnostic === '' ? bundle.error.code : `${bundle.error.code}: ${diagnostic}` };
   }
-  const rowEntries = bundle.rows.map((row) => (row.entryId === undefined ? undefined : entries.get(row.entryId)));
+  // No entryId is evidence DSH has not hot-reloaded yet; an entryId listPlugins doesn't list
+  // is a group row or otherwise unlisted entry, which proves nothing and is skipped like a disabled row.
+  const hasLaggingRow = bundle.rows.some((row) => row.entryId === undefined);
+  const listedEntries = bundle.rows
+    .map((row) => (row.entryId === undefined ? undefined : entries.get(row.entryId)))
+    .filter((found): found is RuntimePlugin => found !== undefined);
   // Rows the configuration switches off are meant to stay unloaded, so they say nothing about this bundle.
-  const live = rowEntries.filter((found): found is RuntimePlugin => found !== undefined && found.enabled);
+  const live = listedEntries.filter((found) => found.enabled);
   const failed = live.find((found) => found.fiberPhase === 'failed');
   if (failed) {
     return { result: 'failed', detail: `plugin ${failed.moduleName} failed to load` };
@@ -111,7 +115,7 @@ function expectLoaded(
   if (!bundle.enabled) {
     return { result: 'not-loaded' };
   }
-  if (rowEntries.includes(undefined) || live.some((found) => found.fiberPhase === null)) {
+  if (hasLaggingRow || live.some((found) => found.fiberPhase === null)) {
     // Right after apply, disk selection can outrun DSH's Loader, which only catches up once files settle (~2s).
     return restartRequired
       ? { result: 'not-loaded' }
@@ -124,7 +128,7 @@ function expectLoaded(
     return { result: 'unverifiable', detail: 'bundle declares no plugin rows' };
   }
   if (live.length === 0) {
-    return { result: 'unverifiable', detail: 'all plugin rows are disabled by configuration' };
+    return { result: 'unverifiable', detail: 'no plugin rows are listed as enabled by DSH' };
   }
   return { result: 'loaded' };
 }
@@ -175,7 +179,7 @@ export function checkRuntime(
     if (outcome.detail !== undefined) {
       item.detail = outcome.detail;
     }
-    if (plugin.restartRequired && !SETTLED_RESULTS.has(outcome.result)) {
+    if (plugin.restartRequired && outcome.result !== 'unloaded') {
       item.hint = RESTART_HINT;
     }
     return item;
