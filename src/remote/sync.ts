@@ -5,7 +5,7 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { createEnvironmentSnapshot, restoreEnvironmentSnapshot } from '../io/backup.js';
-import { appendJournalEntry } from '../io/journal.js';
+import { appendJournalEntry, readJournalEntries } from '../io/journal.js';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { loadState, parseOverlay, serializeLock } from '../manifest/files.js';
 import { readOverlay } from '../overlay/effective.js';
@@ -146,8 +146,23 @@ function manifestAfter(
   return mergeManifest(snapshot.manifest, overlay, selection.name).manifest;
 }
 
+// A killed accept leaves files half-written and remote.json stale; drift errors would then give the wrong advice.
+async function assertNoUnfinishedSync(paths: EnvironmentPaths): Promise<void> {
+  const last = (await readJournalEntries(paths))
+    .filter((entry) => entry.type.startsWith('sync-') || entry.type === 'rollback-completed')
+    .at(-1);
+  if (last && (last.type === 'sync-started' || last.type === 'sync-rollback-failed')) {
+    throw new ValidationError(
+      `The previous sync ${last.operationId} did not finish; run dshenv rollback ${last.operationId} --yes to restore the files it started changing, then sync again`
+    );
+  }
+}
+
 export async function prepareSync(input: PrepareSyncInput): Promise<SyncPreview> {
   const { paths, repoDir, subscription, target, previous } = input;
+  if (previous) {
+    await assertNoUnfinishedSync(paths);
+  }
   if (previous && previous.commit !== target && !(await isAncestor(repoDir, previous.commit, target))) {
     throw new ValidationError(
       `Remote commit ${target} does not descend from the pinned commit ${previous.commit}; the remote history was rewritten or the ref is not on the subscribed history`

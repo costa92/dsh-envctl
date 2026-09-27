@@ -5,6 +5,8 @@ import * as path from 'node:path';
 import { execa } from 'execa';
 import { applyEnvironment } from '../../src/apply/apply.js';
 import { runCli } from '../../src/cli.js';
+import { createEnvironmentSnapshot } from '../../src/io/backup.js';
+import { appendJournalEntry } from '../../src/io/journal.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 import { loadLock } from '../../src/manifest/files.js';
 import { readRemoteConfig, sha256Hex } from '../../src/remote/schema.js';
@@ -310,6 +312,26 @@ profiles:
     expect(fs.existsSync(paths.backupsDir) ? fs.readdirSync(paths.backupsDir) : []).toEqual(snapshotsBefore);
     expect(fs.existsSync(path.join(home, 'profiles', 'web'))).toBe(false);
     expect((await run(['sync'])).code).toBe(0);
+  });
+
+  it('points at rollback when a previous accept was interrupted', async () => {
+    await commitTeamFiles(team, { 'envctl/manifest.yaml': V2_MANIFEST }, 'v2');
+    // Simulate a process killed mid-accept: snapshot and sync-started exist, the manifest is written, remote.json is not.
+    const operationId = 'sync-0123456789ab';
+    await createEnvironmentSnapshot(paths, operationId);
+    await appendJournalEntry(paths, { operationId, type: 'sync-started', timestamp: new Date().toISOString() });
+    fs.writeFileSync(paths.manifestFile, V2_MANIFEST);
+
+    const { code, stderr } = await run(['sync']);
+    expect(code).toBe(3);
+    expect(stderr).toContain(
+      `The previous sync ${operationId} did not finish; run dshenv rollback ${operationId} --yes to restore the files it started changing, then sync again`
+    );
+
+    expect((await run(['rollback', operationId, '--yes'])).code).toBe(0);
+    expect(read(paths.manifestFile)).toBe(TEAM_MANIFEST);
+    expect((await run(['sync', '--yes'])).code).toBe(0);
+    expect(read(paths.manifestFile)).toBe(V2_MANIFEST);
   });
 
   it('is undone by rollback, after which sync still fast-forwards', async () => {
