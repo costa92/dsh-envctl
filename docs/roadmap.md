@@ -108,7 +108,8 @@
 - [x] 远程内容只读：写 base / 远程 overlay / 团队 lock 条目的命令一律拒绝，本机定制写本地 overlay；本地改动需 `--discard-local-changes` 才能覆盖，同名本地文件或条目需 `remote add --replace`
 - [x] 快照与恢复覆盖 `remote.json` 与远程 overlay，`dshenv rollback` 可撤销 `sync`，中途写入失败自动恢复
 - [x] `doctor` 报告订阅 URL、固定 commit 与被改动的远程文件和 lock 条目
-- [x] 真实端到端验证（2026-09-27）：6 个手动验证步骤（订阅预览与接受、本机定制与写保护、团队更新的预览/接受/plan/`apply --dry-run`、快照回滚后再同步、本地改动冲突与 `--discard-local-changes`、凭据 URL 与历史改写拒绝）全部符合预期，未发现缺陷；未覆盖真实 `apply`（非 dry-run）安装与并发文件锁
+- [x] 真实端到端验证（2026-09-27）：6 个手动验证步骤（订阅预览与接受、本机定制与写保护、团队更新的预览/接受/plan/`apply --dry-run`、快照回滚后再同步、本地改动冲突与 `--discard-local-changes`、凭据 URL 与历史改写拒绝）全部符合预期，未发现缺陷；未覆盖并发文件锁
+- [x] 真实 apply 补测（2026-09-27）：npm 版 DSH `0.1.7-rc.2`、隔离 `DSH_HOME`，团队仓库固定真实 npm 插件 `@nanmicoder/dsh-agent-teams@0.1.21`；订阅后 `apply --yes` 真实安装、`dsh --dump-config` 可见插件层、`plan` 退出 0、`doctor` 无本地改动；本地 overlay 不影响 `sync`；团队禁用插件后 `sync --yes` + `apply --yes` 生效；`rollback <sync 快照 id> --yes` 回到首个状态后再次 fast-forward，未发现缺陷
 - [x] 全量测试套件覆盖（当前 75 个测试文件，600 项测试全部通过）
 
 ## 延后能力

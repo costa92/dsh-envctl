@@ -269,7 +269,7 @@ dshenv remote remove --yes                                   # 取消订阅，�
 - `manifest.yaml` 与团队 overlay 整文件归远程；`lock.json` 按 `profile/alias` 条目归属：团队 lock 中的条目归远程，其余条目（本地 overlay 插件的 Git commit、本地源摘要）归本机，同步时只替换团队条目。本地 overlay 把团队 lock 已固定的插件改为 `local-link` / `local-file` 源时，`apply` 以退出码 3 拒绝；应在本地 overlay 中对它写 `remove: true`，再以新 alias 加入本地源插件。
 - 远程内容只读：写 base、写远程 overlay、改写团队 lock 条目的命令都以退出码 3 拒绝；本机定制写本地 overlay（`--layer overlay`），`source clone --profile` 等写本机条目的命令照常可用。
 - 本地已有 `manifest.yaml`、同名 overlay，或本地 lock 已有团队 lock 同名条目时，`remote add` 需要 `--replace`（先快照再覆盖）；本地改过远程文件或团队条目时 `sync` 拒绝，`--discard-local-changes` 可覆盖。
-- 每次接受都会先建快照，`dshenv rollback --yes` 可撤销；接受后不会自动 `apply`。接受更新即同意执行其中声明的插件。
+- 每次接受都会先建快照，用 `dshenv rollback <快照 id> --yes` 撤销（id 见接受时输出的 `snapshot ...`；之后又 `apply` 过时，不带 id 的 `rollback --yes` 只会撤销那次 apply）；接受后不会自动 `apply`。接受更新即同意执行其中声明的插件。
 - URL 不得内嵌凭据（认证交给 SSH 或 git credential helper）；git 失败时退出码 1，并带出 git 的原始错误。
 - `--json` 时 `sync` 输出 `{status, from, to, files: {added, modified, removed}, lockEntries: {added, modified, removed}, plan}`，lock 条目写作 `<profile>/<alias>`，`status` 为 `up-to-date`、`pending` 或 `accepted`。
 
