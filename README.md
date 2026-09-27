@@ -67,6 +67,8 @@ dshenv --version
 
 完整流程、能力边界、agent-teams 示例和常见问题见 [中文使用教程](docs/使用教程.md)。
 
+DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容性，放宽版本门禁的步骤见 [DSH 新版本兼容验证](docs/DSH版本升级.md)。
+
 ---
 
 ## 命令参考
