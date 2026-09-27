@@ -14,6 +14,8 @@ export interface EnvironmentPaths {
   trashDir: string;
   overlaysDir: string;
   overlaySelectionFile: string;
+  remoteFile: string;
+  remoteDir: string;
 }
 
 export interface ResolvePathsInput {
@@ -56,6 +58,8 @@ export function resolveEnvironmentPaths(input?: ResolvePathsInput): EnvironmentP
     logsDir: path.join(managerDir, 'logs'),
     trashDir: path.join(managerDir, 'trash'),
     overlaysDir: path.join(managerDir, 'overlays'),
-    overlaySelectionFile: path.join(managerDir, 'overlay-selection.json')
+    overlaySelectionFile: path.join(managerDir, 'overlay-selection.json'),
+    remoteFile: path.join(managerDir, 'remote.json'),
+    remoteDir: path.join(managerDir, 'remote')
   };
 }

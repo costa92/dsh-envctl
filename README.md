@@ -18,6 +18,7 @@
 - **多运行时与能力探测**：无缝支持源码运行模式（`--harness-source`）、环境变量（`DSH_CLI`）及全局 PATH 探测（`doctor`）。
 - **结构化成功输出**：所有命令的成功结果均支持 `--json` 格式；错误当前仍以纯文本写入 stderr。
 - **组件脚手架**：`dshenv new` 从模板生成 skill/agent/tool/mcp 组件包，可选直接登记进清单。
+- **团队共享基线**：`dshenv remote add` 订阅团队 Git 配置仓库，`dshenv sync` 预览并显式接受固定 commit 的更新；远程文件与团队 lock 条目只读，本机定制写本地 overlay，其插件的 lock 条目照常由本机维护。
 
 ---
 
@@ -228,7 +229,7 @@ dshenv restarted --profile web --json
 ```
 
 ### 17. 在 CI 中使用
-仓库自身的 CI 见 `.github/workflows/ci.yml`（Node 22/24 上跑 typecheck、test、build）。在你的配置仓库里校验清单与 overlay、在真实环境上做漂移门禁，可参考 `docs/examples/github-actions/dshenv-check.yml`，说明见 `docs/使用教程.md` 第 14 节。
+仓库自身的 CI 见 `.github/workflows/ci.yml`（Node 22/24 上跑 typecheck、test、build）。在你的配置仓库里校验清单与 overlay、在真实环境上做漂移门禁，可参考 `docs/examples/github-actions/dshenv-check.yml`，说明见 `docs/使用教程.md` 第 15 节。
 
 ### 18. `dshenv new`
 
@@ -249,6 +250,28 @@ dshenv new mcp docs-server              # MCP server 配置包
 ### 19. 容器示例
 
 `docs/examples/container/` 提供构建 DSH Web 容器镜像的 `Dockerfile`、`compose.yaml` 与 `cordis.patch.yml`，镜像构建期执行 `dshenv apply` 装好清单声明的插件。安全要点：容器内监听 `0.0.0.0` 只是为了让 Docker 转发端口，宿主机端口必须只发布到 `127.0.0.1`（不要用 `-P`），否则会把 DSH Web 的 shell 执行能力暴露到局域网；回环发布挡不住同一 Docker 网络内的其他容器，它们能直接访问容器 IP 并通过 Host 校验，只剩启动 token 一道防线，因此应放在独立的自定义网络上（compose 的项目网络即可，但同项目新增的服务也能访问）。完整用法、构建参数与数据卷说明见 `docs/examples/container/README.md`。
+
+### 20. `dshenv remote` 与 `dshenv sync`
+
+团队在一个 Git 配置仓库中维护 base 清单、lock 与团队 overlay（默认读取仓库内 `envctl/`），成员订阅后按固定 commit 显式接受更新：
+
+```bash
+dshenv remote add git@github.com:team/dsh-config.git          # 预览：文件变化与接受后的 plan，退出码 2，不写文件
+dshenv remote add git@github.com:team/dsh-config.git --yes    # 接受并固定到分支最新 commit
+dshenv remote show                                           # URL、分支、固定 commit、远程文件与 lock 条目及本地改动
+dshenv sync                                                  # 拉取并预览更新，退出码 2；已是最新时退出码 0
+dshenv sync --yes                                            # 接受更新（只接受 fast-forward），之后自行 plan / apply
+dshenv sync --ref v1.2.0 --yes                               # 移动到订阅分支上的某个 tag 或 commit
+dshenv remote remove --yes                                   # 取消订阅，文件保留为本地文件
+```
+
+- 只采用 `<path>/manifest.yaml`（必需）、`<path>/lock.json`、`<path>/overlays/*.yaml`；`--path` 指定仓库内目录（`.` 为仓库根），`--branch` 指定分支（默认远程 HEAD 所指分支）。团队 manifest、团队 overlay 与团队 lock 都不能使用 `local-link` / `local-file` 源（本机路径无法跨机器共享），否则整个 commit 被拒绝。
+- `manifest.yaml` 与团队 overlay 整文件归远程；`lock.json` 按 `profile/alias` 条目归属：团队 lock 中的条目归远程，其余条目（本地 overlay 插件的 Git commit、本地源摘要）归本机，同步时只替换团队条目。本地 overlay 把团队 lock 已固定的插件改为 `local-link` / `local-file` 源时，`apply` 以退出码 3 拒绝；应在本地 overlay 中对它写 `remove: true`，再以新 alias 加入本地源插件。
+- 远程内容只读：写 base、写远程 overlay、改写团队 lock 条目的命令都以退出码 3 拒绝；本机定制写本地 overlay（`--layer overlay`），`source clone --profile` 等写本机条目的命令照常可用。
+- 本地已有 `manifest.yaml`、同名 overlay，或本地 lock 已有团队 lock 同名条目时，`remote add` 需要 `--replace`（先快照再覆盖）；本地改过远程文件或团队条目时 `sync` 拒绝，`--discard-local-changes` 可覆盖。
+- 每次接受都会先建快照，`dshenv rollback --yes` 可撤销；接受后不会自动 `apply`。接受更新即同意执行其中声明的插件。
+- URL 不得内嵌凭据（认证交给 SSH 或 git credential helper）；git 失败时退出码 1，并带出 git 的原始错误。
+- `--json` 时 `sync` 输出 `{status, from, to, files: {added, modified, removed}, lockEntries: {added, modified, removed}, plan}`，lock 条目写作 `<profile>/<alias>`，`status` 为 `up-to-date`、`pending` 或 `accepted`。
 
 ---
 

@@ -15,6 +15,8 @@ describe('resolveEnvironmentPaths', () => {
     expect(paths.backupsDir).toBe('/Users/costalong/.dsh/envctl/backups');
     expect(paths.logsDir).toBe('/Users/costalong/.dsh/envctl/logs');
     expect(paths.trashDir).toBe('/Users/costalong/.dsh/envctl/trash');
+    expect(paths.remoteFile).toBe('/Users/costalong/.dsh/envctl/remote.json');
+    expect(paths.remoteDir).toBe('/Users/costalong/.dsh/envctl/remote');
   });
 
   it('should prioritize cliDshHome over env and default', () => {

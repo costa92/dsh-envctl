@@ -13,6 +13,8 @@ import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { assertBaseMergesWithOverlay, removeOverlayPlugin, resolveWriteLayer, saveOverlay, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
+import { assertLockEntryNotRemoteOwned, assertNotRemoteOwned } from '../remote/ownership.js';
+import { readRemoteConfig } from '../remote/schema.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, aliasOption, type CommandContext } from './context.js';
 import { withEnvironmentLock } from '../io/lock.js';
 import { readPackageJsonName } from '../source/local.js';
@@ -156,6 +158,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     edit: (manifest: EnvironmentManifest) => T
   ): Promise<T> {
     return withEnvironmentLock(paths, async () => {
+      assertNotRemoteOwned(paths, paths.manifestFile);
       const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
       const result = edit(manifest);
       assertBaseMergesWithOverlay(paths, selection, manifest);
@@ -187,10 +190,18 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
       const lockPlugin = lock.profiles[profile]?.plugins[alias];
       if (lockPlugin?.source.type === 'npm') {
+        assertLockEntryNotRemoteOwned(paths, profile, alias);
         lockPlugin.source = { ...lockPlugin.source, resolvedVersion: version };
         await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
       }
     });
+  }
+
+  function lockPinsNpm(paths: EnvironmentPaths, profile: string, alias: string): boolean {
+    if (!fs.existsSync(paths.lockFile)) {
+      return false;
+    }
+    return loadLock(fs.readFileSync(paths.lockFile, 'utf8')).profiles[profile]?.plugins[alias]?.source.type === 'npm';
   }
 
   async function installPlugin(
@@ -275,6 +286,11 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       const profile: string = cmdOpts.profile;
       const version: string = cmdOpts.to;
       const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
+      // The lock pin runs after the manifest write, so a team-pinned entry must be refused before anything is written.
+      // Skip the lock read entirely when unsubscribed, so a corrupt lock.json still fails where it always did.
+      if (readRemoteConfig(paths) && lockPinsNpm(paths, profile, alias)) {
+        assertLockEntryNotRemoteOwned(paths, profile, alias);
+      }
       const npmOnly = (type: string) => new ValidationError(`update --to currently supports npm sources only (got ${type})`);
 
       if (overlay) {

@@ -9,6 +9,8 @@ import { ValidationError, CapabilityError } from '../errors.js';
 import type { EnvironmentLock, EnvironmentManifest, EnvironmentState } from '../domain.js';
 import { loadEffectiveManifest, overlaySwitchWarning, readOverlay } from '../overlay/effective.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
+import { readRemoteConfig } from '../remote/schema.js';
+import { findLocalDrift, findRemoteLockDrift } from '../remote/ownership.js';
 
 export function registerInspectCommands(ctx: CommandContext): void {
   const { program, writeOut, writeErr, setExitCode } = ctx;
@@ -113,6 +115,8 @@ export function registerInspectCommands(ctx: CommandContext): void {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
+      const remote = readRemoteConfig(paths);
+
       const selection = resolveCliOverlay(opts, paths);
       let manifest: EnvironmentManifest | undefined;
       if (selection && !fs.existsSync(paths.manifestFile)) {
@@ -177,7 +181,19 @@ export function registerInspectCommands(ctx: CommandContext): void {
           manifestExists: fs.existsSync(paths.manifestFile),
           lockExists: fs.existsSync(paths.lockFile),
           stateExists: fs.existsSync(paths.stateFile)
-        }
+        },
+        ...(remote
+          ? {
+              remote: {
+                url: remote.url,
+                branch: remote.branch,
+                path: remote.path,
+                commit: remote.commit,
+                drift: findLocalDrift(paths, remote),
+                lockDrift: findRemoteLockDrift(paths, remote)
+              }
+            }
+          : {})
       };
 
       if (opts.json) {

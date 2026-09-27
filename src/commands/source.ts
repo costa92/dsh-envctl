@@ -17,7 +17,9 @@ import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { acquireEnvironmentLock, withEnvironmentLock } from '../io/lock.js';
 import { hasEmbeddedCredentials } from '../manifest/schema.js';
 import { readPackageJsonName } from '../source/local.js';
+import { assertLockEntryNotRemoteOwned, assertNotRemoteOwned } from '../remote/ownership.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
+import { overlayFilePath } from '../overlay/selection.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, aliasOption, type CommandContext } from './context.js';
 
 function overlaySuffix(name: string): string {
@@ -126,6 +128,15 @@ export function registerSourceCommands(ctx: CommandContext): void {
       try {
         if (cmdOpts.profile && !fs.existsSync(paths.manifestFile)) {
           throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+        }
+        if (cmdOpts.profile) {
+          // Refuse before cloning: this command writes the alias's lock entry, and the base unless it targets the overlay.
+          assertLockEntryNotRemoteOwned(paths, cmdOpts.profile, alias);
+          if (layer !== 'overlay') {
+            assertNotRemoteOwned(paths, paths.manifestFile);
+          } else if (selection) {
+            assertNotRemoteOwned(paths, overlayFilePath(paths, selection.name));
+          }
         }
         res = await cloneManagedGit(url, cloneDir, cmdOpts.ref);
 
@@ -257,6 +268,11 @@ export function registerSourceCommands(ctx: CommandContext): void {
         resolvedTarget = path.resolve(process.cwd(), targetDir);
       } else {
         throw new ValidationError('source pull requires <targetDir> or --profile');
+      }
+
+      if (cmdOpts.profile && alias) {
+        // The lock entry is rewritten after the fast-forward, so refuse before touching the checkout.
+        assertLockEntryNotRemoteOwned(paths, cmdOpts.profile, alias);
       }
 
       const res = await safeFastForwardManagedGit(resolvedTarget, ref);
