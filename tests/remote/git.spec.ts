@@ -90,6 +90,23 @@ describe('remote git helpers', () => {
     await expect(resolveTargetRef(repoDir, '--upload-pack=x')).rejects.toThrow("Invalid ref: '--upload-pack=x'");
   });
 
+  it('rejects refs git would not accept, with exit code 3', async () => {
+    await fetchBranch(repoDir, 'main');
+    for (const ref of ['v1:refs/heads/x', 'v*', 'v?', 'v[1]', 'v\\1', 'v^', 'v~1', 'v 1', 'v\t1', 'a..b', 'v\u00011']) {
+      await expect(resolveTargetRef(repoDir, ref)).rejects.toMatchObject({ exitCode: 3, message: `Invalid ref: '${ref}'` });
+    }
+  });
+
+  it('reports an unknown tag or commit as a validation error', async () => {
+    await fetchBranch(repoDir, 'main');
+    for (const ref of ['no-such-tag', 'abcdef1']) {
+      await expect(resolveTargetRef(repoDir, ref)).rejects.toMatchObject({
+        exitCode: 3,
+        message: `Ref '${ref}' was not found: it is neither a commit on the fetched branch nor a tag of the remote`
+      });
+    }
+  });
+
   it('reports git failures with exit code 1 and the git stderr', async () => {
     const err = await cloneRemoteRepo(`file://${root}/missing.git`, path.join(root, 'other.git')).catch((e: unknown) => e);
     expect(err).toMatchObject({ exitCode: 1 });

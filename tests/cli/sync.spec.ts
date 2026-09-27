@@ -175,6 +175,15 @@ describe('CLI sync', () => {
     expect(offBranch.stderr).toContain(`Ref 'side-tag' (${side}) is not on branch 'main'`);
   });
 
+  it('exits 3 for a --ref that is malformed or does not exist', async () => {
+    const unknown = await run(['sync', '--ref', 'no-such-tag']);
+    expect(unknown.code).toBe(3);
+    expect(unknown.stderr).toContain("Ref 'no-such-tag' was not found");
+    const malformed = await run(['sync', '--ref', 'v1:refs/heads/x']);
+    expect(malformed.code).toBe(3);
+    expect(malformed.stderr).toContain("Invalid ref: 'v1:refs/heads/x'");
+  });
+
   it('refuses a local overlay named like a new remote overlay', async () => {
     fs.writeFileSync(overlayFile('new'), LOCAL_OVERLAY);
     await commitTeamFiles(team, { 'envctl/overlays/new.yaml': TEAM_OVERLAY }, 'add new');
