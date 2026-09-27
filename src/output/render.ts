@@ -1,5 +1,7 @@
 import type { EnvironmentPlan, EnvironmentStatusSummary } from '../planner/plan.js';
 import type { DshCapabilities } from '../dsh/capabilities.js';
+import type { LockEntryDrift } from '../remote/lock-entries.js';
+import { describeRemoteDrift, type RemoteFileDrift } from '../remote/ownership.js';
 
 export function renderPlan(plan: EnvironmentPlan): string {
   const lines: string[] = [];
@@ -101,6 +103,14 @@ export interface DoctorReport {
     lockExists: boolean;
     stateExists: boolean;
   };
+  remote?: {
+    url: string;
+    branch: string;
+    path: string;
+    commit: string;
+    drift: RemoteFileDrift[];
+    lockDrift: LockEntryDrift[];
+  };
 }
 
 export function renderDoctor(report: DoctorReport): string {
@@ -130,6 +140,16 @@ export function renderDoctor(report: DoctorReport): string {
   lines.push(`  Manifest: ${report.paths.manifestExists ? 'Found' : 'Not created'}`);
   lines.push(`  Lockfile: ${report.paths.lockExists ? 'Found' : 'Not created'}`);
   lines.push(`  State: ${report.paths.stateExists ? 'Found' : 'Not created'}`);
+
+  if (report.remote) {
+    const changes = describeRemoteDrift(report.remote.drift, report.remote.lockDrift).join(', ');
+    lines.push('');
+    lines.push('Remote:');
+    lines.push(`  URL: ${report.remote.url}`);
+    lines.push(`  Branch: ${report.remote.branch}`);
+    lines.push(`  Pinned Commit: ${report.remote.commit}`);
+    lines.push(`  Local Changes: ${changes || 'none'}`);
+  }
 
   return lines.join('\n') + '\n';
 }
