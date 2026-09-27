@@ -45,7 +45,7 @@ DSH 运行时命令解析优先级：
 ### 从 Git 地址安装
 
 ```bash
-pnpm add -g --allow-build=dsh-envctl "git+ssh://git@github.com/costa92/dsh-envctl.git#master"
+pnpm add -g --allow-build=dsh-envctl "git+https://github.com/costa92/dsh-envctl.git#master"
 dshenv --version
 ```
 
