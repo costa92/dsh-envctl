@@ -31,6 +31,8 @@ RUN useradd --create-home --shell /bin/bash dsh
 ENV DSH_HOME=/home/dsh/.dsh
 USER dsh
 WORKDIR /home/dsh
+# Created as dsh so the compose named volume mounted here is initialized with dsh ownership.
+RUN mkdir -p /home/dsh/.dsh/sessions
 COPY --chown=dsh:dsh envctl/ /home/dsh/.dsh/envctl/
 # Binds the web server to all container interfaces; see the file for why the port must stay on host loopback.
 COPY --chown=dsh:dsh cordis.patch.yml /home/dsh/.dsh/cordis.patch.yml

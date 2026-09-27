@@ -11,3 +11,8 @@ services:
       - '127.0.0.1:3080:3080'
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      # Session logs only; profiles/ and envctl/ must come from the image so each build re-applies the manifest.
+      - dsh-data:/home/dsh/.dsh/sessions
+volumes:
+  dsh-data: {}

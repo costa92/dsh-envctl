@@ -74,4 +74,18 @@ describe('container example', () => {
     // Also check for the literal DEEPSEEK_API_KEY
     expect(dockerfile).not.toContain('DEEPSEEK_API_KEY');
   });
+
+  it('persists session data without shadowing the applied plugin environment', () => {
+    const compose = YAML.parse(read('compose.yaml')) as { services: Record<string, { volumes?: string[] }> };
+    const targets = Object.values(compose.services)
+      .flatMap((service) => service.volumes ?? [])
+      .map((volume) => volume.split(':')[1]);
+    expect(targets).toEqual(['/home/dsh/.dsh/sessions']);
+    for (const target of targets) {
+      expect(target.replace(/\/+$/, '')).not.toBe('/home/dsh/.dsh');
+      expect(target.startsWith('/home/dsh/.dsh/profiles')).toBe(false);
+      expect(target.startsWith('/home/dsh/.dsh/envctl')).toBe(false);
+    }
+    expect(dockerfile.indexOf('USER dsh')).toBeLessThan(dockerfile.indexOf('mkdir -p /home/dsh/.dsh/sessions'));
+  });
 });
