@@ -101,13 +101,22 @@
 - [x] 会话日志挂载命名卷 `dsh-data:/home/dsh/.dsh/sessions`，`profiles/`、`envctl/` 仍来自镜像不进卷
 - [x] 真实 Docker 构建验证（2026-09-27）：scratch 配置仓库 apply/plan 通过，端口只回环可达、外部 Host 头访问 `/api` 被拒，容器重建后会话数据经卷保留、`storages/workspace.json` 按预期不保留
 
+### 远程分发：团队共享基线（已实现）
+- [x] `dshenv remote add/show/remove` 与 `dshenv sync`：订阅团队 Git 配置仓库（裸克隆于 `envctl/remote/repo.git`），采用 `<path>/manifest.yaml`、`lock.json`、`overlays/*.yaml`，固定到明确 commit 并记录于 `envctl/remote.json`（文件与 lock 条目的 sha256 摘要）
+- [x] lock 按 `profile/alias` 条目归属：同步时只替换团队条目，本地 overlay 插件的 Git commit 与本地源摘要保留；团队 lock 不得含本机源条目
+- [x] 预览（退出码 2）展示文件与 lock 条目的增删改及接受后的 plan；`--yes` 接受，只接受 fast-forward；`--ref` 限于订阅分支；接受后不自动 `apply`
+- [x] 远程内容只读：写 base / 远程 overlay / 团队 lock 条目的命令一律拒绝，本机定制写本地 overlay；本地改动需 `--discard-local-changes` 才能覆盖，同名本地文件或条目需 `remote add --replace`
+- [x] 快照与恢复覆盖 `remote.json` 与远程 overlay，`dshenv rollback` 可撤销 `sync`，中途写入失败自动恢复
+- [x] `doctor` 报告订阅 URL、固定 commit 与被改动的远程文件和 lock 条目
+- [x] 真实端到端验证（2026-09-27）：6 个手动验证步骤（订阅预览与接受、本机定制与写保护、团队更新的预览/接受/plan/`apply --dry-run`、快照回滚后再同步、本地改动冲突与 `--discard-local-changes`、凭据 URL 与历史改写拒绝）全部符合预期，未发现缺陷；未覆盖真实 `apply`（非 dry-run）安装与并发文件锁
+- [x] 全量测试套件覆盖（当前 75 个测试文件，600 项测试全部通过）
+
 ## 延后能力
 
 下列项有价值，但引入独立的兼容或数据模型子系统，不进入近期阶段：
 
 - 动态 HMR / 调用运行时内部 service（如 `ctx.dynamicCordisRunner`）
 - 静态 Cordis Service DAG 分析（需插件暴露机器可读的服务贡献元数据）
-- 远程环境分发
 - GUI / TUI / 插件市场 / 主观发行版
 - 自动重启非本工具启动的 DSH 进程
 - Desktop 内嵌 Harness 管理
