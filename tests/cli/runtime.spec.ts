@@ -125,10 +125,19 @@ describe('CLI runtime', () => {
 
   it('exits 5 when a disabled plugin is still loaded', async () => {
     writeManifest(webProfile(false));
-    await serve({ bundles: [agentTeamsBundle({ enabled: false })], plugins: [agentTeamsEntry('active')] });
+    await serve({ bundles: [agentTeamsBundle()], plugins: [agentTeamsEntry('active')] });
     const out = await run(['runtime']);
     expect(out.code).toBe(5);
     expect(out.stdout).toContain('still-loaded');
+  });
+
+  it('exits 2 while DSH has not yet hot-reloaded a deselected plugin', async () => {
+    writeManifest(webProfile(false));
+    await serve({ bundles: [agentTeamsBundle({ enabled: false })], plugins: [agentTeamsEntry('active')] });
+    const out = await run(['runtime']);
+    expect(out.code).toBe(2);
+    expect(out.stdout).toContain('loading');
+    expect(out.stdout).toContain('(deselected on disk; waiting for DSH to hot-reload it)');
   });
 
   it('exits 1 when the running dsh has packages this profile does not', async () => {

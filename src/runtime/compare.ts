@@ -89,7 +89,11 @@ function firstLine(text: string): string {
   return text.split('\n').map((line) => line.trim()).find((line) => line !== '') ?? '';
 }
 
-function expectLoaded(bundle: RuntimeBundle | undefined, entries: ReadonlyMap<string, RuntimePlugin>): Outcome {
+function expectLoaded(
+  bundle: RuntimeBundle | undefined,
+  entries: ReadonlyMap<string, RuntimePlugin>,
+  restartRequired: boolean
+): Outcome {
   if (!bundle) {
     return { result: 'missing' };
   }
@@ -104,8 +108,14 @@ function expectLoaded(bundle: RuntimeBundle | undefined, entries: ReadonlyMap<st
   if (failed) {
     return { result: 'failed', detail: `plugin ${failed.moduleName} failed to load` };
   }
-  if (!bundle.enabled || rowEntries.includes(undefined) || live.some((found) => found.fiberPhase === null)) {
+  if (!bundle.enabled) {
     return { result: 'not-loaded' };
+  }
+  if (rowEntries.includes(undefined) || live.some((found) => found.fiberPhase === null)) {
+    // Right after apply, disk selection can outrun DSH's Loader, which only catches up once files settle (~2s).
+    return restartRequired
+      ? { result: 'not-loaded' }
+      : { result: 'loading', detail: 'selected on disk; waiting for DSH to hot-reload it' };
   }
   if (live.some((found) => TRANSIENT_PHASES.has(found.fiberPhase))) {
     return { result: 'loading' };
@@ -122,7 +132,8 @@ function expectLoaded(bundle: RuntimeBundle | undefined, entries: ReadonlyMap<st
 function expectUnloaded(
   bundle: RuntimeBundle | undefined,
   bundles: RuntimeBundle[],
-  entries: ReadonlyMap<string, RuntimePlugin>
+  entries: ReadonlyMap<string, RuntimePlugin>,
+  restartRequired: boolean
 ): Outcome {
   if (!bundle) {
     return { result: 'unloaded' };
@@ -134,7 +145,14 @@ function expectUnloaded(
   const stillLive = bundle.rows.some(
     (row) => !shared.has(row.rowId) && row.entryId !== undefined && (entries.get(row.entryId)?.fiberPhase ?? null) !== null
   );
-  return { result: stillLive ? 'still-loaded' : 'unloaded' };
+  if (!stillLive) {
+    return { result: 'unloaded' };
+  }
+  // Right after apply, DSH's Loader can lag the disk deselection until files settle (~2s).
+  if (!bundle.enabled && !restartRequired) {
+    return { result: 'loading', detail: 'deselected on disk; waiting for DSH to hot-reload it' };
+  }
+  return { result: 'still-loaded' };
 }
 
 export function checkRuntime(
@@ -145,7 +163,9 @@ export function checkRuntime(
   const entries = new Map(plugins.map((plugin) => [plugin.entryId, plugin]));
   return declared.map((plugin) => {
     const bundle = bundles.find((candidate) => candidate.name === plugin.package);
-    const outcome = plugin.enabled ? expectLoaded(bundle, entries) : expectUnloaded(bundle, bundles, entries);
+    const outcome = plugin.enabled
+      ? expectLoaded(bundle, entries, plugin.restartRequired)
+      : expectUnloaded(bundle, bundles, entries, plugin.restartRequired);
     const item: RuntimeCheckItem = {
       alias: plugin.alias,
       package: plugin.package,

@@ -85,13 +85,28 @@ describe('checkRuntime for a plugin the manifest enables', () => {
     expect(one(declared(), [bundle({ enabled: false, error: { code: 'not-bundle' } })], []).result).toBe('failed');
   });
 
+  it('reports not-loaded when the bundle is not selected, restart owed or not', () => {
+    expect(one(declared(), [bundle({ enabled: false })], [entry('active')]).result).toBe('not-loaded');
+    expect(one(declared({ restartRequired: true }), [bundle({ enabled: false })], [entry('active')]).result).toBe('not-loaded');
+  });
+
   it.each([
-    ['the bundle is not selected', [bundle({ enabled: false })], [entry('active')]],
     ['a row has no entry id', [bundle({ rows: [{ rowId: 'demo', moduleName: PKG }] })], []],
     ['the entry is not listed', [bundle()], []],
     ['an enabled entry has no fiber', [bundle()], [entry(null)]]
-  ])('reports not-loaded when %s', (_name, bundles, plugins) => {
-    expect(one(declared(), bundles, plugins).result).toBe('not-loaded');
+  ])('reports not-loaded when %s and a restart is owed', (_name, bundles, plugins) => {
+    expect(one(declared({ restartRequired: true }), bundles, plugins).result).toBe('not-loaded');
+  });
+
+  it.each([
+    ['a row has no entry id', [bundle({ rows: [{ rowId: 'demo', moduleName: PKG }] })], []],
+    ['the entry is not listed', [bundle()], []],
+    ['an enabled entry has no fiber', [bundle()], [entry(null)]]
+  ])('reports loading when %s and no restart is owed', (_name, bundles, plugins) => {
+    expect(one(declared({ restartRequired: false }), bundles, plugins)).toMatchObject({
+      result: 'loading',
+      detail: 'selected on disk; waiting for DSH to hot-reload it'
+    });
   });
 
   it.each(['pending', 'loading', 'unloading'] as const)('reports loading while an entry is %s', (phase) => {
@@ -133,8 +148,19 @@ describe('checkRuntime for a plugin the manifest disables', () => {
     expect(one(off, [], []).result).toBe('unloaded');
   });
 
-  it('reports still-loaded when an own row has a live entry', () => {
-    expect(one(off, [bundle({ enabled: false })], [entry('active')]).result).toBe('still-loaded');
+  it('reports still-loaded when an own row has a live entry and the bundle is still selected on disk', () => {
+    expect(one(off, [bundle({ enabled: true })], [entry('active')]).result).toBe('still-loaded');
+  });
+
+  it('reports still-loaded when an own row has a live entry and a restart is owed', () => {
+    expect(one(declared({ enabled: false, restartRequired: true }), [bundle({ enabled: false })], [entry('active')]).result).toBe('still-loaded');
+  });
+
+  it('reports loading when an own row has a live entry, deselected on disk, and no restart is owed', () => {
+    expect(one(off, [bundle({ enabled: false })], [entry('active')])).toMatchObject({
+      result: 'loading',
+      detail: 'deselected on disk; waiting for DSH to hot-reload it'
+    });
   });
 
   it('treats an entry without a fiber as unloaded', () => {
