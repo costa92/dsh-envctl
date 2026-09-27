@@ -1,0 +1,16 @@
+# Home-level DSH patch for the container image.
+#
+# SECURITY: DSH Web drives an agent that runs shell commands. `dsh web --host 0.0.0.0` is refused
+# on purpose because listening beyond loopback exposes remote code execution. Inside the container
+# the server must listen on all interfaces so Docker can forward to it; publish the port ONLY to
+# host loopback (127.0.0.1:3080:3080). Publishing 3080:3080 or attaching a shared network exposes
+# remote code execution to everyone who can reach it.
+#
+# A patch replaces the row's whole config, so every webserver field is restated.
+- id: webserver
+  config:
+    host: '0.0.0.0'
+    port: 3080
+    compression: gzip
+    compressionLevel: 1
+    compressionThresholdBytes: 1024
