@@ -97,7 +97,12 @@ export function replacePluginBlocks(
     result += before + replacement;
     cursor = match.index + match[0].length;
   });
-  return result + existingContent.slice(cursor);
+  result += existingContent.slice(cursor);
+  // DSH refuses a patch file that is not a top-level array, so a file left with only comments gets its `[]` back.
+  if (blocks.length === 0 && result.replace(/^\s*#.*$/gm, '').trim() === '') {
+    return `${result}${result === '' || result.endsWith('\n') ? '' : '\n'}[]\n`;
+  }
+  return result;
 }
 
 export function applyPatchBlock(

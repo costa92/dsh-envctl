@@ -139,6 +139,15 @@ suffix: true
     expect(extractManagedPatches(updated, 'web')[0].config).toEqual({ k: 1 });
   });
 
+  it('leaves a top-level empty array when the last block leaves a fresh profile patch file', () => {
+    const originalFile = '# Your patch layer for this dsh profile\n[]\n';
+    const withBlock = applyPatchBlock(originalFile, 'web', 'demo', 'demo', { k: 1 });
+    const cleared = removePatchBlock(withBlock, 'web', 'demo');
+    // DSH refuses a profile patch file that is not a top-level array.
+    expect(YAML.parse(cleared)).toEqual([]);
+    expect(cleared.startsWith('# Your patch layer for this dsh profile\n')).toBe(true);
+  });
+
   it('removes a block without collapsing blank lines elsewhere in the file', () => {
     const userContent = 'keep: 1\n\n\n\nother: 2\n';
     const withBlock = applyPatchBlock(userContent, 'web', 'demo', 'demo', { k: 1 });
