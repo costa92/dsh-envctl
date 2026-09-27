@@ -96,4 +96,6 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 
 真实对话（2026-09-27）：运行时以 `-e DEEPSEEK_API_KEY` 传入 key，通过 DSH Web 的 `/api`（与 Web UI 相同的 HTTP 接口：登录、`session/create`、`session/prompt`、`session/page`）发送一条消息，模型正常回复；Web UI 的流式通道（WebSocket `/api/remote.mux` 上的 `session/follow`）也验证过，回复以多个 `text-delta` 帧陆续推送到达，拼接结果与最终保存的回复一致；不带 key 的对照容器以 `MISSING_CREDENTIAL` 结束。key 只在运行时传入，镜像历史与容器内 `$DSH_HOME` 中都查不到。
 
-未验证：把端口发布到宿主机真实 `3080`（本机端口被占用，验证用的是 `127.0.0.1:13080:3080`，仅端口号不同）；Docker Desktop（macOS/Windows）。
+端口发布：验证用的是 `127.0.0.1:13080:3080`（本机 3080 被占用），与默认的 `127.0.0.1:3080:3080` 只差宿主机端口号，视为已覆盖。
+
+未验证：Docker Desktop（macOS/Windows）。
