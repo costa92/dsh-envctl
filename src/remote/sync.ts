@@ -258,6 +258,9 @@ export async function acceptSync(paths: EnvironmentPaths, preview: SyncPreview):
         created.push(file);
       }
       await writeAtomic(file, preview.snapshot.files[key], 'overwrite');
+      if (preview.snapshot.executables.includes(key)) {
+        await fs.promises.chmod(file, 0o755);
+      }
     }
     for (const key of preview.files.removed) {
       await fs.promises.rm(remoteFilePath(paths, key), { force: true });

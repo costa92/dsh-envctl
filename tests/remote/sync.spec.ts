@@ -198,6 +198,17 @@ describe('remote sync engine', () => {
     expect(fs.existsSync(path.join(paths.skillsDir, 'wiki'))).toBe(false);
   });
 
+  it('keeps a team skill script executable', async () => {
+    await subscribe();
+    const script = path.join(team.work, 'envctl', 'skills', 'wiki', 'run.sh');
+    fs.mkdirSync(path.dirname(script), { recursive: true });
+    fs.writeFileSync(script, '#!/bin/sh\n', { mode: 0o755 });
+    await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v1' }, 'skills');
+    await acceptSync(paths, await prepare({ previous: true }));
+    expect(fs.statSync(path.join(paths.skillsDir, 'wiki', 'run.sh')).mode & 0o111).not.toBe(0);
+    expect(fs.statSync(path.join(paths.skillsDir, 'wiki', 'SKILL.md')).mode & 0o111).toBe(0);
+  });
+
   it('plans the skill changes a sync brings before it is accepted', async () => {
     await subscribe();
     await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v1' }, 'skills');

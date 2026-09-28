@@ -5,6 +5,7 @@ import {
   containsLocalPath,
   diffProfilePatches,
   digestProfilePatches,
+  localPatchEntries,
   mergeDshPatches,
   mergeProfilePatches,
   readProfilePatchState,
@@ -119,6 +120,14 @@ describe('profile patch entries', () => {
       { id: 'c', remove: true }
     ]);
     expect(mergeProfilePatches(base, overlay)).toEqual(desired);
+  });
+
+  it('keeps entries that target an id a machine-local insert creates with that insert', () => {
+    const insert = { id: 'group', insert: [{ id: 'fs', group: true, config: [{ id: 'inner', config: { dir: '/home/me' } }] }] };
+    const override = { id: 'inner', config: { dir: 'relative' } };
+    const into = { id: 'fs', insert: [{ id: 'more' }] };
+    const unrelated = { id: 'locale', config: {} };
+    expect(localPatchEntries([override, insert, unrelated, override, into])).toEqual([insert, override, into]);
   });
 
   it('ignores an overlay removal of an entry the base no longer has', () => {

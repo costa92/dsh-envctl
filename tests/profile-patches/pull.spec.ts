@@ -135,6 +135,32 @@ describe('pullProfilePatches', () => {
     }
   });
 
+  it('keeps an override of a machine-local insert after it, in the overlay', async () => {
+    const insert = { insert: [{ id: 'fs', config: { dir: '/home/me/fs' } }] };
+    const override = { id: 'fs', config: { mode: 'rw' } };
+    fs.writeFileSync(patchFile(), `${HEADER}${YAML.stringify([insert, override, LOCALE])}`);
+    await pull();
+    expect(base().profiles.web.patches).toEqual([LOCALE]);
+    expect(overlay().profiles?.web?.patches).toEqual([insert, override]);
+    expect(live().block?.entries).toEqual([LOCALE, insert, override]);
+  });
+
+  it('puts back patch files it already rewrote when a later profile fails', async () => {
+    const other = path.join(tempHome, 'profiles', 'zzz');
+    fs.mkdirSync(other, { recursive: true });
+    fs.writeFileSync(path.join(other, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } }));
+    fs.writeFileSync(path.join(other, 'cordis.patch.yml'), YAML.stringify([{ id: 'x', config: { a: 1 } }]));
+    const before = fs.readFileSync(patchFile(), 'utf8');
+    fs.chmodSync(other, 0o555);
+    try {
+      await expect(pull()).rejects.toThrow();
+    } finally {
+      fs.chmodSync(other, 0o755);
+    }
+    expect(fs.readFileSync(patchFile(), 'utf8')).toBe(before);
+    expect(base().profiles).toEqual({});
+  });
+
   it('is undone by rollback, which also drops the selection of the overlay it created', async () => {
     const result = await pull();
     await rollbackEnvironment(paths, { operationId: result.operationId });

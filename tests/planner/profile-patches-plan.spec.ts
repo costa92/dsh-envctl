@@ -41,6 +41,12 @@ describe('buildPlan with profile patches', () => {
     expect(dropped.operations).toMatchObject([{ kind: 'configure', alias: PROFILE_PATCHES_ALIAS }]);
   });
 
+  it('clears the block of a profile the manifest no longer declares', () => {
+    const undeclared: EnvironmentManifest = { apiVersion: 'dshenv/v1', profiles: {} };
+    const plan = buildPlan(undeclared, null, inventory({ block: block([locale]), unmanaged: [] }));
+    expect(plan.operations).toMatchObject([{ kind: 'configure', profile: 'web', alias: PROFILE_PATCHES_ALIAS, reason: expect.stringMatching(/no longer declared/) }]);
+  });
+
   it('tells a DSH edit of the block apart and points to pull', () => {
     const edited = { id: 'locale', config: { preference: 'en' } };
     const plan = buildPlan(manifest([locale]), null, inventory({ block: block([edited], digestProfilePatches([locale])), unmanaged: [] }));

@@ -9,6 +9,8 @@ import { isRemoteFileKey, overlayNameFromKey, sha256Hex, type RemoteLockEntries 
 export interface RemoteSnapshot {
   commit: string;
   files: Record<string, Buffer>;
+  // keys of the files Git records as executable (mode 100755)
+  executables: string[];
   digests: Record<string, string>;
   manifest: EnvironmentManifest;
   lock: EnvironmentLock | null;
@@ -68,6 +70,7 @@ function withFile<T>(file: string, fn: () => T): T {
 export async function loadRemoteSnapshot(repoDir: string, commit: string, remotePath: string): Promise<RemoteSnapshot> {
   const prefix = remotePath === '.' ? '' : `${remotePath}/`;
   const files: Record<string, Buffer> = {};
+  const executables: string[] = [];
   // The lock is owned per entry, so it is kept apart from the whole-file keys.
   let lockData: Buffer | null = null;
   for (const entry of await listTree(repoDir, commit, remotePath)) {
@@ -90,6 +93,9 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
       lockData = data;
     } else {
       files[key] = data;
+      if (entry.mode === '100755') {
+        executables.push(key);
+      }
     }
   }
 
@@ -135,5 +141,5 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
   }
 
   const digests = Object.fromEntries(Object.entries(files).map(([key, data]) => [key, sha256Hex(data)]));
-  return { commit, files, digests, manifest, lock, lockEntries: lockEntryDigests(lock) };
+  return { commit, files, executables, digests, manifest, lock, lockEntries: lockEntryDigests(lock) };
 }

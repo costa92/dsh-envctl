@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { isDeepStrictEqual } from 'node:util';
 import { execa } from 'execa';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type {
@@ -490,10 +491,20 @@ async function planAndApply(
   const plan = buildPlan(manifest, lock, inventory, state, localDigests);
 
   if (!plan.hasChanges) {
-    // Record the overlay even without operations, otherwise the switch warning never clears.
-    if (!options?.dryRun && state && state.appliedOverlay !== options?.overlay?.name) {
-      const { appliedOverlay: _previous, ...rest } = state;
-      const nextState: EnvironmentState = options?.overlay ? { ...rest, appliedOverlay: options.overlay.name } : rest;
+    // Record the overlay and skill baselines even without operations, otherwise the switch warning never clears
+    // and a declared skill DSH already had is never owned.
+    const skills = inventory.skills?.declared ?? {};
+    if (
+      !options?.dryRun &&
+      state &&
+      (state.appliedOverlay !== options?.overlay?.name || !isDeepStrictEqual(state.skills ?? {}, skills))
+    ) {
+      const { appliedOverlay: _previous, skills: _skills, ...rest } = state;
+      const nextState: EnvironmentState = {
+        ...rest,
+        ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {}),
+        ...(Object.keys(skills).length > 0 ? { skills } : {})
+      };
       await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');
     }
     return {

@@ -206,7 +206,8 @@ async function adoptUnderLock(
     appliedLockHash: lockHash,
     profiles: existingState.profiles ?? {},
     ownership,
-    ...(existingState.appliedOverlay ? { appliedOverlay: existingState.appliedOverlay } : {})
+    ...(existingState.appliedOverlay ? { appliedOverlay: existingState.appliedOverlay } : {}),
+    ...(existingState.skills ? { skills: existingState.skills } : {})
   };
 
   options?.validateManifest?.(mergedManifest);
