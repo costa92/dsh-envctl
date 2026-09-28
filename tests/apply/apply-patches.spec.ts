@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as YAML from 'yaml';
 import { applyEnvironment } from '../../src/apply/apply.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 import { extractManagedPatches } from '../../src/patch/patch.js';
@@ -40,6 +41,24 @@ ${patches}`
 
   afterEach(() => {
     fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('repairs a patch file the old append left invalid although every block already matches', async () => {
+    writeManifest(`        patches:
+          - { id: p1, config: { a: 1 } }
+`);
+    await applyEnvironment(paths);
+    const blocks = fs.readFileSync(patchFile(), 'utf8');
+    fs.writeFileSync(patchFile(), `[{id: user-owned, config: {}}]\n\n${blocks}`);
+
+    const plan = (await applyEnvironment(paths, { dryRun: true })).plan;
+    expect(plan.operations.map((operation) => operation.kind)).toEqual(['configure']);
+    await applyEnvironment(paths);
+
+    const repaired = fs.readFileSync(patchFile(), 'utf8');
+    expect(YAML.parseAllDocuments(repaired).flatMap((doc) => doc.errors)).toEqual([]);
+    expect(YAML.parse(repaired).map((entry: { id: string }) => entry.id)).toEqual(['user-owned', 'p1']);
+    expect((await applyEnvironment(paths, { dryRun: true })).plan.hasChanges).toBe(false);
   });
 
   it('converges a plugin that declares several patches', async () => {

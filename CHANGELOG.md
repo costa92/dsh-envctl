@@ -12,7 +12,7 @@
 - `source clone --profile` 先解析 `lock.json` 再写清单；lock 损坏时清单保持不变。
 - `adopt` 在写 `state.json` 失败时把已写的清单和 lock 恢复原样。
 - 回滚 `cordis.patch.yml` 所用的原内容在写入时的同一次 profile 锁内读取；dshenv 等锁期间 DSH 做的修改不再被回滚覆盖。
-- `cordis.patch.yml` 为非空 flow 数组（如 `[{id: x}]`）时，先改写成块式序列再追加受管块，不再生成非法 YAML；`~`、`null` 等空文档按空数组处理；被旧版本写坏的文件（flow 数组后接受管块）在下次写入时修复，保留所有受管块；写入结果不是单个顶层数组时拒绝写入。
+- `cordis.patch.yml` 为非空 flow 数组（如 `[{id: x}]`）时，先改写成块式序列再追加受管块，不再生成非法 YAML；`~`、`null` 等空文档按空数组处理；被旧版本写坏的文件（flow 数组后接受管块）会被 `plan` 发现并规划一次 configure，`apply` 时修复，保留所有受管块；写入结果不是单个顶层数组时拒绝写入。
 - `apply` 新安装的插件会记录所有权，之后从清单删除该插件时会被卸载，不再变成未受管。
 - 更新一个保持禁用的插件时，更新后会再次禁用（DSH `plugin add` 会选中 bundle）。
 - 本地来源路径改变时规划 update，即使新旧路径内容 digest 相同。

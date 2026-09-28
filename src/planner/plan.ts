@@ -365,6 +365,18 @@ export function buildPlan(
         });
       }
     }
+
+    // Blocks that all match still leave the file unreadable to DSH; rewriting one plugin's blocks repairs the whole file.
+    const repairAlias = Object.keys(profManifest.plugins).sort()[0];
+    if (profInv?.patchFileRepairable && repairAlias && !operations.some((op) => op.kind === 'configure' && op.profile === profName)) {
+      operations.push({
+        kind: 'configure',
+        profile: profName,
+        alias: repairAlias,
+        package: profManifest.plugins[repairAlias].package,
+        reason: 'cordis.patch.yml is not valid YAML; rewriting the managed blocks repairs it'
+      });
+    }
   }
 
   // Installed plugins not in the manifest: remove only when ownership exists.

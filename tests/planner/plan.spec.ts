@@ -590,6 +590,40 @@ describe('buildPlan', () => {
   });
 });
 
+describe('repairable patch file', () => {
+  it('plans a configure that rewrites a broken patch file even when every block matches', () => {
+    const manifest: EnvironmentManifest = {
+      apiVersion: 'dshenv/v1',
+      profiles: { web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'npm', version: '1.0.0' } } } } }
+    };
+    const lock: EnvironmentLock = {
+      apiVersion: 'dshenv-lock/v1',
+      profiles: { web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'npm', resolvedVersion: '1.0.0' } } } } }
+    };
+    const inventory: EnvironmentInventory = {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            'demo-plugin': { name: 'demo-plugin', installed: true, version: '1.0.0', sourceType: 'npm', isSymlink: false, isExternalSymlink: false, enabled: true }
+          },
+          managedPatches: [],
+          patchFileRepairable: true
+        }
+      }
+    };
+
+    const plan = buildPlan(manifest, lock, inventory);
+    expect(plan.operations).toEqual([
+      expect.objectContaining({ kind: 'configure', alias: 'demo', reason: expect.stringContaining('not valid') })
+    ]);
+
+    inventory.profiles.web.patchFileRepairable = false;
+    expect(buildPlan(manifest, lock, inventory).hasChanges).toBe(false);
+  });
+});
+
 describe('buildStatus', () => {
   const emptyLock: EnvironmentLock = { apiVersion: 'dshenv-lock/v1', profiles: {} };
 

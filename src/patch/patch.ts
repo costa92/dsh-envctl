@@ -156,6 +156,16 @@ export function repairPatchFile(content: string): string | null {
   return repaired;
 }
 
+// True for a file broken in the way repairPatchFile fixes, so a plan can rewrite it even when every block matches.
+export function needsPatchFileRepair(content: string): boolean {
+  try {
+    assertPatchFileArray(content, '');
+    return false;
+  } catch {
+    return repairPatchFile(content) !== null;
+  }
+}
+
 // Surrounding bytes are spliced rather than passed through String.replace, which would expand `$` patterns in values.
 export function splicePluginBlocks(existingContent: string, profileName: string, pluginAlias: string, blocks: string): string {
   const matches = [...existingContent.matchAll(pluginBlockRegex(profileName, pluginAlias))];
