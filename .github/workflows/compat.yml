@@ -46,7 +46,7 @@ jobs:
       - run: scripts/smoke-dsh.sh "${{ matrix.dsh }}" "$RUNNER_TEMP/smoke"
 
   requested:
-    name: smoke (DSH ${{ inputs.dsh_version }})
+    name: smoke (requested DSH)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.dsh_version != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
