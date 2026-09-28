@@ -54,8 +54,7 @@ export async function writeAtomic(
     handle = null;
 
     if (mode === 'create') {
-      // Use link + unlink for atomic create-if-not-exists on POSIX, or check-then-rename
-      // In Node.js, fs.promises.link fails if target already exists with EEXIST
+      // link fails with EEXIST if the target exists, which makes create-if-not-exists atomic.
       try {
         await fs.promises.link(tempPath, targetPath);
         await fs.promises.unlink(tempPath);
@@ -63,14 +62,16 @@ export async function writeAtomic(
         if ((linkErr as NodeJS.ErrnoException).code === 'EEXIST') {
           throw new FileExistsError(targetPath);
         }
-        // Fallback for filesystems that don't support hardlinks
+        // Without hardlinks, an exclusive copy still refuses a target created at any moment; rename would replace it.
         try {
-          await fs.promises.access(targetPath, fs.constants.F_OK);
-          throw new FileExistsError(targetPath);
-        } catch (accErr: unknown) {
-          if (accErr instanceof FileExistsError) throw accErr;
-          await fs.promises.rename(tempPath, targetPath);
+          await fs.promises.copyFile(tempPath, targetPath, fs.constants.COPYFILE_EXCL);
+        } catch (copyErr: unknown) {
+          if ((copyErr as NodeJS.ErrnoException).code === 'EEXIST') {
+            throw new FileExistsError(targetPath);
+          }
+          throw copyErr;
         }
+        await fs.promises.unlink(tempPath);
       }
     } else {
       await fs.promises.rename(tempPath, targetPath);
