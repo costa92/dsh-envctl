@@ -142,4 +142,54 @@ describe('pullProfilePatches', () => {
     expect(fs.existsSync(path.join(paths.overlaysDir, 'local.yaml'))).toBe(false);
     expect(readSelectionFile(paths)).toBeNull();
   });
+
+  describe('skills', () => {
+    const writeFile = (file: string, content: string) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+    };
+    const dshSkill = () => path.join(paths.dshSkillsDir, 'wiki', 'SKILL.md');
+    const declaredSkill = () => path.join(paths.skillsDir, 'wiki', 'SKILL.md');
+
+    beforeEach(() => {
+      fs.writeFileSync(patchFile(), '[]\n');
+      writeFile(dshSkill(), 'v1');
+    });
+
+    it('takes a skill DSH has into envctl/skills and leaves plan clean', async () => {
+      const result = await pull();
+      expect(result.skills).toEqual({ added: ['wiki'], changed: [], removed: [] });
+      expect(fs.readFileSync(declaredSkill(), 'utf8')).toBe('v1');
+      expect((await planOperations()).hasChanges).toBe(false);
+      expect((await pull()).skills).toBeUndefined();
+    });
+
+    it('follows edits and deletions made in DSH', async () => {
+      await pull();
+      writeFile(dshSkill(), 'v2');
+      expect((await pull()).skills).toEqual({ added: [], changed: ['wiki'], removed: [] });
+      expect(fs.readFileSync(declaredSkill(), 'utf8')).toBe('v2');
+
+      fs.rmSync(path.join(paths.dshSkillsDir, 'wiki'), { recursive: true });
+      expect((await pull()).skills).toEqual({ added: [], changed: [], removed: ['wiki'] });
+      expect(fs.existsSync(path.join(paths.skillsDir, 'wiki'))).toBe(false);
+    });
+
+    it('refuses a skill changed on both sides until a side is preferred', async () => {
+      await pull();
+      writeFile(dshSkill(), 'dsh');
+      writeFile(declaredSkill(), 'manifest');
+      await expect(pull()).rejects.toThrow(/wiki.*changed both in DSH and in the manifest/);
+      await pull({ prefer: 'dsh' });
+      expect(fs.readFileSync(declaredSkill(), 'utf8')).toBe('dsh');
+    });
+
+    it('writes nothing on a dry run and is undone by rollback', async () => {
+      await pull({ dryRun: true });
+      expect(fs.existsSync(paths.skillsDir)).toBe(false);
+      const result = await pull();
+      await rollbackEnvironment(paths, { operationId: result.operationId });
+      expect(fs.existsSync(path.join(paths.skillsDir, 'wiki'))).toBe(false);
+    });
+  });
 });

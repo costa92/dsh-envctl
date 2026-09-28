@@ -29,6 +29,7 @@ import { lockEntryId } from '../remote/lock-entries.js';
 import { setProfileBundleEnabled } from './bundles.js';
 import { clearManagedPatches, writeManagedPatches, writeProfilePatches } from './patches.js';
 import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
+import { applySkillOperation } from '../skills/skills.js';
 import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
 
 // Longer than the ~2 s awaitWriteFinish window of DSH's HMR watcher, so it unloads the plugin before its files go.
@@ -556,6 +557,11 @@ async function planAndApply(
     if (!execRes.success) {
       throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
     }
+    // Replaced and removed skills go to trash rather than away, since DSH may hold edits nobody pulled.
+    const trashRoot = path.join(paths.trashDir, operationId);
+    for (const operation of plan.skillOperations) {
+      rollback.undo.push(await applySkillOperation(paths, operation, trashRoot));
+    }
 
     // Never commit successful state until the actual environment converges.
     const nextLock = recordLocalDigests(lock, manifest, localDigests);
@@ -578,7 +584,9 @@ async function planAndApply(
       appliedLockHash: lockHash,
       profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),
       ownership: recordInstalledOwnership(pruneOwnership(state?.ownership, manifest), plan, manifest, now, operationId),
-      ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {})
+      ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {}),
+      // Converged, so every declared skill is in DSH exactly as declared.
+      ...(Object.keys(verifiedInventory.skills?.declared ?? {}).length > 0 ? { skills: verifiedInventory.skills!.declared } : {})
     };
 
     await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');

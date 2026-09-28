@@ -22,13 +22,25 @@ export function overlayNameFromKey(key: string): string | null {
   return match ? match[1] : null;
 }
 
+const SkillNameRegex = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+// skills/<name>/<file...>: the path segments below envctl/skills, or null for any other key.
+export function skillPathFromKey(key: string): string[] | null {
+  const segments = key.split('/');
+  if (segments[0] !== 'skills' || segments.length < 3 || !SkillNameRegex.test(segments[1])) {
+    return null;
+  }
+  const rest = segments.slice(1);
+  return rest.every((segment) => segment.length > 0 && segment !== '.' && segment !== '..' && !segment.includes('\\')) ? rest : null;
+}
+
 // lock.json is not a file key: the lock is owned per entry through lockEntries.
 export function isRemoteFileKey(key: string): boolean {
   if (key === 'manifest.yaml') {
     return true;
   }
   const name = overlayNameFromKey(key);
-  return name !== null && isValidOverlayName(name);
+  return (name !== null && isValidOverlayName(name)) || skillPathFromKey(key) !== null;
 }
 
 // '.' is the repository root; any other value is relative and never climbs out of it.
@@ -123,6 +135,10 @@ export async function writeRemoteConfig(paths: EnvironmentPaths, config: RemoteC
 export function remoteFilePath(paths: EnvironmentPaths, key: string): string {
   if (key === 'manifest.yaml') {
     return paths.manifestFile;
+  }
+  const skillPath = skillPathFromKey(key);
+  if (skillPath) {
+    return path.join(paths.skillsDir, ...skillPath);
   }
   const name = overlayNameFromKey(key);
   if (name === null || !isValidOverlayName(name)) {

@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { EnvironmentLock, EnvironmentManifest } from '../domain.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { ValidationError } from '../errors.js';
@@ -22,7 +23,7 @@ import {
   type LockEntryChanges
 } from './lock-entries.js';
 import { describeRemoteDrift, findLocalDrift, localFileDigest, readLocalLock } from './ownership.js';
-import { REMOTE_API_VERSION, compareRemoteKeys, remoteFilePath, writeRemoteConfig, type RemoteConfig } from './schema.js';
+import { REMOTE_API_VERSION, compareRemoteKeys, remoteFilePath, skillPathFromKey, writeRemoteConfig, type RemoteConfig } from './schema.js';
 import { loadRemoteSnapshot, type RemoteSnapshot } from './snapshot.js';
 
 export interface RemoteSubscription {
@@ -227,6 +228,7 @@ export async function acceptSync(paths: EnvironmentPaths, preview: SyncPreview):
     }
     for (const key of preview.files.removed) {
       await fs.promises.rm(remoteFilePath(paths, key), { force: true });
+      await removeEmptySkillDirs(paths, key);
     }
     // Local entries are untouched by the merge, so the lock is only rewritten when a team entry changes.
     if (preview.lock && hasChanges(preview.lockEntries)) {
@@ -269,4 +271,19 @@ export async function acceptSync(paths: EnvironmentPaths, preview: SyncPreview):
     details: { commit: preview.to }
   });
   return { operationId, snapshotId: snapshot.snapshotId };
+}
+
+// A team skill whose last file went away leaves no empty directory for apply to install.
+async function removeEmptySkillDirs(paths: EnvironmentPaths, key: string): Promise<void> {
+  const skillPath = skillPathFromKey(key);
+  if (!skillPath) {
+    return;
+  }
+  for (let depth = skillPath.length - 1; depth >= 1; depth--) {
+    const dir = path.join(paths.skillsDir, ...skillPath.slice(0, depth));
+    if (!fs.existsSync(dir) || fs.readdirSync(dir).length > 0) {
+      return;
+    }
+    await fs.promises.rmdir(dir);
+  }
 }

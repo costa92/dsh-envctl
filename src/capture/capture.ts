@@ -203,6 +203,11 @@ export function captureEnvironment(
     };
   }
 
+  const skills = Object.keys(inventory.skills?.live ?? {}).filter((name) => inventory.skills?.declared[name] === undefined);
+  if (skills.length > 0) {
+    warnings.push(`Skills outside the manifest in DSH_HOME/skills: ${skills.join(', ')}; adopt takes them over as with dshenv pull`);
+  }
+
   return {
     apiVersion: 'dshenv-capture/v1',
     manifest,

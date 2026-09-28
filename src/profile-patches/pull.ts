@@ -5,7 +5,9 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type { EnvironmentManifest, EnvironmentOverlay, ProfilePatch } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
-import { loadManifest, serializeManifest } from '../manifest/files.js';
+import { loadManifest, loadState, serializeManifest, serializeState } from '../manifest/files.js';
+import * as path from 'node:path';
+import { replaceSkillDir } from '../skills/skills.js';
 import { readOverlay } from '../overlay/effective.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { overlayFilePath, writeSelectionFile, type OverlaySelection } from '../overlay/selection.js';
@@ -40,6 +42,14 @@ export interface PullOptions {
   selection: OverlaySelection | null;
   // False under --no-overlay, where machine-local entries have no overlay to go to.
   allowOverlayCreation: boolean;
+  // Loose skills in $DSH_HOME/skills are home-wide; false leaves them out.
+  skills?: boolean;
+}
+
+export interface SkillPullChanges {
+  added: string[];
+  changed: string[];
+  removed: string[];
 }
 
 export interface ProfilePullChange {
@@ -57,6 +67,7 @@ export interface ProfilePullChange {
 export interface PullResult {
   dryRun: boolean;
   changes: ProfilePullChange[];
+  skills?: SkillPullChanges;
   overlayCreated?: string;
   operationId?: string;
   snapshotId?: string;
@@ -151,11 +162,25 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     const desired = from === 'manifest' ? expected : mergeDshPatches(state.block?.entries ?? [], state.unmanaged);
     reads.push({ profile, content, desired, expected, from });
   }
-  if (conflicts.length > 0) {
+  const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
+  const skills = options.skills === false ? null : planSkillPull(inventory.skills ?? { declared: {}, live: {} }, state?.skills ?? {}, options.prefer);
+  const conflictNames = [
+    ...(conflicts.length > 0 ? [`Profile patches of ${conflicts.join(', ')}`] : []),
+    ...(skills && skills.conflicts.length > 0 ? [`skill ${skills.conflicts.join(', ')}`] : [])
+  ];
+  if (conflictNames.length > 0) {
     throw new ValidationError(
-      `Profile patches of ${conflicts.join(', ')} changed both in DSH and in the manifest since the last apply; ` +
+      `${conflictNames.join(' and ')} changed both in DSH and in the manifest since the last apply; ` +
         "pass --prefer dsh to keep DSH's version, or --prefer manifest to keep the manifest's"
     );
+  }
+  const remoteSkills = new Set(Object.keys(remote?.files ?? {}).flatMap((key) => /^skills\/([^/]+)\//.exec(key)?.[1] ?? []));
+  for (const action of skills?.actions ?? []) {
+    if (remoteSkills.has(action.name)) {
+      throw new ValidationError(
+        `Skill '${action.name}' is owned by remote ${remote!.url}; change it in the team repository, or run dshenv apply to restore the team copy`
+      );
+    }
   }
 
   const nextBase = structuredClone(base);
@@ -203,8 +228,9 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     overlay: counts.get(read.profile)?.overlay ?? (nextOverlay?.profiles?.[read.profile]?.patches ?? []).length,
     ...(overlayName ? { overlayName } : {})
   }));
-  if (options.dryRun || reads.length === 0) {
-    return { dryRun: Boolean(options.dryRun), changes, ...(overlayCreated ? { overlayCreated } : {}) };
+  const skillChanges = skills && skills.actions.length > 0 ? summarizeSkills(skills.actions) : undefined;
+  if (options.dryRun || (reads.length === 0 && !skillChanges)) {
+    return { dryRun: Boolean(options.dryRun), changes, ...(skillChanges ? { skills: skillChanges } : {}), ...(overlayCreated ? { overlayCreated } : {}) };
   }
 
   const operationId = `pull-${crypto.randomBytes(6).toString('hex')}`;
@@ -221,6 +247,14 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     }
     if (overlayCreated && !selectedName) {
       await writeSelectionFile(paths, overlayCreated);
+    }
+    for (const action of skills?.actions ?? []) {
+      const live = path.join(paths.dshSkillsDir, action.name);
+      await replaceSkillDir(action.kind === 'removed' ? null : live, path.join(paths.skillsDir, action.name), path.join(paths.trashDir, operationId, 'envctl-skills', action.name));
+    }
+    if (skills && skills.actions.length > 0) {
+      const { skills: _previous, ...rest } = state ?? { apiVersion: 'dshenv-state/v1' as const, lastApplied: new Date().toISOString(), appliedLockHash: '', profiles: {} };
+      await writeAtomic(paths.stateFile, serializeState(Object.keys(skills.owned).length > 0 ? { ...rest, skills: skills.owned } : rest), 'overwrite');
     }
     for (const read of reads) {
       await rewriteProfilePatchFile(paths, read.profile, (current) => {
@@ -244,8 +278,59 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
   return {
     dryRun: false,
     changes,
+    ...(skillChanges ? { skills: skillChanges } : {}),
     ...(overlayCreated ? { overlayCreated } : {}),
     operationId,
     snapshotId: snapshot.snapshotId
   };
+}
+
+interface SkillAction {
+  name: string;
+  kind: 'added' | 'changed' | 'removed';
+}
+
+// `owned` holds each skill's digest from when both sides last matched; without one, the manifest copy is the base.
+function planSkillPull(
+  skills: { declared: Record<string, string>; live: Record<string, string> },
+  owned: Record<string, string>,
+  prefer: PullOptions['prefer']
+): { actions: SkillAction[]; conflicts: string[]; owned: Record<string, string> } {
+  const actions: SkillAction[] = [];
+  const conflicts: string[] = [];
+  const nextOwned = { ...owned };
+  for (const name of [...new Set([...Object.keys(skills.declared), ...Object.keys(skills.live)])].sort()) {
+    const declared = skills.declared[name];
+    const live = skills.live[name];
+    const recorded = owned[name];
+    if (live !== undefined && live === declared) {
+      nextOwned[name] = live;
+      continue;
+    }
+    // A declared skill DSH never had is apply's to install, not a deletion to pull.
+    const dshChanged = live !== (recorded ?? declared) && !(live === undefined && recorded === undefined);
+    if (!dshChanged) {
+      continue;
+    }
+    const manifestChanged = recorded !== undefined && declared !== recorded;
+    if (manifestChanged && !prefer) {
+      conflicts.push(name);
+      continue;
+    }
+    if (manifestChanged && prefer === 'manifest') {
+      continue;
+    }
+    actions.push({ name, kind: declared === undefined ? 'added' : live === undefined ? 'removed' : 'changed' });
+    if (live === undefined) {
+      delete nextOwned[name];
+    } else {
+      nextOwned[name] = live;
+    }
+  }
+  return { actions, conflicts, owned: nextOwned };
+}
+
+function summarizeSkills(actions: SkillAction[]): SkillPullChanges {
+  const names = (kind: SkillAction['kind']) => actions.filter((action) => action.kind === kind).map((action) => action.name);
+  return { added: names('added'), changed: names('changed'), removed: names('removed') };
 }

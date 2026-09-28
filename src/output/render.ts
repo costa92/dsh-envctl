@@ -19,7 +19,13 @@ function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: R
 export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): string {
   const lines: string[] = [];
 
-  if (!plan.hasChanges && plan.unmanaged.length === 0 && plan.unverified.length === 0 && plan.unmanagedPatches.length === 0) {
+  if (
+    !plan.hasChanges &&
+    plan.unmanaged.length === 0 &&
+    plan.unverified.length === 0 &&
+    plan.unmanagedPatches.length === 0 &&
+    plan.unmanagedSkills.length === 0
+  ) {
     return 'Environment is in sync with manifest. No changes planned.\n';
   }
 
@@ -49,6 +55,15 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
     }
   }
 
+  if (plan.skillOperations.length > 0) {
+    if (plan.operations.length > 0) lines.push('');
+    lines.push('Planned skill changes:');
+    for (const op of plan.skillOperations) {
+      lines.push(`  ${getOpSymbol(op.kind)} [skills] ${op.name}`);
+      lines.push(`      Reason: ${op.reason}`);
+    }
+  }
+
   if (plan.unmanaged.length > 0) {
     lines.push('');
     lines.push('Unmanaged plugins (not in manifest):');
@@ -62,6 +77,14 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
     lines.push("Patch entries not in the manifest (run 'dshenv pull' to manage them):");
     for (const u of plan.unmanagedPatches) {
       lines.push(`  ? [${u.profile}] ${u.entries.join(', ')}`);
+    }
+  }
+
+  if (plan.unmanagedSkills.length > 0) {
+    lines.push('');
+    lines.push("Skills not in the manifest (run 'dshenv pull' to manage them):");
+    for (const name of plan.unmanagedSkills) {
+      lines.push(`  ? ${name}`);
     }
   }
 

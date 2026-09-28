@@ -50,7 +50,9 @@ describe('renderPlan with a restart summary', () => {
     ],
     unmanaged: [],
       unverified: [],
-      unmanagedPatches: []
+      unmanagedPatches: [],
+      skillOperations: [],
+      unmanagedSkills: []
   };
 
   it('annotates each operation', () => {

@@ -155,11 +155,11 @@
 - [x] 首次运行（0.1.1）发现并修复：Git 来源缺少 `git+` 前缀导致 `file://` 等地址安装失败；DSH 插件命令失败时只剩退出码（改为显示 DSH 自己的 `dsh:` 诊断行，不显示 pnpm 原始输出）；`adopt` 替换已有插件时丢失已声明的 `patches`；`status <插件>` 不认别名；`source pull --ref <分支名>` 快进到本地分支自身而没有更新
 - [x] Codex 审查上述修复，指出 `source pull` 会把 `HEAD`、`HEAD~1` 等修订改写为上游引用；改为只对与上游分支完全同名的 ref 跟随 `origin/<ref>`，复审无问题
 - [x] 0.1.2、0.1.3 发布后以 npm 安装包重跑，107 项全部通过
-- [x] 主链端到端测试收进仓库：`scripts/e2e-dsh.sh`（`make e2e-dsh`，114 项：DSH 自装插件的 capture/adopt 与所有权、本地来源安装与源码变更更新、配置补丁、版本漂移修复、对 `dsh web` 的 `runtime`、rollback、受管卸载；skill/agent/mcp 脚手架与 loose skill；Git 来源 clone、pull 与锁定提交；overlay 独有插件的安装与随 overlay 移除；purge 与 gc；profile patches 的 pull 与 apply 双向同步；独立 `DSH_HOME` 中的团队远程订阅、sync、拒绝本地改动与改写历史），由 `.github/workflows/e2e.yml` 在 PR 与 master 上对已验证的 DSH 运行，与 Vitest CI 分层、不作为合入门禁
+- [x] 主链端到端测试收进仓库：`scripts/e2e-dsh.sh`（`make e2e-dsh`，123 项：DSH 自装插件的 capture/adopt 与所有权、本地来源安装与源码变更更新、配置补丁、版本漂移修复、对 `dsh web` 的 `runtime`、rollback、受管卸载；skill/agent/mcp 脚手架与 loose skill；Git 来源 clone、pull 与锁定提交；overlay 独有插件的安装与随 overlay 移除；purge 与 gc；profile patches 与 loose skill 的 pull 与 apply 双向同步；独立 `DSH_HOME` 中的团队远程订阅、sync、拒绝本地改动与改写历史），由 `.github/workflows/e2e.yml` 在 PR 与 master 上对已验证的 DSH 运行，与 Vitest CI 分层、不作为合入门禁
 - [x] DSH 兼容性矩阵：`.github/workflows/compat.yml` 每天与 master 推送时对 DSH `0.1.7-rc.2`（必须通过）、`latest`、`next`（仅报告）运行 `scripts/smoke-dsh.sh`，可手动指定额外版本
 - [x] 容器检查中的 overlay、Git 来源、四类脚手架、gc/purge、团队远程同步已并入 `e2e-dsh.sh`；DSH 的 pnpm 卸载 `link:` 依赖后会在 `node_modules` 留下符号链接，脚本以 profile 的 `package.json` 判断是否已卸下
 
-## DSH 配置双向同步（已实现 profile patches）
+## DSH 配置双向同步（已实现）
 
 - [x] 清单 `profiles.<profile>.patches` 原样保存 cordis patch 条目（`id`/`name`/`config`/`disabled`/`insert`，`!!js` 记作 `{ __jsExpr }`）；overlay 按 id 替换、`{ id, remove: true }` 删除、新 id 追加；别名 `@profile` 保留给 Profile 受管块
 - [x] `apply` 把条目写进一个 Profile 受管块，与插件块同一把 `package.json.lock`，失败时按块撤销；Profile 不存在时等同一次 apply 的安装建好后再写，否则 blocked
@@ -168,7 +168,8 @@
 - [x] `adopt` 接管 Profile 时执行同样的收取，`capture` 提示受管块之外的条目
 - [x] DSH 0.1.7 的 `dsh.profile` 只有 `bundles`（`patchReload` 仅 0.1.5 有），不另行同步
 - [x] 真实端到端：`e2e-dsh.sh` 在 DSH `0.1.7-rc.2` 上覆盖 DSH 写入条目 → `pull` → `dump-config` 可见 → DSH 改块 → `pull` → `apply` 覆盖 DSH 改动
-- [ ] `~/.dsh/skills` 下的 loose skill 同步（`envctl/skills/<名字>`，apply/pull 双向复制，快照与团队 remote 覆盖该目录）
+- [x] `~/.dsh/skills` 下的 loose skill 同步：`envctl/skills/<名字>` 为声明，`state.skills` 记录两边最后一致时的摘要，据此分辨改动方向；`apply` 复制并把旧副本移进 trash，`pull` 反向；快照带标记保存 `envctl/skills`（旧快照不动该目录）；团队 remote 的文件键扩展到 `skills/<名字>/...`，团队技能不可由 pull 改写
+- [x] 真实端到端：`e2e-dsh.sh` 覆盖 loose skill 的 pull、清单改动后 apply、DSH 改动后 pull，以及团队仓库技能随 sync 与 apply 装进 DSH（共 123 项）
 
 ## 延后能力
 

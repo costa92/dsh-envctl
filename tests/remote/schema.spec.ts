@@ -100,6 +100,12 @@ describe('remote.json schema', () => {
     expect(isRemoteFileKey('lock.json')).toBe(false);
     expect(isRemoteFileKey('overlays/..yaml')).toBe(false);
     expect(isRemoteFileKey('overlays.yaml')).toBe(false);
+    expect(isRemoteFileKey('skills/wiki/SKILL.md')).toBe(true);
+    expect(isRemoteFileKey('skills/wiki/refs/a.md')).toBe(true);
+    expect(isRemoteFileKey('skills/wiki')).toBe(false);
+    expect(isRemoteFileKey('skills/../x/SKILL.md')).toBe(false);
+    expect(isRemoteFileKey('skills/wiki/../SKILL.md')).toBe(false);
+    expect(isRemoteFileKey('skills/.hidden/SKILL.md')).toBe(false);
   });
 
   it('maps file keys to envctl paths and orders them', () => {
@@ -108,6 +114,7 @@ describe('remote.json schema', () => {
     expect(remoteRepoDir(paths)).toBe(path.join(home, 'envctl', 'remote', 'repo.git'));
     expect(remoteFilePath(paths, 'manifest.yaml')).toBe(paths.manifestFile);
     expect(remoteFilePath(paths, 'overlays/team.yaml')).toBe(path.join(paths.overlaysDir, 'team.yaml'));
+    expect(remoteFilePath(paths, 'skills/wiki/refs/a.md')).toBe(path.join(paths.skillsDir, 'wiki', 'refs', 'a.md'));
     expect(() => remoteFilePath(paths, 'state.json')).toThrow('Invalid remote file key: state.json');
     // lock.json is owned per entry, never as a whole file.
     expect(() => remoteFilePath(paths, 'lock.json')).toThrow('Invalid remote file key: lock.json');
