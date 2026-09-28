@@ -461,8 +461,14 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     expect(second.plan.hasChanges).toBe(false);
   });
 
-  it('should reinstall a git plugin at the locked commit after the lock moves', async () => {
-    const url = 'https://example.com/demo.git';
+  it.each([
+    ['https://example.com/demo.git', 'git+https://example.com/demo.git'],
+    ['file:///srv/git/demo', 'git+file:///srv/git/demo'],
+    ['ssh://git@example.com/demo.git', 'git+ssh://git@example.com/demo.git'],
+    ['git+https://example.com/demo.git', 'git+https://example.com/demo.git'],
+    ['git://example.com/demo.git', 'git://example.com/demo.git'],
+    ['git@example.com:team/demo.git', 'git@example.com:team/demo.git']
+  ])('should reinstall a git plugin from %s at the locked commit after the lock moves', async (url, expectedSpec) => {
     const oldCommit = 'a'.repeat(40);
     const newCommit = 'b'.repeat(40);
     fs.writeFileSync(
@@ -524,7 +530,8 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     const result = await applyEnvironment(paths);
     expect(result.applied).toBe(true);
     expect(result.plan.operations.map((op) => op.kind)).toEqual(['update']);
-    expect(fs.readFileSync(received, 'utf8')).toBe(`${url}#${newCommit}`);
+    // pnpm reads a bare file:// or non-hosted https:// URL as a local path or tarball, not a Git repository.
+    expect(fs.readFileSync(received, 'utf8')).toBe(`${expectedSpec}#${newCommit}`);
 
     const second = await applyEnvironment(paths);
     expect(second.plan.hasChanges).toBe(false);

@@ -76,7 +76,9 @@ function packageSpec(
     case 'git': {
       const commit = lockedGitCommit(plugin.source, lockedSource) ?? plugin.source.commit;
       if (!commit) throw new ValidationError(`Git plugin '${plugin.package}' has no locked commit`);
-      return `${plugin.source.url}#${commit}`;
+      // pnpm reads a bare file:// or non-hosted https:// URL as a local path or tarball, not a Git repository.
+      const url = /^(?:https?|ssh|file):\/\//i.test(plugin.source.url) ? `git+${plugin.source.url}` : plugin.source.url;
+      return `${url}#${commit}`;
     }
     case 'local-link':
       return `link:${plugin.source.path}`;
