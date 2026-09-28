@@ -48,6 +48,37 @@ profiles:
     expect(stdout).toContain('+ [web] @nanmicoder/dsh-agent-teams');
   });
 
+  it('filters status by the alias a profile declares, as well as by package name', async () => {
+    const io = { stdout: () => {}, stderr: () => {} };
+    await runCli(['init', '--dsh-home', tempHome], io);
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      teams: { package: "@nanmicoder/dsh-agent-teams", source: { type: npm, version: "0.1.21" } }
+  ops:
+    plugins:
+      crew: { package: "@nanmicoder/dsh-agent-teams", source: { type: npm, version: "0.1.21" } }
+`
+    );
+    const status = async (name: string) => {
+      let stdout = '';
+      const code = await runCli(['status', name, '--json', '--dsh-home', tempHome], {
+        stdout: (chunk: string) => { stdout += chunk; },
+        stderr: () => {}
+      });
+      const plugins = code === 3 ? [] : (JSON.parse(stdout) as { plugins: Array<{ profile: string }> }).plugins;
+      return { code, profiles: plugins.map((entry) => entry.profile).sort() };
+    };
+
+    expect(await status('teams')).toEqual({ code: 2, profiles: ['web'] });
+    expect(await status('crew')).toEqual({ code: 2, profiles: ['ops'] });
+    expect(await status('@nanmicoder/dsh-agent-teams')).toEqual({ code: 2, profiles: ['ops', 'web'] });
+    expect(await status('nope')).toEqual({ code: 3, profiles: [] });
+  });
+
   it('should return exit code 0 when plan is clean and in sync', async () => {
     let stdout = '';
     const io = {
