@@ -163,7 +163,10 @@ async function adoptUnderLock(
       const existingAlias = Object.entries(mergedManifest.profiles[profileName].plugins)
         .find(([, entry]) => entry.package === plugin.package)?.[0];
       const alias = existingAlias ?? candidateAlias;
-      mergedManifest.profiles[profileName].plugins[alias] = plugin;
+      // Capture cannot see declared patches, so a candidate without any must not erase them.
+      const existingPatches = existingAlias ? mergedManifest.profiles[profileName].plugins[existingAlias].patches : undefined;
+      mergedManifest.profiles[profileName].plugins[alias] =
+        plugin.patches === undefined && existingPatches ? { ...plugin, patches: existingPatches } : plugin;
 
       const lockEntry = candLockProf[candidateAlias];
       if (lockEntry) {
