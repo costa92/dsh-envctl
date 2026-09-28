@@ -457,6 +457,12 @@ describe('buildPlan', () => {
       expect(plan.hasChanges).toBe(false);
     });
 
+    it('should treat a SHA-256 installed commit matching the lock as in sync', () => {
+      const sha256 = 'c'.repeat(64);
+      const plan = buildPlan(manifest, lockAt(sha256), installedFrom(`git+https://example.com/demo.git#${sha256}`));
+      expect(plan.hasChanges).toBe(false);
+    });
+
     it('should reinstall at the locked commit when the installed spec carries no commit', () => {
       const plan = buildPlan(manifest, lockAt(newCommit), installedFrom('github:example/demo#main'));
       expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: newCommit })]);

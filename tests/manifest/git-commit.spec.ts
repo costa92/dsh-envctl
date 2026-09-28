@@ -7,11 +7,11 @@ const lockWithCommit = (commit: string) => JSON.stringify({
 });
 
 describe('git commits in the lock', () => {
-  it.each(['main', 'v1.0.0', 'HEAD', 'abc12', 'g1234567'])('rejects %j, which does not name a fixed commit', (commit) => {
+  it.each(['main', 'v1.0.0', 'HEAD', 'abc12', 'g1234567', 'a'.repeat(65)])('rejects %j, which does not name a fixed commit', (commit) => {
     expect(() => loadLock(lockWithCommit(commit))).toThrow(/commit/);
   });
 
-  it.each(['1a2b3c4', 'ABCDEF0123456789abcdef0123456789abcdef01'])('accepts %j', (commit) => {
+  it.each(['1a2b3c4', 'ABCDEF0123456789abcdef0123456789abcdef01', 'a'.repeat(64)])('accepts %j', (commit) => {
     expect(loadLock(lockWithCommit(commit)).profiles.web.plugins.demo.source).toMatchObject({ commit });
   });
 });

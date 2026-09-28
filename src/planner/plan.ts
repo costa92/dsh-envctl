@@ -79,7 +79,7 @@ const KIND_ORDER: Record<OperationKind, number> = {
 
 // Only a hex fragment proves which commit is installed; branch names and bare URLs are not evidence.
 function commitFromGitSpec(spec: string | undefined): string | undefined {
-  return spec?.match(/#([0-9a-f]{7,40})$/i)?.[1].toLowerCase();
+  return spec?.match(/#([0-9a-f]{7,64})$/i)?.[1].toLowerCase();
 }
 
 function lockedLocalDigest(
