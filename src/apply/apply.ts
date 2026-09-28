@@ -319,6 +319,35 @@ function assertNoTeamEntryOverwritten(
   }
 }
 
+// A plugin apply installed is dshenv's to remove once the manifest drops it, as if it had been adopted.
+function recordInstalledOwnership(
+  pruned: EnvironmentState['ownership'],
+  plan: EnvironmentPlan,
+  manifest: EnvironmentManifest,
+  now: string,
+  operationId: string
+): EnvironmentState['ownership'] {
+  const ownership = { ...pruned };
+  for (const operation of plan.operations) {
+    const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
+    if (operation.kind !== 'install' || !plugin || ownership[operation.profile]?.[plugin.package]) {
+      continue;
+    }
+    ownership[operation.profile] = {
+      ...ownership[operation.profile],
+      [plugin.package]: {
+        package: plugin.package,
+        alias: operation.alias,
+        sourceType: plugin.source.type,
+        lockedVersion: plugin.source.type === 'npm' ? plugin.source.version : undefined,
+        adoptedAt: now,
+        adoptedBy: operationId
+      }
+    };
+  }
+  return ownership;
+}
+
 function pruneOwnership(
   ownership: EnvironmentState['ownership'],
   manifest: EnvironmentManifest
@@ -517,7 +546,7 @@ async function planAndApply(
       lastApplied: now,
       appliedLockHash: lockHash,
       profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),
-      ownership: pruneOwnership(state?.ownership, manifest),
+      ownership: recordInstalledOwnership(pruneOwnership(state?.ownership, manifest), plan, manifest, now, operationId),
       ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {})
     };
 
