@@ -119,10 +119,12 @@ export function registerSourceCommands(ctx: CommandContext): void {
       const sourcesDir = path.join(paths.managerDir, 'sources');
       // A managed clone is named after its package, which is only known once cloned, so it lands in a staging dir first.
       const cloneDir = explicitTarget ?? path.join(sourcesDir, `.staging-${crypto.randomBytes(6).toString('hex')}`);
-      const createdDirs = (explicitTarget ? [cloneDir] : [cloneDir, sourcesDir]).filter((dir) => !fs.existsSync(dir));
 
       // Hold the lock from reading the manifest until the lock file is written, cloning included.
       const lockHandle = cmdOpts.profile ? await acquireEnvironmentLock(paths) : null;
+      // Checked under the lock, so a concurrent clone's directories are never counted as ours.
+      let ownedClone: string | null = fs.existsSync(cloneDir) ? null : cloneDir;
+      const createdParents = explicitTarget || fs.existsSync(sourcesDir) ? [] : [sourcesDir];
       let res: Awaited<ReturnType<typeof cloneManagedGit>>;
       let resolvedTarget = cloneDir;
       try {
@@ -178,19 +180,20 @@ export function registerSourceCommands(ctx: CommandContext): void {
               throw new ValidationError(`Managed source already exists: ${managedDir}`);
             }
             if (!fs.existsSync(path.dirname(managedDir))) {
-              createdDirs.push(path.dirname(managedDir));
+              createdParents.unshift(path.dirname(managedDir));
             }
             await fs.promises.mkdir(path.dirname(managedDir), { recursive: true });
             await fs.promises.rename(cloneDir, managedDir);
-            createdDirs[0] = managedDir;
+            ownedClone = managedDir;
             resolvedTarget = managedDir;
           }
 
-          await writeManifest();
-
+          // Parsed before any write, so a corrupt lock fails the command with the manifest unchanged.
           const lock = fs.existsSync(paths.lockFile)
             ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
             : { apiVersion: 'dshenv-lock/v1' as const, profiles: {} };
+          await writeManifest();
+
           if (!lock.profiles[profile]) {
             lock.profiles[profile] = { plugins: {} };
           }
@@ -201,9 +204,12 @@ export function registerSourceCommands(ctx: CommandContext): void {
           await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
         }
       } catch (err) {
-        // Leave nothing behind that this command created: the clone and any directories made for it.
-        for (const dir of createdDirs) {
-          await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+        // Leave nothing behind that this command created: the clone, and parent directories only while empty.
+        if (ownedClone) {
+          await fs.promises.rm(ownedClone, { recursive: true, force: true }).catch(() => {});
+        }
+        for (const dir of createdParents) {
+          await fs.promises.rmdir(dir).catch(() => {});
         }
         throw err;
       } finally {
