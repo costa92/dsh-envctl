@@ -222,7 +222,7 @@ describe('CLI sync', () => {
     ]) {
       await execa('git', args, { cwd: upstream });
     }
-    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'local-tool', version: '1.0.0' }));
+    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'local-tool', version: '1.0.0', dsh: { bundle: {} } }));
     await execa('git', ['add', '.'], { cwd: upstream });
     await execa('git', ['commit', '--quiet', '-m', 'init'], { cwd: upstream });
     fs.writeFileSync(overlayFile('mine'), LOCAL_OVERLAY);
@@ -245,7 +245,7 @@ describe('CLI sync', () => {
   it('reports no local change after apply records a local source digest', async () => {
     const sourceDir = path.join(root, 'src', 'demo');
     fs.mkdirSync(sourceDir, { recursive: true });
-    fs.writeFileSync(path.join(sourceDir, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '0.1.0' }));
+    fs.writeFileSync(path.join(sourceDir, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '0.1.0', dsh: { bundle: {} } }));
     fs.writeFileSync(path.join(sourceDir, 'index.js'), 'export const v = 1;\n');
     fs.writeFileSync(
       overlayFile('laptop'),
@@ -267,7 +267,7 @@ profiles:
       path.join(profileDir, 'package.json'),
       JSON.stringify({ dependencies: { 'demo-plugin': `file:${sourceDir}` }, dsh: { profile: { bundles: ['demo-plugin'] } } })
     );
-    fs.writeFileSync(path.join(profileDir, 'node_modules', 'demo-plugin', 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '0.1.0' }));
+    fs.writeFileSync(path.join(profileDir, 'node_modules', 'demo-plugin', 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '0.1.0', dsh: { bundle: {} } }));
 
     const result = await applyEnvironment(paths, { overlay: { name: 'laptop', via: 'flag' }, executor: async () => ({ success: true }) });
     expect(result.applied).toBe(true);
@@ -284,7 +284,7 @@ profiles:
   it('refuses to apply an overlay that switches a team-pinned lock entry to a local source', async () => {
     const sourceDir = path.join(root, 'src', 'shared');
     fs.mkdirSync(sourceDir, { recursive: true });
-    fs.writeFileSync(path.join(sourceDir, 'package.json'), JSON.stringify({ name: 'shared-plugin', version: '0.1.0' }));
+    fs.writeFileSync(path.join(sourceDir, 'package.json'), JSON.stringify({ name: 'shared-plugin', version: '0.1.0', dsh: { bundle: {} } }));
     fs.writeFileSync(
       overlayFile('laptop'),
       `apiVersion: dshenv-overlay/v1

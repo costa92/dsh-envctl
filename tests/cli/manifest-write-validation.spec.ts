@@ -23,7 +23,7 @@ describe('CLI writes never leave an unloadable manifest', () => {
     fs.mkdirSync(path.join(profileDir, 'node_modules', 'dsh-plugin-foo'), { recursive: true });
     fs.writeFileSync(
       path.join(profileDir, 'node_modules', 'dsh-plugin-foo', 'package.json'),
-      JSON.stringify({ name: 'dsh-plugin-foo', version: '1.0.0' })
+      JSON.stringify({ name: 'dsh-plugin-foo', version: '1.0.0', dsh: { bundle: {} } })
     );
     fs.writeFileSync(
       path.join(profileDir, 'package.json'),

@@ -7,6 +7,7 @@ import { writeAtomic } from '../io/atomic-file.js';
 import { withProfilePackageLock } from '../io/profile-lock.js';
 import { assertPatchFileArray, extractPluginBlocks, removePatchBlock, repairPatchFile, replacePluginBlocks, splicePluginBlocks } from '../patch/patch.js';
 import { PROFILE_PATCHES_ALIAS, replaceProfileBlock } from '../profile-patches/entries.js';
+import { mountBlockAlias, writeMount } from '../patch/mount.js';
 
 const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
 const MAX_PATCH_BYTES = 1024 * 1024;
@@ -113,6 +114,31 @@ export async function writeManagedPatches(
     assertPatchFileArray(content, file);
     await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
     return restorePatchFile(paths, profileName, pluginAlias, existed, before);
+  });
+}
+
+// Mounts a plugin that is not a DSH bundle through its insert row, or unmounts it when packageName is null.
+// Returns how to undo it.
+export async function writePluginMount(
+  paths: EnvironmentPaths,
+  profileName: string,
+  pluginAlias: string,
+  packageName: string | null
+): Promise<RestorePatchFile> {
+  const file = profilePatchFile(paths, profileName);
+  if (packageName === null && !fs.existsSync(file)) {
+    return async () => {};
+  }
+  return withPatchFileLock(file, async () => {
+    const existed = fs.existsSync(file);
+    const before = await readProfilePatchFile(paths, profileName);
+    const content = writeMount(repairedOrSelf(before), profileName, pluginAlias, packageName);
+    if (content === before) {
+      return async () => {};
+    }
+    assertPatchFileArray(content, file);
+    await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
+    return restorePatchFile(paths, profileName, mountBlockAlias(pluginAlias), existed, before);
   });
 }
 

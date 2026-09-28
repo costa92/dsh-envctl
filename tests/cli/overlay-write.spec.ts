@@ -112,7 +112,7 @@ describe('CLI writes with an active overlay', () => {
     await execa('git', ['init'], { cwd: upstream });
     await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream });
     await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream });
-    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0' }));
+    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0', dsh: { bundle: {} } }));
     await execa('git', ['add', '.'], { cwd: upstream });
     await execa('git', ['commit', '-m', 'init'], { cwd: upstream });
 
@@ -149,7 +149,7 @@ describe('CLI writes with an active overlay', () => {
     await execa('git', ['init'], { cwd: upstream2 });
     await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream2 });
     await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream2 });
-    fs.writeFileSync(path.join(upstream2, 'package.json'), JSON.stringify({ name: 'demo-plugin-2', version: '1.0.0' }));
+    fs.writeFileSync(path.join(upstream2, 'package.json'), JSON.stringify({ name: 'demo-plugin-2', version: '1.0.0', dsh: { bundle: {} } }));
     await execa('git', ['add', '.'], { cwd: upstream2 });
     await execa('git', ['commit', '-m', 'init'], { cwd: upstream2 });
 
@@ -185,7 +185,7 @@ describe('CLI writes with an active overlay', () => {
     await execa('git', ['init'], { cwd: upstream });
     await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream });
     await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream });
-    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0' }));
+    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0', dsh: { bundle: {} } }));
     await execa('git', ['add', '.'], { cwd: upstream });
     await execa('git', ['commit', '-m', 'init'], { cwd: upstream });
     const sourcesDir = path.join(tempHome, 'envctl', 'sources');
@@ -207,7 +207,7 @@ describe('CLI writes with an active overlay', () => {
   it('refuses an adopt whose base the active overlay can no longer merge onto', async () => {
     const profileDir = path.join(tempHome, 'profiles', 'web');
     fs.mkdirSync(path.join(profileDir, 'node_modules', 'extra-plugin'), { recursive: true });
-    fs.writeFileSync(path.join(profileDir, 'node_modules', 'extra-plugin', 'package.json'), JSON.stringify({ name: 'extra-plugin', version: '2.0.0' }));
+    fs.writeFileSync(path.join(profileDir, 'node_modules', 'extra-plugin', 'package.json'), JSON.stringify({ name: 'extra-plugin', version: '2.0.0', dsh: { bundle: {} } }));
     fs.writeFileSync(
       path.join(profileDir, 'package.json'),
       JSON.stringify({
@@ -254,7 +254,7 @@ warnings: []
     await execa('git', ['init'], { cwd: upstream });
     await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream });
     await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream });
-    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'extra-plugin', version: '1.0.0' }));
+    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'extra-plugin', version: '1.0.0', dsh: { bundle: {} } }));
     await execa('git', ['add', '.'], { cwd: upstream });
     await execa('git', ['commit', '-m', 'init'], { cwd: upstream });
 

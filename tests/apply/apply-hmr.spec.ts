@@ -29,7 +29,7 @@ describe('applyEnvironment hot reload awareness', () => {
       profileJson(),
       JSON.stringify({ name: 'dsh-profile-web', private: true, dependencies: { [PKG]: version }, dsh: { profile: { bundles } } })
     );
-    fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: PKG, version }));
+    fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: PKG, version, dsh: { bundle: {} } }));
   };
   const stateEntry = () => loadState(fs.readFileSync(paths.stateFile, 'utf8')).profiles.web?.plugins[PKG];
   // Only plugins dshenv owns are uninstalled when the manifest drops them.
@@ -71,7 +71,7 @@ if (args.includes('remove')) {
   pkg.dependencies[name] = version;
   const dir = path.join(profileDir, 'node_modules', ...name.split('/'));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version }));
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version, dsh: { bundle: {} } }));
 }
 fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
 `);

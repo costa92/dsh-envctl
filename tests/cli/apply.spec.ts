@@ -89,7 +89,7 @@ fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
   dependencies: { [packageName]: version },
   dsh: { profile: { bundles: [packageName] } }
 }));
-fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName, version }));
+fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName, version, dsh: { bundle: {} } }));
 `);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
   }

@@ -11,7 +11,7 @@ import type {
   EnvironmentState
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
-import { buildPlan, lockedGitCommit, type EnvironmentPlan, type LocalSourceDigests } from '../planner/plan.js';
+import { buildPlan, lockedGitCommit, type EnvironmentPlan, type LocalSourceDigests, type PlanOperation } from '../planner/plan.js';
 import { loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
@@ -28,7 +28,8 @@ import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { lockEntryId } from '../remote/lock-entries.js';
 import { setProfileBundleEnabled } from './bundles.js';
-import { clearManagedPatches, writeManagedPatches, writeProfilePatches } from './patches.js';
+import { clearManagedPatches, writeManagedPatches, writePluginMount, writeProfilePatches } from './patches.js';
+import { isBundlePackage } from '../patch/mount.js';
 import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 import { applySkillOperation } from '../skills/skills.js';
 import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
@@ -173,7 +174,19 @@ async function executeWithDsh(
   }
 
   const commandTimeoutMs = options?.dshCommandTimeoutMs ?? DSH_COMMAND_TIMEOUT_MS;
+  // A plugin that is not a DSH bundle is switched by its insert row; it never belongs in the bundle list.
+  const setPlainPluginEnabled = async (operation: PlanOperation, enabled: boolean): Promise<void> => {
+    rollback.undo.push(await writePluginMount(paths, operation.profile, operation.alias, enabled ? operation.package : null));
+    const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
+    rollback.undo.push(async () => {
+      await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
+    });
+  };
   for (const operation of plan.operations) {
+    if ((operation.kind === 'enable' || operation.kind === 'disable') && inventory.profiles[operation.profile]?.plugins[operation.package]?.bundle === false) {
+      await setPlainPluginEnabled(operation, operation.kind === 'enable');
+      continue;
+    }
     if (operation.kind === 'enable' || operation.kind === 'disable') {
       const previousIndex = await setProfileBundleEnabled(
         paths,
@@ -204,6 +217,7 @@ async function executeWithDsh(
     if (operation.kind === 'remove') {
       const undoStart = rollback.undo.length;
       rollback.undo.push(await clearManagedPatches(paths, operation.profile, operation.alias));
+      rollback.undo.push(await writePluginMount(paths, operation.profile, operation.alias, null));
       const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
       rollback.undo.push(async () => {
         await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
@@ -232,6 +246,7 @@ async function executeWithDsh(
       rollback.undo.length = undoStart;
       rollback.keep.push(async () => {
         await clearManagedPatches(paths, operation.profile, operation.alias);
+        await writePluginMount(paths, operation.profile, operation.alias, null);
       });
       continue;
     }
@@ -249,9 +264,23 @@ async function executeWithDsh(
     if (result.exitCode !== 0) {
       return { success: false, error: dshFailure(result, commandTimeoutMs) };
     }
+    // Only now is the package on disk to tell whether DSH loads it as a bundle.
+    if (installedAsPlainPlugin(paths, operation.profile, operation.package)) {
+      await setPlainPluginEnabled(operation, operation.targetEnabled !== false);
+    }
   }
 
   return { success: true };
+}
+
+function installedAsPlainPlugin(paths: EnvironmentPaths, profile: string, packageName: string): boolean {
+  try {
+    const file = path.join(paths.profilesDir, profile, 'node_modules', ...packageName.split('/'), 'package.json');
+    const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return raw !== null && typeof raw === 'object' && !Array.isArray(raw) && !isBundlePackage(raw as Record<string, unknown>);
+  } catch {
+    return false;
+  }
 }
 
 function recordRestartState(

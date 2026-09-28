@@ -24,6 +24,8 @@ export interface DeclaredPlugin {
   package: string;
   enabled: boolean;
   restartRequired: boolean;
+  // Loaded through dshenv's insert row rather than the bundle list, since the package is not a DSH bundle.
+  mounted?: boolean;
 }
 
 export type RuntimeResult =
@@ -164,6 +166,29 @@ function expectUnloaded(
   return { result: 'still-loaded' };
 }
 
+// A mounted plugin is in no bundle (DSH lists its package as not-bundle); its module's entries say how it runs.
+function checkMounted(plugin: DeclaredPlugin, plugins: RuntimePlugin[]): Outcome {
+  const live = plugins.filter((found) => found.moduleName === plugin.package && found.enabled && found.fiberPhase !== null);
+  if (!plugin.enabled) {
+    if (live.length === 0) {
+      return { result: 'unloaded' };
+    }
+    return plugin.restartRequired ? { result: 'still-loaded' } : { result: 'loading', detail: 'unmounted on disk; waiting for DSH to hot-reload it' };
+  }
+  const failed = live.find((found) => found.fiberPhase === 'failed');
+  if (failed) {
+    return { result: 'failed', detail: `plugin ${failed.moduleName} failed to load` };
+  }
+  if (live.length === 0) {
+    return plugin.restartRequired ? { result: 'not-loaded' } : { result: 'loading', detail: 'mounted on disk; waiting for DSH to hot-reload it' };
+  }
+  const pending = live.find((found) => found.fiberPhase === 'pending');
+  if (pending) {
+    return { result: 'loading', detail: `plugin ${pending.moduleName} is waiting for services it injects` };
+  }
+  return live.some((found) => TRANSIENT_PHASES.has(found.fiberPhase)) ? { result: 'loading' } : { result: 'loaded' };
+}
+
 export function checkRuntime(
   declared: DeclaredPlugin[],
   bundles: RuntimeBundle[],
@@ -172,9 +197,11 @@ export function checkRuntime(
   const entries = new Map(plugins.map((plugin) => [plugin.entryId, plugin]));
   return declared.map((plugin) => {
     const bundle = bundles.find((candidate) => candidate.name === plugin.package);
-    const outcome = plugin.enabled
-      ? expectLoaded(bundle, entries, plugin.restartRequired)
-      : expectUnloaded(bundle, bundles, entries, plugin.restartRequired);
+    const outcome = plugin.mounted
+      ? checkMounted(plugin, plugins)
+      : plugin.enabled
+        ? expectLoaded(bundle, entries, plugin.restartRequired)
+        : expectUnloaded(bundle, bundles, entries, plugin.restartRequired);
     const item: RuntimeCheckItem = {
       alias: plugin.alias,
       package: plugin.package,

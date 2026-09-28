@@ -132,7 +132,7 @@ profiles:
     );
     fs.writeFileSync(
       path.join(tempHome, 'profiles', 'web', 'node_modules', '@nanmicoder', 'dsh-agent-teams', 'package.json'),
-      JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.21' })
+      JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.21', dsh: { bundle: {} } })
     );
 
     const code = await runCli(['plan', '--dsh-home', tempHome], io);

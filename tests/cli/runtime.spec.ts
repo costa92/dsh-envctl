@@ -164,6 +164,17 @@ describe('CLI runtime', () => {
     expect(out.stdout).toContain(`  unloaded  agent-teams  ${PKG}\n`);
   });
 
+  it('checks a plugin that is not a DSH bundle by its mounted entry, though no bundle lists it', async () => {
+    const dir = path.join(tempHome, 'profiles', 'web');
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'dsh-profile-web', private: true, dependencies: { [PKG]: '0.1.21' }, dsh: { profile: { bundles: [] } } }));
+    fs.mkdirSync(path.join(dir, 'node_modules', ...PKG.split('/')), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'node_modules', ...PKG.split('/'), 'package.json'), JSON.stringify({ name: PKG, version: '0.1.21' }));
+    await serve({ bundles: [], plugins: [agentTeamsEntry('active')] });
+    const out = await run(['runtime']);
+    expect(out.code).toBe(0);
+    expect(out.stdout).toContain(`  loaded  agent-teams  ${PKG}\n`);
+  });
+
   it('exits 1 with a clear message when the profile package.json is not valid JSON', async () => {
     fs.writeFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), '{');
     await serve({ bundles: [agentTeamsBundle()], plugins: [agentTeamsEntry('active')] });

@@ -5,6 +5,7 @@ import type { SourceType } from '../domain.js';
 import { PackageNameRegex } from '../manifest/schema.js';
 import { extractManagedPatches, needsPatchFileRepair, type ExtractedPatch } from '../patch/patch.js';
 import { readProfilePatchState, type ProfilePatchState } from '../profile-patches/entries.js';
+import { isBundlePackage, readMounts } from '../patch/mount.js';
 import { readSkillInventory, type SkillInventory } from '../skills/skills.js';
 
 export interface InstalledPluginInfo {
@@ -17,6 +18,8 @@ export interface InstalledPluginInfo {
   isExternalSymlink: boolean;
   targetPath?: string;
   rawPackageJson?: Record<string, unknown>;
+  // False for a plugin package without dsh.bundle, which DSH loads through an insert row instead of the bundle list.
+  bundle?: boolean;
   enabled?: boolean;
 }
 
@@ -227,6 +230,24 @@ export async function readEnvironmentInventory(
       ...stringRecord(rawProfileData.dependencies)
     };
 
+    const patchFile = path.join(profilePath, 'cordis.patch.yml');
+    let managedPatches: ExtractedPatch[] = [];
+    let patchFileRepairable = false;
+    let profilePatches: ProfilePatchState | undefined;
+    let mounted = new Set<string>();
+    try {
+      const patchStat = fs.statSync(patchFile);
+      if (patchStat.size <= MAX_JSON_SIZE) {
+        const patchContent = fs.readFileSync(patchFile, 'utf8');
+        managedPatches = extractManagedPatches(patchContent, profileName);
+        patchFileRepairable = needsPatchFileRepair(patchContent);
+        profilePatches = readProfilePatchState(patchContent, profileName);
+        mounted = new Set(Object.values(readMounts(patchContent, profileName)));
+      }
+    } catch {
+      // A missing or unreadable file has no patches to report.
+    }
+
     const names = new Set<string>([...Object.keys(dependencies), ...bundleNames]);
     const plugins: Record<string, InstalledPluginInfo> = {};
 
@@ -237,6 +258,10 @@ export async function readEnvironmentInventory(
         : { sourceType: 'in-box' as const };
       const inspection = await inspectInstallPath(nodeModulesPackagePath(profilePath, pkgName), profilePath);
       const installed = classified.sourceType === 'in-box' || inspection.present;
+      // DSH loads a listed bundle only when its package declares dsh.bundle; any other plugin loads through an
+      // insert row (patch/mount). An unreadable package.json keeps the bundle reading.
+      const raw = inspection.rawPackageJson;
+      const bundle = classified.sourceType === 'in-box' || !raw || isBundlePackage(raw);
 
       plugins[pkgName] = {
         name: pkgName,
@@ -248,24 +273,9 @@ export async function readEnvironmentInventory(
         isExternalSymlink: inspection.isExternalSymlink,
         targetPath: inspection.targetPath,
         rawPackageJson: inspection.rawPackageJson,
-        enabled: bundleNames.includes(pkgName)
+        bundle,
+        enabled: bundle ? bundleNames.includes(pkgName) : mounted.has(pkgName)
       };
-    }
-
-    const patchFile = path.join(profilePath, 'cordis.patch.yml');
-    let managedPatches: ExtractedPatch[] = [];
-    let patchFileRepairable = false;
-    let profilePatches: ProfilePatchState | undefined;
-    try {
-      const patchStat = fs.statSync(patchFile);
-      if (patchStat.size <= MAX_JSON_SIZE) {
-        const patchContent = fs.readFileSync(patchFile, 'utf8');
-        managedPatches = extractManagedPatches(patchContent, profileName);
-        patchFileRepairable = needsPatchFileRepair(patchContent);
-        profilePatches = readProfilePatchState(patchContent, profileName);
-      }
-    } catch {
-      // A missing or unreadable file has no patches to report.
     }
 
     result.profiles[profileName] = {
