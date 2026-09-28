@@ -23,9 +23,26 @@ export async function createEnvironmentSnapshot(
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const snapshotId = `${timestamp}-${operationId}`;
   const snapshotDir = path.join(paths.backupsDir, snapshotId);
+  // Built under a dot name and renamed when complete, so rollback never picks a half-copied snapshot.
+  const stagingDir = path.join(paths.backupsDir, `.${snapshotId}.partial`);
 
-  await fs.promises.mkdir(snapshotDir, { recursive: true });
+  await fs.promises.mkdir(stagingDir, { recursive: true });
+  try {
+    await copySnapshotFiles(paths, stagingDir, options);
+    await fs.promises.rename(stagingDir, snapshotDir);
+  } catch (err) {
+    await fs.promises.rm(stagingDir, { recursive: true, force: true });
+    throw err;
+  }
 
+  return {
+    snapshotId,
+    snapshotDir,
+    timestamp
+  };
+}
+
+async function copySnapshotFiles(paths: EnvironmentPaths, snapshotDir: string, options?: SnapshotOptions): Promise<void> {
   const filesToBackup = [paths.manifestFile, paths.lockFile, paths.stateFile];
   for (const file of filesToBackup) {
     if (fs.existsSync(file)) {
@@ -46,12 +63,6 @@ export async function createEnvironmentSnapshot(
       await fs.promises.copyFile(file, dest);
     }
   }
-
-  return {
-    snapshotId,
-    snapshotDir,
-    timestamp
-  };
 }
 
 function currentRemoteConfig(paths: EnvironmentPaths): RemoteConfig | null {
@@ -108,7 +119,7 @@ export async function listEnvironmentSnapshots(paths: EnvironmentPaths): Promise
   const entries = await fs.promises.readdir(paths.backupsDir, { withFileTypes: true });
   const snapshots: EnvironmentSnapshot[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) {
       continue;
     }
     snapshots.push({

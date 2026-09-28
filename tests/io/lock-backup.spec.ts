@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { acquireEnvironmentLock } from '../../src/io/lock.js';
-import { createEnvironmentSnapshot, restoreEnvironmentSnapshot } from '../../src/io/backup.js';
+import { createEnvironmentSnapshot, listEnvironmentSnapshots, restoreEnvironmentSnapshot } from '../../src/io/backup.js';
 import { appendJournalEntry, readJournalEntries } from '../../src/io/journal.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 
@@ -127,6 +127,27 @@ describe('Lock, Backup and Journal IO', () => {
     // Restore
     await restoreEnvironmentSnapshot(snapshot, paths);
     expect(fs.readFileSync(paths.manifestFile, 'utf8')).toBe('apiVersion: dshenv/v1\n');
+  });
+
+  it('should not leave a partial snapshot behind when a copy fails', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\n');
+    fs.writeFileSync(paths.lockFile, '{}\n');
+    const realCopy = fs.promises.copyFile;
+    const spy = vi.spyOn(fs.promises, 'copyFile').mockImplementation(async (src, dest, mode) => {
+      if (String(src) === paths.lockFile) {
+        throw new Error('disk full');
+      }
+      return realCopy(src, dest, mode);
+    });
+    try {
+      await expect(createEnvironmentSnapshot(paths, 'test-op-2')).rejects.toThrow(/disk full/);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(await listEnvironmentSnapshots(paths)).toEqual([]);
+    expect(fs.readdirSync(paths.backupsDir)).toEqual([]);
   });
 
   it('should append and read journal entries', async () => {
