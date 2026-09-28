@@ -6,7 +6,7 @@ import { applyEnvironment } from '../../src/apply/apply.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 import { applyPatchBlock } from '../../src/patch/patch.js';
 
-// Fake DSH: `remove` succeeds, `add` always fails.
+// Fake DSH: `remove` succeeds, `add` always fails with DSH's own diagnostics mixed into raw pnpm output.
 const FAKE_DSH = `
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +15,13 @@ if (args.includes('--version')) {
   console.log('0.1.7-rc.2');
   process.exit(0);
 }
-if (!args.includes('remove')) process.exit(1);
+if (!args.includes('remove')) {
+  console.log('Progress: resolved 1, reused 0, downloaded 0, added 0');
+  console.error(' ERR_PNPM_FETCH_401  GET https://registry.example.com/x: Unauthorized - //registry.example.com/:_authToken=secret-token');
+  console.error('dsh: installation rejected: c-new@1.0.0 is incompatible with dsh 0.1.7-rc.2');
+  console.error('dsh: to accept the risk, run: dsh plugin --profile web allow-version c-new@1.0.0 --dsh-version 0.1.7-rc.2 --accept-risk');
+  process.exit(1);
+}
 const profileDir = path.join(process.env.DSH_HOME, 'profiles', args[args.indexOf('--profile') + 1]);
 const packageName = args.at(-1);
 const pkgJsonPath = path.join(profileDir, 'package.json');
@@ -132,6 +138,30 @@ describe('applyEnvironment profile restore on failure', () => {
 
     expect(readBundles()).toEqual(['a-toggle', 'b-patched']);
     expect(fs.readFileSync(patchFile(), 'utf8')).toBe(userPatch);
+  });
+
+  it("reports DSH's own diagnostic lines, without the raw pnpm output, when a DSH command fails", async () => {
+    setup({
+      manifestPlugins: `      c-new:
+        package: c-new
+        source: { type: npm, version: "1.0.0" }
+`,
+      installed: [],
+      bundles: []
+    });
+
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const error = await applyEnvironment(paths).then(
+      () => { throw new Error('apply should fail'); },
+      (err: Error) => err
+    );
+
+    expect(error.message).toBe(
+      'Apply execution failed: DSH plugin command exited with code 1\n' +
+        '  dsh: installation rejected: c-new@1.0.0 is incompatible with dsh 0.1.7-rc.2\n' +
+        '  dsh: to accept the risk, run: dsh plugin --profile web allow-version c-new@1.0.0 --dsh-version 0.1.7-rc.2 --accept-risk'
+    );
+    expect(error.message).not.toContain('secret-token');
   });
 
   it('should restore a patch file that did not exist before apply by removing it', async () => {
