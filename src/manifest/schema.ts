@@ -163,7 +163,8 @@ export const GitLockSourceSchema = z
   .object({
     type: z.literal('git'),
     url: gitUrlSchema,
-    commit: z.string().min(1)
+    // A branch or tag would let the same lock install different code later.
+    commit: z.string().regex(/^[0-9a-f]{7,40}$/i, { message: 'git commit must be a 7-40 character hexadecimal commit id' })
   })
   .strict();
 
