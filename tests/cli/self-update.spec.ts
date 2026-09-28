@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runCli } from '../../src/cli.js';
 import type { RunResult, Runner } from '../../src/self-update/self-update.js';
 
 const version = (JSON.parse(await import('node:fs').then((fs) => fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))) as { version: string }).version;
-const repoRoot = path.resolve(new URL('../..', import.meta.url).pathname);
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 function runner(latest: string): { run: Runner; calls: string[] } {
   const calls: string[] = [];
@@ -31,6 +32,14 @@ describe('CLI self-update', () => {
     const { code, out } = await cli(['self-update', '--check'], run);
     expect(code).toBe(2);
     expect(out).toBe(`dshenv 99.0.0 is available (installed ${version}); run: dshenv self-update\n`);
+  });
+
+  it('does nothing and exits 0 when the installed version is ahead of latest', async () => {
+    const { run, calls } = runner('0.0.1');
+    const { code, out } = await cli(['self-update'], run);
+    expect(code).toBe(0);
+    expect(out).toBe(`dshenv ${version} is newer than the latest release 0.0.1; nothing to do\n`);
+    expect(calls.some((call) => call.startsWith('npm install'))).toBe(false);
   });
 
   it('reports JSON and exits 0 when up to date', async () => {

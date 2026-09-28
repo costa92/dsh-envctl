@@ -6,21 +6,38 @@ import { ExactVersionRegex } from '../manifest/schema.js';
 
 export const PACKAGE_NAME = '@costa92/dshenv';
 const LOOKUP_TIMEOUT_MS = 30_000;
-const INSTALL_TIMEOUT_MS = 5 * 60_000;
 
 export type InstallMethod = 'npm' | 'pnpm';
 
 export interface RunResult {
   exitCode?: number;
+  timedOut?: boolean;
   stdout: string;
   stderr: string;
 }
 
-export type Runner = (file: string, args: string[], timeoutMs: number) => Promise<RunResult>;
+export interface RunOptions {
+  timeoutMs?: number;
+  // The package manager's own progress and errors go straight to the user's stderr.
+  showOutput?: boolean;
+}
 
-export const defaultRunner: Runner = async (file, args, timeoutMs) => {
-  const result = await execa(file, args, { reject: false, shell: false, timeout: timeoutMs });
-  return { exitCode: result.exitCode, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
+export type Runner = (file: string, args: string[], options: RunOptions) => Promise<RunResult>;
+
+export const defaultRunner: Runner = async (file, args, options) => {
+  const result = await execa(file, args, {
+    reject: false,
+    shell: false,
+    ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}),
+    // stdout goes to stderr too, so `--json` output on stdout stays parseable.
+    ...(options.showOutput ? { stdin: 'inherit' as const, stdout: 2, stderr: 'inherit' as const } : {})
+  });
+  return {
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    stdout: typeof result.stdout === 'string' ? result.stdout : '',
+    stderr: typeof result.stderr === 'string' ? result.stderr : ''
+  };
 };
 
 export interface SelfUpdateOptions {
@@ -32,15 +49,52 @@ export interface SelfUpdateOptions {
 }
 
 export interface SelfUpdateResult {
-  status: 'up-to-date' | 'available' | 'updated';
+  // newer-installed: the installed version is ahead of latest (a prerelease or local build), so nothing is done.
+  status: 'up-to-date' | 'newer-installed' | 'available' | 'updated';
   current: string;
   target: string;
-  method?: InstallMethod;
+  direction?: 'upgrade' | 'downgrade';
+  method?: InstallMethod | null;
   command?: string;
 }
 
-function firstErrorLine(result: RunResult): string {
-  return result.stderr.split('\n').find((line) => line.trim() !== '')?.trim() ?? `exit code ${String(result.exitCode)}`;
+function parseVersion(version: string): { core: number[]; pre: string[] } {
+  const [main, pre] = version.split('+')[0].split(/-(.*)/s);
+  return { core: main.split('.').map(Number), pre: pre ? pre.split('.') : [] };
+}
+
+// Semver precedence: a release outranks its prereleases; numeric identifiers compare as numbers.
+export function compareVersions(a: string, b: string): number {
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  for (let index = 0; index < 3; index++) {
+    if (left.core[index] !== right.core[index]) return left.core[index] - right.core[index];
+  }
+  if (left.pre.length === 0 || right.pre.length === 0) return right.pre.length - left.pre.length;
+  for (let index = 0; index < Math.max(left.pre.length, right.pre.length); index++) {
+    const x = left.pre[index];
+    const y = right.pre[index];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    if (x === y) continue;
+    const numeric = /^\d+$/.test(x) && /^\d+$/.test(y);
+    if (numeric) return Number(x) - Number(y);
+    if (/^\d+$/.test(x)) return -1;
+    if (/^\d+$/.test(y)) return 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+// Only error codes are shown: full npm and pnpm error lines can carry registry URLs and auth tokens.
+function describeFailure(result: RunResult, timeoutMs?: number): string {
+  if (result.timedOut) {
+    return `timed out after ${String((timeoutMs ?? 0) / 1000)} s`;
+  }
+  const output = `${result.stderr}\n${result.stdout}`;
+  const code = output.match(/\bERR_PNPM_[A-Z0-9_]+/)?.[0] ?? output.match(/^npm (?:error|ERR!) code (\S+)/m)?.[1];
+  const hint = code === 'EACCES' || code === 'EPERM' ? '; the global install directory is not writable by this user' : '';
+  return code ? `${code}${hint}` : `exit code ${String(result.exitCode)}`;
 }
 
 // --prefer-online: a cached packument can lag a fresh release by minutes and report it as missing.
@@ -48,10 +102,14 @@ export async function resolveTargetVersion(run: Runner, to?: string): Promise<st
   if (to !== undefined && !ExactVersionRegex.test(to)) {
     throw new ValidationError(`--to must be an exact version such as 0.2.0, got '${to}'`);
   }
-  const result = await run('npm', ['view', `${PACKAGE_NAME}@${to ?? 'latest'}`, 'version', '--prefer-online'], LOOKUP_TIMEOUT_MS);
+  const result = await run('npm', ['view', `${PACKAGE_NAME}@${to ?? 'latest'}`, 'version', '--prefer-online'], {
+    timeoutMs: LOOKUP_TIMEOUT_MS
+  });
   const version = result.stdout.trim().split('\n').at(-1)?.trim().replace(/^'|'$/g, '') ?? '';
   if (result.exitCode !== 0 || !ExactVersionRegex.test(version)) {
-    throw new DshError(`Could not look up ${PACKAGE_NAME}@${to ?? 'latest'} on the npm registry: ${firstErrorLine(result)}`);
+    throw new DshError(
+      `Could not look up ${PACKAGE_NAME}@${to ?? 'latest'} on the npm registry: ${describeFailure(result, LOOKUP_TIMEOUT_MS)}`
+    );
   }
   return version;
 }
@@ -69,15 +127,37 @@ function realpathOrSelf(file: string): string {
   }
 }
 
-// Only a global npm or pnpm install can be replaced in place; a linked checkout must be updated with git.
+// pnpm records the global spec in the package.json above its global node_modules.
+function pnpmGlobalSpec(globalRoot: string): string | undefined {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(globalRoot), 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, unknown>;
+    };
+    const spec = manifest.dependencies?.[PACKAGE_NAME];
+    return typeof spec === 'string' ? spec : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Only a global npm or pnpm install from the registry can be replaced in place; a linked checkout
+// or a git install must be updated the way it was installed.
 export async function detectInstallMethod(run: Runner, packageRoot: string): Promise<InstallMethod | null> {
   const root = realpathOrSelf(packageRoot);
   for (const method of ['npm', 'pnpm'] as const) {
-    const result = await run(method, ['root', '-g'], LOOKUP_TIMEOUT_MS).catch(() => null);
+    const result = await run(method, ['root', '-g'], { timeoutMs: LOOKUP_TIMEOUT_MS }).catch(() => null);
     const globalRoot = result?.exitCode === 0 ? result.stdout.trim() : '';
-    if (globalRoot && isInside(realpathOrSelf(globalRoot), root)) {
-      return method;
+    if (!globalRoot || !isInside(realpathOrSelf(globalRoot), root)) {
+      continue;
     }
+    const spec = method === 'pnpm' ? pnpmGlobalSpec(globalRoot) : undefined;
+    if (spec && /^(?:git\+|git:|github:|gitlab:|bitbucket:|https?:|file:|link:)/.test(spec)) {
+      throw new ValidationError(
+        `dshenv was installed with pnpm from ${spec.replace(/\/\/[^/@]*@/, '//')}, not from the npm registry; ` +
+          `reinstall from that source, or switch with 'pnpm add -g ${PACKAGE_NAME}'`
+      );
+    }
+    return method;
   }
   return null;
 }
@@ -88,29 +168,44 @@ export function installArgs(method: InstallMethod, version: string): string[] {
     : ['add', '-g', `${PACKAGE_NAME}@${version}`];
 }
 
+function manualUpdate(packageRoot: string, target: string): string {
+  return (
+    `dshenv at ${packageRoot} was not installed globally with npm or pnpm, so it cannot replace itself; ` +
+    `run 'npm install -g ${PACKAGE_NAME}@${target}', or 'git pull && pnpm build' in a linked checkout`
+  );
+}
+
 export async function selfUpdate(options: SelfUpdateOptions): Promise<SelfUpdateResult> {
   const run = options.run ?? defaultRunner;
   const current = options.currentVersion;
   const target = await resolveTargetVersion(run, options.to);
-  if (target === current) {
+  const order = compareVersions(target, current);
+  if (order === 0) {
     return { status: 'up-to-date', current, target };
   }
-  if (options.check) {
-    return { status: 'available', current, target };
+  // Without --to only a newer release counts; latest behind a prerelease or local build is no update.
+  if (order < 0 && options.to === undefined) {
+    return { status: 'newer-installed', current, target };
   }
+  const direction = order > 0 ? 'upgrade' : 'downgrade';
 
-  const method = await detectInstallMethod(run, options.packageRoot);
+  // --check only reports, so an install it cannot replace becomes method null instead of an error.
+  const method = await detectInstallMethod(run, options.packageRoot).catch((err: unknown) => {
+    if (options.check && err instanceof ValidationError) return null;
+    throw err;
+  });
+  if (options.check) {
+    return { status: 'available', current, target, direction, method };
+  }
   if (!method) {
-    throw new ValidationError(
-      `dshenv at ${options.packageRoot} was not installed globally with npm or pnpm, so it cannot replace itself; ` +
-        `run 'npm install -g ${PACKAGE_NAME}@${target}', or 'git pull && pnpm build' in a linked checkout`
-    );
+    throw new ValidationError(manualUpdate(options.packageRoot, target));
   }
   const args = installArgs(method, target);
   const command = [method, ...args].join(' ');
-  const result = await run(method, args, INSTALL_TIMEOUT_MS);
+  // No timeout: killing the package manager mid-install can leave the global package half replaced.
+  const result = await run(method, args, { showOutput: true });
   if (result.exitCode !== 0) {
-    throw new DshError(`'${command}' failed: ${firstErrorLine(result)}`);
+    throw new DshError(`'${command}' failed: ${describeFailure(result)}; its output is above`);
   }
-  return { status: 'updated', current, target, method, command };
+  return { status: 'updated', current, target, direction, method, command };
 }

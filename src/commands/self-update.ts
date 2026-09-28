@@ -14,7 +14,7 @@ export function registerSelfUpdateCommand(ctx: CommandContext, input: SelfUpdate
     .command('self-update')
     .description('Update dshenv itself from the npm registry with the package manager that installed it')
     .option('--check', 'only report whether a newer version exists; exit code 2 when one does')
-    .option('--to <version>', 'install this exact version instead of the latest')
+    .option('--to <version>', 'install this exact version instead of the latest, downgrading if it is older')
     .action(async (cmdOpts: { check?: boolean; to?: string }) => {
       const opts = program.opts();
       const result = await selfUpdate({
@@ -33,10 +33,17 @@ export function registerSelfUpdateCommand(ctx: CommandContext, input: SelfUpdate
       }
       if (result.status === 'up-to-date') {
         writeOut(`dshenv ${result.current} is up to date\n`);
+      } else if (result.status === 'newer-installed') {
+        writeOut(`dshenv ${result.current} is newer than the latest release ${result.target}; nothing to do\n`);
       } else if (result.status === 'available') {
-        writeOut(`dshenv ${result.target} is available (installed ${result.current}); run: dshenv self-update${cmdOpts.to ? ` --to ${result.target}` : ''}\n`);
+        const what = result.direction === 'downgrade' ? `A downgrade to dshenv ${result.target}` : `dshenv ${result.target}`;
+        const next = result.method
+          ? `run: dshenv self-update${cmdOpts.to ? ` --to ${result.target}` : ''}`
+          : `update it the way it was installed, e.g. npm install -g @costa92/dshenv@${result.target}`;
+        writeOut(`${what} is available (installed ${result.current}); ${next}\n`);
       } else {
-        writeOut(`Updated dshenv ${result.current} -> ${result.target} with: ${result.command}\n`);
+        const verb = result.direction === 'downgrade' ? 'Downgraded' : 'Updated';
+        writeOut(`${verb} dshenv ${result.current} -> ${result.target} with: ${result.command}\n`);
       }
     });
 }
