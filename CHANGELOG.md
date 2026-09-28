@@ -2,6 +2,30 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。发布流程见 [docs/发布流程.md](docs/发布流程.md)。
 
+## 未发布
+
+### 修复
+
+- 快照先写入临时目录，完整后再改名发布；复制中途失败不再留下不完整的快照，避免 `rollback` 选中它并删除现有的 lock/state 文件。
+- 快照记录当时不存在的 overlay；`sync` 在写入新 overlay 后、更新 `remote.json` 前被中断时，`rollback` 会删除这些新文件。
+- `source clone --profile` 在拿到环境锁之后才判断哪些目录归自己；两个 clone 并发时，失败的一方不再删掉整个 `sources/` 目录。命令失败时只删除自己的 checkout，父目录只在为空时删除。
+- `source clone --profile` 先解析 `lock.json` 再写清单；lock 损坏时清单保持不变。
+- `adopt` 在写 `state.json` 失败时把已写的清单和 lock 恢复原样。
+- 回滚 `cordis.patch.yml` 所用的原内容在写入时的同一次 profile 锁内读取；dshenv 等锁期间 DSH 做的修改不再被回滚覆盖。
+- `cordis.patch.yml` 为非空 flow 数组（如 `[{id: x}]`）时，先改写成块式序列再追加受管块，不再生成非法 YAML；写入结果不是单个顶层数组时拒绝写入。
+- `apply` 新安装的插件会记录所有权，之后从清单删除该插件时会被卸载，不再变成未受管。
+- 更新一个保持禁用的插件时，更新后会再次禁用（DSH `plugin add` 会选中 bundle）。
+- 本地来源路径改变时规划 update，即使新旧路径内容 digest 相同。
+- 缺少校验证据时不再报告已收敛：已装 Git 规格未指向 commit（如 `#main`）时按锁定 commit 重装；npm 包没有版本号、已安装的本地来源无法读取时报告 blocked。
+- `apply` 调用的 DSH `plugin add` / `plugin remove` 10 分钟超时，超时后终止进程并回滚，不再无限期占用环境锁。
+- 不支持硬链接的文件系统上，只创建（create-only）写入改用排他复制，不会覆盖并发创建的文件。
+- 在 Windows 上按 `;` 切分 PATH 并按 PATHEXT 查找 `dsh.cmd` 等命令。
+
+### 变更
+
+- 清单中 npm 来源的 `registry` 字段不再被接受：`apply` 从未使用它，声明私有 registry 实际会从默认 registry 安装同名包。
+- `lock.json` 中的 git `commit` 必须是 7-40 位十六进制 commit id；分支名、tag 会被拒绝。
+
 ## 0.1.3 - 2026-09-28
 
 ### 变更
