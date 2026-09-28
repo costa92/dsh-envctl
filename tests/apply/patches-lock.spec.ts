@@ -4,7 +4,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { clearManagedPatches, writeManagedPatches } from '../../src/apply/patches.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
-import { extractManagedPatches } from '../../src/patch/patch.js';
+import * as YAML from 'yaml';
+import { extractManagedPatches, renderPatchBlock } from '../../src/patch/patch.js';
 
 describe('cordis.patch.yml profile lock', () => {
   let tempHome: string;
@@ -134,6 +135,18 @@ describe('cordis.patch.yml profile lock', () => {
     fs.writeFileSync(patchFile(), 'keep: 1\n');
     await expect(writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }])).rejects.toThrow(/top-level YAML array/);
     expect(fs.readFileSync(patchFile(), 'utf8')).toBe('keep: 1\n');
+  });
+
+  it('repairs a file the old append left invalid before writing, and undo puts the original bytes back', async () => {
+    const broken = `[{id: existing, config: {}}]\n\n${renderPatchBlock('web', 'other', 'o1', { b: 1 })}\n`;
+    fs.writeFileSync(patchFile(), broken);
+
+    const restore = await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }]);
+    const content = fs.readFileSync(patchFile(), 'utf8');
+    expect(YAML.parse(content).map((entry: { id: string }) => entry.id)).toEqual(['existing', 'o1', 'p1']);
+
+    await restore();
+    expect(fs.readFileSync(patchFile(), 'utf8')).toBe(broken);
   });
 
   it('writes patches for a profile whose directory does not exist yet without locking', async () => {

@@ -5,7 +5,7 @@ import type { PatchEntry } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { withProfilePackageLock } from '../io/profile-lock.js';
-import { assertPatchFileArray, extractPluginBlocks, removePatchBlock, replacePluginBlocks, splicePluginBlocks } from '../patch/patch.js';
+import { assertPatchFileArray, extractPluginBlocks, removePatchBlock, repairPatchFile, replacePluginBlocks, splicePluginBlocks } from '../patch/patch.js';
 
 const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
 const MAX_PATCH_BYTES = 1024 * 1024;
@@ -86,6 +86,16 @@ function restorePatchFile(
     });
 }
 
+// The undo image stays the original bytes; only what is written is repaired.
+function repairedOrSelf(content: string): string {
+  try {
+    assertPatchFileArray(content, '');
+    return content;
+  } catch {
+    return repairPatchFile(content) ?? content;
+  }
+}
+
 // Returns how to undo the write.
 export async function writeManagedPatches(
   paths: EnvironmentPaths,
@@ -98,7 +108,7 @@ export async function writeManagedPatches(
   return withPatchFileLock(file, async () => {
     const existed = fs.existsSync(file);
     const before = await readProfilePatchFile(paths, profileName);
-    const content = replacePluginBlocks(before, profileName, pluginAlias, active);
+    const content = replacePluginBlocks(repairedOrSelf(before), profileName, pluginAlias, active);
     assertPatchFileArray(content, file);
     await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
     return restorePatchFile(paths, profileName, pluginAlias, existed, before);
@@ -118,7 +128,7 @@ export async function clearManagedPatches(
   return withPatchFileLock(file, async () => {
     const existed = fs.existsSync(file);
     const before = await readProfilePatchFile(paths, profileName);
-    await writePatchFile(file, removePatchBlock(before, profileName, pluginAlias));
+    await writePatchFile(file, removePatchBlock(repairedOrSelf(before), profileName, pluginAlias));
     return restorePatchFile(paths, profileName, pluginAlias, existed, before);
   });
 }

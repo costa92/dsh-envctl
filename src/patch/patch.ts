@@ -75,13 +75,16 @@ export function extractPluginBlocks(content: string, profileName: string, plugin
     .join('');
 }
 
-function emptyFlowArrayRange(content: string): [number, number] | null {
+// An empty flow array, or a null document such as `~`, both of which DSH reads as no patches.
+function emptyRootRange(content: string): [number, number] | null {
   const doc = YAML.parseDocument(content);
   const root = doc.contents;
-  if (doc.errors.length > 0 || !YAML.isSeq(root) || !root.flow || root.items.length > 0 || !root.range) {
+  if (doc.errors.length > 0 || !root?.range) {
     return null;
   }
-  return [root.range[0], root.range[1]];
+  const emptyFlowArray = YAML.isSeq(root) && root.flow && root.items.length === 0;
+  const nullScalar = YAML.isScalar(root) && root.value === null && root.range[1] > root.range[0];
+  return emptyFlowArray || nullScalar ? [root.range[0], root.range[1]] : null;
 }
 
 function flowArrayAsBlock(content: string): string | null {
@@ -114,25 +117,50 @@ export function replacePluginBlocks(
   return splicePluginBlocks(existingContent, profileName, pluginAlias, blocks);
 }
 
+function appendBlocks(existingContent: string, blocks: string): string {
+  if (blocks.length === 0) return existingContent;
+  if (existingContent.length === 0) return blocks;
+  // A fresh profile's cordis.patch.yml is a single top-level `[]`. Appending a block
+  // sequence after it would start a second YAML document, which DSH's parser rejects.
+  const emptyRoot = emptyRootRange(existingContent);
+  if (emptyRoot) {
+    const [start, end] = emptyRoot;
+    const lineEnd = existingContent.indexOf('\n', end);
+    const restOfLine = existingContent.slice(end, lineEnd === -1 ? undefined : lineEnd).trim();
+    const after = lineEnd === -1 ? '' : existingContent.slice(lineEnd + 1);
+    return `${existingContent.slice(0, start)}${restOfLine ? `${restOfLine}\n` : ''}${blocks}${after}`;
+  }
+  // A block sequence cannot follow a flow array either, so a non-empty one is rewritten in block style first.
+  const base = flowArrayAsBlock(existingContent) ?? existingContent;
+  return `${base}${base.endsWith('\n') ? '\n' : '\n\n'}${blocks}`;
+}
+
+const ANY_PLUGIN_BLOCK = /# dshenv:begin profile=([^\s]+) plugin=([^\s]+)(?: digest=[^\s]+)?\n[\s\S]*?# dshenv:end profile=\1 plugin=\2\n?/g;
+
+// Earlier releases appended blocks after a non-empty flow array, leaving invalid YAML. Such a file is
+// rebuilt from its own content plus every managed block; null when the content itself is not an array.
+export function repairPatchFile(content: string): string | null {
+  const blocks = [...content.matchAll(ANY_PLUGIN_BLOCK)].map(([block]) => (block.endsWith('\n') ? block : `${block}\n`)).join('');
+  const base = content.replace(ANY_PLUGIN_BLOCK, () => '');
+  try {
+    assertPatchFileArray(base, '');
+  } catch {
+    return null;
+  }
+  const repaired = appendBlocks(base, blocks);
+  try {
+    assertPatchFileArray(repaired, '');
+  } catch {
+    return null;
+  }
+  return repaired;
+}
+
 // Surrounding bytes are spliced rather than passed through String.replace, which would expand `$` patterns in values.
 export function splicePluginBlocks(existingContent: string, profileName: string, pluginAlias: string, blocks: string): string {
   const matches = [...existingContent.matchAll(pluginBlockRegex(profileName, pluginAlias))];
   if (matches.length === 0) {
-    if (blocks.length === 0) return existingContent;
-    if (existingContent.length === 0) return blocks;
-    // A fresh profile's cordis.patch.yml is a single top-level `[]`. Appending a block
-    // sequence after it would start a second YAML document, which DSH's parser rejects.
-    const emptyArray = emptyFlowArrayRange(existingContent);
-    if (emptyArray) {
-      const [start, end] = emptyArray;
-      const lineEnd = existingContent.indexOf('\n', end);
-      const restOfLine = existingContent.slice(end, lineEnd === -1 ? undefined : lineEnd).trim();
-      const after = lineEnd === -1 ? '' : existingContent.slice(lineEnd + 1);
-      return `${existingContent.slice(0, start)}${restOfLine ? `${restOfLine}\n` : ''}${blocks}${after}`;
-    }
-    // A block sequence cannot follow a flow array either, so a non-empty one is rewritten in block style first.
-    const base = flowArrayAsBlock(existingContent) ?? existingContent;
-    return `${base}${base.endsWith('\n') ? '\n' : '\n\n'}${blocks}`;
+    return appendBlocks(existingContent, blocks);
   }
 
   let result = '';
