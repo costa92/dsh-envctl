@@ -151,7 +151,15 @@ export async function safeFastForwardManagedGit(
   const previousCommit = status.commit || 'unknown';
 
   await execa('git', ['fetch', '--all'], { cwd: repoDir, shell: false, timeout: 30000 });
-  await execa('git', ['merge', '--ff-only', targetCommitOrRef], {
+  // A bare branch name would resolve to the local branch, which never moves on its own; follow its upstream copy.
+  const upstream = await execa('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${targetCommitOrRef}`], {
+    cwd: repoDir,
+    shell: false,
+    reject: false,
+    timeout: 5000
+  });
+  const target = upstream.exitCode === 0 ? `origin/${targetCommitOrRef}` : targetCommitOrRef;
+  await execa('git', ['merge', '--ff-only', target], {
     cwd: repoDir,
     shell: false,
     timeout: 10000
