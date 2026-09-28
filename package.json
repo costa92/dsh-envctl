@@ -6,9 +6,9 @@
   "author": "costa",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/costa92/dsh-envctl.git"
+    "url": "git+https://github.com/costa92/dshenv.git"
   },
-  "homepage": "https://github.com/costa92/dsh-envctl#readme",
+  "homepage": "https://github.com/costa92/dshenv#readme",
   "type": "module",
   "bin": {
     "dshenv": "./bin/dshenv.js"

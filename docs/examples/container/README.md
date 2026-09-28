@@ -27,14 +27,14 @@ your-config-repo/
 ## 3. 构建与运行
 
 ```bash
-docker build --build-context dshenv=/path/to/dsh-envctl -t my-dsh .
+docker build --build-context dshenv=/path/to/dshenv -t my-dsh .
 docker network create dsh-net   # 独立网络，见第 4 节
 docker run --rm --network dsh-net -p 127.0.0.1:3080:3080 -e DEEPSEEK_API_KEY my-dsh
 # 或
-DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
+DSHENV_SRC=/path/to/dshenv DEEPSEEK_API_KEY=... docker compose up --build
 ```
 
-镜像从源码构建 dshenv（因此可以使用未发布的改动），`--build-context dshenv=...`（或 compose 的 `DSHENV_SRC`）必须指向一份 dsh-envctl 源码检出，构建阶段会从中打包安装。
+镜像从源码构建 dshenv（因此可以使用未发布的改动），`--build-context dshenv=...`（或 compose 的 `DSHENV_SRC`）必须指向一份 dshenv 源码检出，构建阶段会从中打包安装。
 
 启动后在 `docker logs <容器名>`（或 `docker compose logs dsh`）里找 `dsh web: http://127.0.0.1:3080/?token=...` 链接完成首次认证：
 
@@ -79,7 +79,7 @@ DSHENV_SRC=/path/to/dsh-envctl DEEPSEEK_API_KEY=... docker compose up --build
 
 ## 6. 限制
 
-- 只支持 npm 与 git 插件源；镜像内不含 dsh-envctl 之外的本地源码，local 源不可用。
+- 只支持 npm 与 git 插件源；镜像内不含 dshenv 之外的本地源码，local 源不可用。
 - git 源插件必须在 `lock.json` 里固定 commit，否则 `plan` 会报 `blocked`；需要构建步骤的 git 插件要按 DSH 提示配置 `allowBuilds`。
 - 改动 `envctl/manifest.yaml`（或 overlay）后要重新构建镜像；不要在运行中的容器里执行 `dshenv apply`，容器不持久化 envctl 状态。
 - 未在 Docker Desktop（macOS/Windows）上验证过。

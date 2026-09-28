@@ -16,7 +16,7 @@ on:
     - cron: '0 2 * * *'
 
 env:
-  # dshenv is built from source here; pin this to a costa92/dsh-envctl commit you have reviewed.
+  # dshenv is built from source here; pin this to a costa92/dshenv commit you have reviewed.
   DSHENV_REF: master
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: costa92/dsh-envctl
+          repository: costa92/dshenv
           ref: ${{ env.DSHENV_REF }}
           path: .dshenv-tool
       - uses: pnpm/action-setup@v4
@@ -62,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: costa92/dsh-envctl
+          repository: costa92/dshenv
           ref: ${{ env.DSHENV_REF }}
           path: .dshenv-tool
       - uses: pnpm/action-setup@v4

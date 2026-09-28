@@ -1,10 +1,10 @@
-# DSHENV_SRC must point at a dsh-envctl checkout; it is passed as the `dshenv` build context.
+# DSHENV_SRC must point at a dshenv checkout; it is passed as the `dshenv` build context.
 services:
   dsh:
     build:
       context: .
       additional_contexts:
-        dshenv: ${DSHENV_SRC:?set DSHENV_SRC to a dsh-envctl checkout}
+        dshenv: ${DSHENV_SRC:?set DSHENV_SRC to a dshenv checkout}
     image: my-dsh
     ports:
       # Host loopback only: the web app executes commands for whoever reaches it.
