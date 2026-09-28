@@ -75,6 +75,23 @@ pnpm link --global
 dshenv --version
 ```
 
+### 升级 dshenv
+
+```bash
+dshenv self-update --check     # 只查询：有新版本时退出码 2，已是最新时退出码 0
+dshenv self-update             # 升级到 npm 上的最新版本
+dshenv self-update --to 0.2.0  # 升级或回退（降级）到指定的精确版本
+```
+
+`self-update` 用 `npm view --prefer-online` 查询版本，再用安装 dshenv 的包管理器替换自身：全局 npm 安装执行 `npm install -g @costa92/dshenv@<版本> --prefer-online`，全局 pnpm 安装执行 `pnpm add -g @costa92/dshenv@<版本>`。安装过程的输出直接显示在终端（stderr），不设超时，因为中途打断可能留下装了一半的全局包。
+
+- 不带 `--to` 时只会升级：本机版本高于 npm 上的最新版（如预发布版或本地构建）时报告 `newer-installed`，不做改动。回退必须用 `--to` 明确指定，输出会注明是降级。
+- 本地链接或源码检出安装的 dshenv，以及用 pnpm 从 Git 地址安装的 dshenv，不会被替换为 npm 版本，命令以退出码 3 给出升级方法（如 `git pull && pnpm build`）。`--check` 对这类安装仍会报告，`method` 为 `null`。
+- 失败时只显示错误码（如 `EACCES`、`ERR_PNPM_FETCH_401`），完整原因见上方包管理器自己的输出；`EACCES` 表示全局安装目录不可写。
+- Windows 上 npm 会在 `dshenv.cmd` 运行期间覆盖它，升级成功后命令行可能多出一行批处理报错，可以忽略，用 `dshenv --version` 确认版本。
+
+也可以手动升级：`npm install -g @costa92/dshenv@latest --prefer-online`。刚发布的版本在本机 npm 缓存过期前可能报 `notarget`，加 `--prefer-online` 即可。升级前先看 [CHANGELOG](CHANGELOG.md) 中的「变更」，例如 0.2.0 起清单不再接受 npm 来源的 `registry` 字段，lock 中的 git `commit` 必须是十六进制 commit id。
+
 完整流程、能力边界、agent-teams 示例和常见问题见 [中文使用教程](docs/使用教程.md)。
 
 DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容性，放宽版本门禁的步骤见 [DSH 新版本兼容验证](docs/DSH版本升级.md)。
@@ -340,6 +357,10 @@ dshenv remote remove --yes                                   # 取消订阅，�
 - URL 不得内嵌凭据（认证交给 SSH 或 git credential helper）；git 失败时退出码 1，并带出 git 的原始错误。
 - `--json` 时 `sync` 输出 `{status, from, to, files: {added, modified, removed}, lockEntries: {added, modified, removed}, plan}`，lock 条目写作 `<profile>/<alias>`，`status` 为 `up-to-date`、`pending` 或 `accepted`。
 
+### 21. `dshenv self-update`
+
+查询或升级 dshenv 自身，用法与安装方式的判断见[升级 dshenv](#升级-dshenv)。`--json` 输出 `{status, current, target, direction?, method?, command?}`：`status` 为 `up-to-date`、`newer-installed`（本机版本高于最新版，不做改动）、`available`（仅 `--check`）或 `updated`；`direction` 为 `upgrade` 或 `downgrade`；`method` 为 `npm`、`pnpm`，无法自行替换时为 `null`。
+
 ---
 
 ## 退出码规范
@@ -348,7 +369,7 @@ dshenv remote remove --yes                                   # 取消订阅，�
 | :--- | :--- |
 | `0` | 成功 / 环境与清单完全同步（Clean） |
 | `1` | 通用 CLI 错误 / 参数解析失败 |
-| `2` | 存在有效变更计划（Drifted） |
+| `2` | 存在有效变更计划（Drifted）；`self-update --check` 有可安装的版本 |
 | `3` | 输入或清单格式校验失败（ValidationError） |
 | `4` | DSH 运行时能力不支持或未找到（CapabilityError） |
 | `5` | 环境降级或运行时响应异常（DegradedError） |

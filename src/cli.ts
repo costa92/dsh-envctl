@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { DshError, ValidationError } from './errors.js';
 import type { CommandContext } from './commands/context.js';
@@ -11,13 +12,18 @@ import { registerOverlayCommands } from './commands/overlay.js';
 import { registerNewCommand } from './commands/new.js';
 import { registerRemoteCommands } from './commands/remote.js';
 import { registerRuntimeCommand } from './commands/runtime.js';
+import { registerSelfUpdateCommand } from './commands/self-update.js';
+import type { Runner } from './self-update/self-update.js';
 
 // src/cli.ts and the bundled lib/*.js both sit one level below package.json.
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 
 export interface CliIO {
   stdout?: (chunk: string) => void;
   stderr?: (chunk: string) => void;
+  // Stands in for npm and pnpm in self-update, so tests never touch the registry or the global install.
+  selfUpdateRunner?: Runner;
 }
 
 export async function runCli(argv: string[], io?: CliIO): Promise<number> {
@@ -60,6 +66,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   registerNewCommand(ctx, plugins);
   registerRemoteCommands(ctx);
   registerRuntimeCommand(ctx);
+  registerSelfUpdateCommand(ctx, { version, packageRoot, run: io?.selfUpdateRunner });
 
   try {
     // commander keeps only the last of the two flags, so a conflict must be detected on argv.
