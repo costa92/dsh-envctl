@@ -553,6 +553,21 @@ describe('buildPlan', () => {
       expect(plan.hasChanges).toBe(false);
     });
 
+    it.each(['local-file', 'local-link'] as const)(
+      'should plan update when the %s path moved to an identical checkout',
+      (type) => {
+        const installedAtOld = inventoryFor(type);
+        installedAtOld.profiles.web.plugins['demo-plugin'].resolvedSource = '/old/demo';
+        const plan = buildPlan(manifestFor(type), lockWith(type, 'new-digest'), installedAtOld, null, current);
+        expect(plan.operations.map((op) => op.kind)).toEqual(['update']);
+
+        const lockAtOld = lockWith(type, 'new-digest');
+        const oldSource = lockAtOld.profiles.web.plugins.demo.source;
+        if (oldSource.type === type) oldSource.path = '/old/demo';
+        expect(buildPlan(manifestFor(type), lockAtOld, inventoryFor(type), null, current).operations.map((op) => op.kind)).toEqual(['update']);
+      }
+    );
+
     it('should not guess drift when the source digest cannot be read', () => {
       const plan = buildPlan(manifestFor('local-file'), lockWith('local-file', 'old-digest'), inventory, null, {});
       expect(plan.hasChanges).toBe(false);

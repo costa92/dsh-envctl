@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import type {
   EnvironmentManifest,
   EnvironmentLock,
@@ -95,6 +96,17 @@ type ManifestSource = EnvironmentManifest['profiles'][string]['plugins'][string]
 // effective manifest declares, never override it.
 export function lockedGitCommit(source: ManifestSource, locked: LockedSource): string | undefined {
   return source.type === 'git' && locked?.type === 'git' && locked.url === source.url ? locked.commit : undefined;
+}
+
+// The installed spec is the evidence; the lock stands in when the inventory could not resolve one.
+function localPathMoved(
+  type: 'local-file' | 'local-link',
+  declared: string,
+  installed: string | undefined,
+  locked: LockedSource
+): boolean {
+  const current = installed ?? (locked?.type === type ? locked.path : undefined);
+  return current !== undefined && path.normalize(current) !== path.normalize(declared);
 }
 
 function isSameCommit(a: string, b: string): boolean {
@@ -235,6 +247,19 @@ export function buildPlan(
             reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
             currentVersion,
             targetVersion,
+            currentEnabled,
+            targetEnabled
+          });
+        } else if (
+          (pluginManifest.source.type === 'local-file' || pluginManifest.source.type === 'local-link') &&
+          localPathMoved(pluginManifest.source.type, pluginManifest.source.path, installed?.resolvedSource, lockEntry?.source)
+        ) {
+          operations.push({
+            kind: 'update',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: `Local source path changed to ${pluginManifest.source.path}`,
             currentEnabled,
             targetEnabled
           });
