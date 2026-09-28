@@ -4,6 +4,7 @@ import { appendBlocks, flowArrayAsBlock, splicePluginBlocks } from './patch.js';
 // A plugin package without `dsh.bundle` is not a DSH bundle: DSH skips it in the profile's bundle list, and it
 // loads only through an insert row. dshenv keeps that row in its own managed block, one per plugin.
 const MOUNT_PREFIX = '@mount:';
+const MANAGED_BLOCK = /# dshenv:begin profile=([^\s]+) plugin=([^\s]+)[^\n]*\n[\s\S]*?# dshenv:end profile=\1 plugin=\2/g;
 const MOUNT_BLOCK = /# dshenv:begin profile=([^\s]+) plugin=@mount:([^\s]+)\n([\s\S]*?)# dshenv:end profile=\1 plugin=@mount:\2/g;
 
 export function mountBlockAlias(alias: string): string {
@@ -44,8 +45,15 @@ function prependBlock(content: string, block: string): string {
   if (!YAML.isNode(first) || !first.range) {
     return appendBlocks(content, block);
   }
-  const lineStart = base.lastIndexOf('\n', first.range[0] - 1) + 1;
-  return `${base.slice(0, lineStart)}${block}${base.slice(lineStart)}`;
+  let at = base.lastIndexOf('\n', first.range[0] - 1) + 1;
+  // A first entry inside a managed block starts after that block's begin marker, which must stay on top of it.
+  for (const match of base.matchAll(MANAGED_BLOCK)) {
+    if (match.index <= at && at < match.index + match[0].length) {
+      at = match.index;
+      break;
+    }
+  }
+  return `${base.slice(0, at)}${block}${base.slice(at)}`;
 }
 
 // Mounts the package under the alias, or unmounts it when packageName is null.

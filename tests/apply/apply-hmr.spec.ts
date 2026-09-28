@@ -6,6 +6,7 @@ import { applyEnvironment } from '../../src/apply/apply.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 import { loadState } from '../../src/manifest/files.js';
 import type { HmrStatus } from '../../src/dsh/hmr.js';
+import { readMounts, writeMount } from '../../src/patch/mount.js';
 
 const PKG = '@nanmicoder/dsh-agent-teams';
 
@@ -180,6 +181,23 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     expect(removeCall.bundles).not.toContain(PKG);
     expect(removeCall.at - removeCall.packageJsonMtimeMs).toBeGreaterThanOrEqual(350);
     expect(stateEntry()).toBeUndefined();
+  });
+
+  it('waits for hot reload to unload a mounted plugin that is not a DSH bundle before uninstalling it', async () => {
+    install('0.1.21', []);
+    fs.writeFileSync(path.join(profileDir(), 'node_modules', '@nanmicoder', 'dsh-agent-teams', 'package.json'), JSON.stringify({ name: PKG, version: '0.1.21' }));
+    const patchFile = path.join(profileDir(), 'cordis.patch.yml');
+    fs.writeFileSync(patchFile, writeMount('[]\n', 'web', 'agent-teams', PKG));
+    manifest('    plugins: {}\n');
+    own();
+    const log = configureFakeDsh();
+
+    await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'on' }), hmrSettleMs: 400 });
+
+    const [removeCall] = dshCalls(log);
+    expect(removeCall.args).toEqual(['plugin', '--profile', 'web', 'remove', PKG]);
+    expect(readMounts(fs.readFileSync(patchFile, 'utf8'), 'web')).toEqual({});
+    expect(removeCall.at - fs.statSync(patchFile).mtimeMs).toBeGreaterThanOrEqual(350);
   });
 
   it('restores the bundle and leaves state untouched when dsh plugin remove fails with hot reload on', async () => {

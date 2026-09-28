@@ -259,9 +259,11 @@ export async function readEnvironmentInventory(
       const inspection = await inspectInstallPath(nodeModulesPackagePath(profilePath, pkgName), profilePath);
       const installed = classified.sourceType === 'in-box' || inspection.present;
       // DSH loads a listed bundle only when its package declares dsh.bundle; any other plugin loads through an
-      // insert row (patch/mount). An unreadable package.json keeps the bundle reading.
-      const raw = inspection.rawPackageJson;
-      const bundle = classified.sourceType === 'in-box' || !raw || isBundlePackage(raw);
+      // insert row (patch/mount). DSH reads a linked package through its link, so the bundle check does too,
+      // though no other metadata is taken from outside the profile. An unreadable package.json keeps the bundle reading.
+      const pkgPath = nodeModulesPackagePath(profilePath, pkgName);
+      const raw = inspection.rawPackageJson ?? (inspection.present ? safeReadJson(path.join(pkgPath, 'package.json')) : null);
+      const bundle = classified.sourceType === 'in-box' || !isRecord(raw) || isBundlePackage(raw);
 
       plugins[pkgName] = {
         name: pkgName,

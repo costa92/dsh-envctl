@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as YAML from 'yaml';
-import { assertPatchFileArray, renderPatchBlock } from '../../src/patch/patch.js';
+import { assertPatchFileArray, extractManagedPatches, renderPatchBlock, replacePluginBlocks } from '../../src/patch/patch.js';
 import { readMounts, writeMount } from '../../src/patch/mount.js';
 
 const PKG = '@dsh-external/dsh-session-search';
@@ -22,6 +22,15 @@ describe('plugin mount blocks', () => {
     assertPatchFileArray(content, 'cordis.patch.yml');
     expect(rows(content).map((row) => row.id ?? 'insert')).toEqual(['insert', 'user-entry', 'session-search']);
     expect(writeMount('[{ id: a }]\n', 'web', 'x', PKG)).toMatch(/plugin=@mount:x[\s\S]*- \{ id: a \}/);
+  });
+
+  it('puts a new mount before a managed block the file starts with, not inside it', () => {
+    const existing = `# header\n${renderPatchBlock('web', 'foo', 'foo-row', { a: 1 })}\n`;
+    const content = writeMount(existing, 'web', 'x', PKG);
+    assertPatchFileArray(content, 'cordis.patch.yml');
+    expect(content.startsWith('# header\n# dshenv:begin profile=web plugin=@mount:x\n')).toBe(true);
+    expect(extractManagedPatches(content, 'web').find((patch) => patch.plugin === 'foo')).toMatchObject({ isDigestValid: true, config: { a: 1 } });
+    expect(readMounts(replacePluginBlocks(content, 'web', 'foo', [{ id: 'foo-row', config: { a: 2 } }]), 'web')).toEqual({ x: PKG });
   });
 
   it('rewrites a mount in place and unmounts it, leaving an empty array', () => {

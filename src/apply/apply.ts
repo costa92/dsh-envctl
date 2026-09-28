@@ -229,8 +229,10 @@ async function executeWithDsh(
       if (!command) {
         throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
       }
-      // Only a plugin that was in the bundle list is loaded, so only then is there an unload to wait for.
-      if (previousIndex !== -1 && hmrByProfile.get(operation.profile)?.state === 'on') {
+      // Only a plugin that was in the bundle list or mounted is loaded, so only then is there an unload to wait for.
+      const installed = inventory.profiles[operation.profile]?.plugins[operation.package];
+      const wasMounted = installed?.bundle === false && installed.enabled === true;
+      if ((previousIndex !== -1 || wasMounted) && hmrByProfile.get(operation.profile)?.state === 'on') {
         await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS);
       }
       const removeResult = await runDshPluginCommand(
