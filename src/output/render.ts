@@ -19,6 +19,10 @@ function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: R
 export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): string {
   const lines: string[] = [];
 
+  const pinned = (plan.pinnedPresets ?? []).length > 0
+    ? ['', 'Pinned agent presets (DSH upgrades to them no longer apply; remove the patch to follow DSH again):', ...plan.pinnedPresets!.map((p) => `  ! [${p.profile}] ${p.id}`)]
+    : [];
+
   if (
     !plan.hasChanges &&
     plan.unmanaged.length === 0 &&
@@ -26,7 +30,7 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
     plan.unmanagedPatches.length === 0 &&
     plan.unmanagedSkills.length === 0
   ) {
-    return 'Environment is in sync with manifest. No changes planned.\n';
+    return ['Environment is in sync with manifest. No changes planned.', ...pinned].join('\n') + '\n';
   }
 
   if (plan.operations.length > 0) {
@@ -96,6 +100,7 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
     }
   }
 
+  lines.push(...pinned);
   return lines.join('\n') + '\n';
 }
 

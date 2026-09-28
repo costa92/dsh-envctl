@@ -9,6 +9,7 @@ import type { EnvironmentInventory } from '../inventory/profile-reader.js';
 import { computePatchDigest } from '../patch/patch.js';
 import { PROFILE_PATCHES_ALIAS, describeProfilePatch, digestProfilePatches } from '../profile-patches/entries.js';
 import { planSkills, type SkillOperation } from '../skills/skills.js';
+import { isPresetPatch } from '../tools/catalog.js';
 
 export type OperationKind =
   | 'install'
@@ -63,6 +64,8 @@ export interface EnvironmentPlan {
   // Loose skills in $DSH_HOME/skills; home-wide, so kept apart from the per-profile operations.
   skillOperations: SkillOperation[];
   unmanagedSkills: string[];
+  // Agent presets a manifest patch restates whole (dshenv tools); DSH upgrades to them no longer apply.
+  pinnedPresets?: Array<{ profile: string; id: string }>;
 }
 
 export type StableStatus =
@@ -458,6 +461,9 @@ export function buildPlan(
   });
 
   const skills = inventory.skills ? planSkills(inventory.skills, state?.skills) : { operations: [], unmanaged: [] };
+  const pinnedPresets = Object.entries(manifestProfiles).flatMap(([profile, profManifest]) =>
+    (profManifest.patches ?? []).filter(isPresetPatch).map((entry) => ({ profile, id: String(entry.id) }))
+  );
 
   return {
     hasChanges: operations.length > 0 || skills.operations.length > 0,
@@ -466,7 +472,8 @@ export function buildPlan(
     unverified,
     unmanagedPatches,
     skillOperations: skills.operations,
-    unmanagedSkills: skills.unmanaged
+    unmanagedSkills: skills.unmanaged,
+    ...(pinnedPresets.length > 0 ? { pinnedPresets } : {})
   };
 }
 
