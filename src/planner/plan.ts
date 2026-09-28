@@ -98,6 +98,23 @@ export function lockedGitCommit(source: ManifestSource, locked: LockedSource): s
   return source.type === 'git' && locked?.type === 'git' && locked.url === source.url ? locked.commit : undefined;
 }
 
+// Without this evidence an installed plugin would read as in sync while nothing proves it.
+function missingEvidence(
+  source: ManifestSource,
+  installedType: string | undefined,
+  installedVersion: string | undefined,
+  localDigest: string | undefined,
+  digestsRead: boolean
+): string | undefined {
+  if (source.type === 'npm' && installedType === 'npm' && !installedVersion) {
+    return `Installed npm package reports no version, so it cannot be checked against ${source.version}`;
+  }
+  if ((source.type === 'local-file' || source.type === 'local-link') && digestsRead && !localDigest) {
+    return `Local source ${source.path} cannot be read, so the installed copy cannot be checked against it`;
+  }
+  return undefined;
+}
+
 // The installed spec is the evidence; the lock stands in when the inventory could not resolve one.
 function localPathMoved(
   type: 'local-file' | 'local-link',
@@ -228,6 +245,19 @@ export function buildPlan(
           pluginManifest.source.type === 'git' ? commitFromGitSpec(installed?.resolvedSource) : undefined;
         const installedType = installed?.sourceType;
         const declaredType = pluginManifest.source.type;
+        const unverifiable = missingEvidence(pluginManifest.source, installedType, currentVersion, localDigests?.[profName]?.[alias], localDigests !== undefined);
+        if (unverifiable) {
+          operations.push({
+            kind: 'blocked',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: unverifiable,
+            blockedReason: unverifiable,
+            targetEnabled
+          });
+          continue;
+        }
         if (installedType && installedType !== declaredType && installedType !== 'in-box' && declaredType !== 'in-box') {
           operations.push({
             kind: 'update',
@@ -283,13 +313,16 @@ export function buildPlan(
             currentEnabled,
             targetEnabled
           });
-        } else if (gitLockCommit && installedCommit && !isSameCommit(installedCommit, gitLockCommit)) {
+        } else if (gitLockCommit && installedType === 'git' && (!installedCommit || !isSameCommit(installedCommit, gitLockCommit))) {
+          // A spec such as #main names no commit, so the installed code cannot be shown to match the lock.
           operations.push({
             kind: 'update',
             profile: profName,
             alias,
             package: pkgName,
-            reason: `Commit mismatch: current ${installedCommit} != locked ${gitLockCommit}`,
+            reason: installedCommit
+              ? `Commit mismatch: current ${installedCommit} != locked ${gitLockCommit}`
+              : `Installed git spec pins no commit; reinstalling at locked ${gitLockCommit}`,
             currentVersion: installedCommit,
             targetVersion: gitLockCommit,
             currentEnabled,

@@ -457,9 +457,9 @@ describe('buildPlan', () => {
       expect(plan.hasChanges).toBe(false);
     });
 
-    it('should not guess drift when the installed spec carries no commit', () => {
+    it('should reinstall at the locked commit when the installed spec carries no commit', () => {
       const plan = buildPlan(manifest, lockAt(newCommit), installedFrom('github:example/demo#main'));
-      expect(plan.hasChanges).toBe(false);
+      expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: newCommit })]);
     });
 
     const manifestPinning = (commit: string): EnvironmentManifest => {
@@ -568,9 +568,11 @@ describe('buildPlan', () => {
       }
     );
 
-    it('should not guess drift when the source digest cannot be read', () => {
+    it('should block when the source of an installed local plugin cannot be read', () => {
       const plan = buildPlan(manifestFor('local-file'), lockWith('local-file', 'old-digest'), inventory, null, {});
-      expect(plan.hasChanges).toBe(false);
+      expect(plan.operations).toEqual([
+        expect.objectContaining({ kind: 'blocked', blockedReason: expect.stringContaining('/src/demo') })
+      ]);
     });
   });
 });
@@ -701,6 +703,13 @@ describe('lock versus effective manifest', () => {
     inventory.profiles.web.plugins['demo-plugin'].enabled = false;
     const plan = buildPlan(manifest, npmLock('1.0.0'), inventory);
     expect(plan.operations.map((op) => op.kind)).toEqual(['update', 'disable']);
+  });
+
+  it('blocks when the installed npm package reports no version', () => {
+    const inventory = installedAt('1.0.0');
+    delete inventory.profiles.web.plugins['demo-plugin'].version;
+    const plan = buildPlan(npmManifest('1.0.0'), npmLock('1.0.0'), inventory);
+    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'blocked', blockedReason: expect.stringContaining('no version') })]);
   });
 
   it('keeps using the lock when it matches the exact manifest version', () => {
