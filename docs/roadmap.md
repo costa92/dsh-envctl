@@ -155,7 +155,9 @@
 - [x] 首次运行（0.1.1）发现并修复：Git 来源缺少 `git+` 前缀导致 `file://` 等地址安装失败；DSH 插件命令失败时只剩退出码（改为显示 DSH 自己的 `dsh:` 诊断行，不显示 pnpm 原始输出）；`adopt` 替换已有插件时丢失已声明的 `patches`；`status <插件>` 不认别名；`source pull --ref <分支名>` 快进到本地分支自身而没有更新
 - [x] Codex 审查上述修复，指出 `source pull` 会把 `HEAD`、`HEAD~1` 等修订改写为上游引用；改为只对与上游分支完全同名的 ref 跟随 `origin/<ref>`，复审无问题
 - [x] 0.1.2、0.1.3 发布后以 npm 安装包重跑，107 项全部通过
-- [ ] 把容器端到端测试脚本收进仓库，作为发版前的回归检查（目前在仓库外）
+- [x] 主链端到端测试收进仓库：`scripts/e2e-dsh.sh`（`make e2e-dsh`，39 项：DSH 自装插件的 capture/adopt 与所有权、本地来源安装与源码变更更新、配置补丁、版本漂移修复、对 `dsh web` 的 `runtime`、rollback、受管卸载），由 `.github/workflows/e2e.yml` 在 PR 与 master 上对已验证的 DSH 运行，与 Vitest CI 分层、不作为合入门禁
+- [x] DSH 兼容性矩阵：`.github/workflows/compat.yml` 每天与 master 推送时对 DSH `0.1.7-rc.2`（必须通过）、`latest`、`next`（仅报告）运行 `scripts/smoke-dsh.sh`，可手动指定额外版本
+- [ ] 其余容器检查（overlay、Git 来源、四类脚手架、gc/purge、团队远程同步，共 107 项）仍在仓库外，逐步并入 `e2e-dsh.sh`
 
 ## 延后能力
 

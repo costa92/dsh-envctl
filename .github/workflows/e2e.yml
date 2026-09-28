@@ -1,0 +1,34 @@
+name: E2E
+
+# The main chain (adopt, manifest/lock/ownership, plan, apply, runtime, rollback, remove) against a real
+# npm DSH. Kept apart from CI: it needs the npm registry and a running dsh web, so it is not a merge gate.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: 'npm version or dist-tag of @deepseek-ai/dsh'
+        default: '0.1.7-rc.2'
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # The verified DSH family; a new family is added here once the version gate is widened for it.
+      - run: scripts/e2e-dsh.sh "${{ inputs.dsh_version || '0.1.7-rc.2' }}" "$RUNNER_TEMP/e2e"

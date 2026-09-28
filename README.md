@@ -323,7 +323,7 @@ dshenv runtime --profile web
 - 不核对版本：DSH 只报告磁盘上的版本，看不出内存中加载的是哪个版本；升级插件后仍需重启 DSH。
 
 ### 17. 在 CI 中使用
-仓库自身的 CI 见 `.github/workflows/ci.yml`（Node 22/24 上跑 typecheck、test、build）。在你的配置仓库里校验清单与 overlay、在真实环境上做漂移门禁，可参考 `docs/examples/github-actions/dshenv-check.yml`，说明见 `docs/使用教程.md` 第 15 节。
+仓库自身的 CI 见 `.github/workflows/ci.yml`（Node 22/24 上跑 typecheck、test、build，合入 `master` 必须通过）。对真实 DSH 的检查与之分层：`e2e.yml` 在 PR 与 `master` 上对已验证的 DSH 跑主链端到端测试（`make e2e-dsh DSH_VERSION=<版本>`），`compat.yml` 每天对已验证版本、`latest` 与 `next` 跑兼容冒烟（`make smoke-dsh`）。在你的配置仓库里校验清单与 overlay、在真实环境上做漂移门禁，可参考 `docs/examples/github-actions/dshenv-check.yml`，说明见 `docs/使用教程.md` 第 15 节。
 
 ### 18. `dshenv new`
 

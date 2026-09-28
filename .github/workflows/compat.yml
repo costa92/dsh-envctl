@@ -1,0 +1,64 @@
+name: DSH compatibility
+
+# make smoke-dsh across DSH versions: the verified version must pass; latest and next only report,
+# so a new DSH release shows up here before the version gate is widened for it.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: 'extra npm version or dist-tag of @deepseek-ai/dsh to smoke-test'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke (DSH ${{ matrix.dsh }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: ${{ matrix.informational }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dsh: 0.1.7-rc.2
+            informational: false
+          - dsh: latest
+            informational: true
+          - dsh: next
+            informational: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: scripts/smoke-dsh.sh "${{ matrix.dsh }}" "$RUNNER_TEMP/smoke"
+
+  requested:
+    name: smoke (DSH ${{ inputs.dsh_version }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dsh_version != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: scripts/smoke-dsh.sh "${{ inputs.dsh_version }}" "$RUNNER_TEMP/smoke"

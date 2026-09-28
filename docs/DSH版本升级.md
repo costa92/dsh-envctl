@@ -16,6 +16,8 @@ make smoke-dsh DSH_VERSION=<新版本>
 
 全部 `PASS` 时退出码为 0；失败的步骤会附带输出。第二个参数可以指定工作目录，便于事后查看 `doctor.json` 与日志。
 
+`.github/workflows/compat.yml` 每天对已验证版本、`latest` 与 `next` 自动跑这一冒烟，所以 DSH 发布新版本后，通常在这里先看到结果（`latest`/`next` 只报告，失败不影响工作流结论）；也可以在 Actions 里手动运行并填写版本。冒烟通过后，再用 `make e2e-dsh DSH_VERSION=<新版本>` 跑完整主链。
+
 ## 2. 放宽门禁
 
 冒烟全部通过后，逐项修改并补测试：
@@ -28,6 +30,7 @@ make smoke-dsh DSH_VERSION=<新版本>
 | `docs/examples/container/Dockerfile` 及其 README | `DSH_VERSION` 默认值 |
 | `docs/roadmap.md` | 记录验证版本、日期与冒烟结果 |
 | `README.md` | 顶部 DSH 徽标中的已验证版本族 |
+| `.github/workflows/e2e.yml`、`.github/workflows/compat.yml`、`tests/github-actions.spec.ts` | 端到端测试与兼容性矩阵中必须通过的已验证版本 |
 
 `packageOperations` 能力依赖对 Harness 源码中官方 operations export 的只读探测（`src/dsh/surface-probe.ts`）。新版本若调整了该导出，还需要用 `--harness-source` 指向新源码并运行 `dshenv doctor`，确认该项仍为 `available`。
 
