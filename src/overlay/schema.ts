@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EnvironmentConfigSchema, PackageNameRegex, PluginSourceSchema } from '../manifest/schema.js';
+import { EnvironmentConfigSchema, PackageNameRegex, PluginSourceSchema, ProfilePatchSchema } from '../manifest/schema.js';
 
 export const OverlayPatchSchema = z
   .object({
@@ -24,12 +24,21 @@ export const OverlayPluginSchema = z
     }
   });
 
+// `{ id, remove: true }` drops the base entry with that id.
+export const OverlayProfilePatchSchema = ProfilePatchSchema.refine(
+  (entry) => entry.remove === undefined || (entry.remove === true && typeof entry.id === 'string' && Object.keys(entry).length === 2),
+  { message: 'remove: true takes only an id' }
+);
+
 export const OverlaySchema = z
   .object({
     apiVersion: z.literal('dshenv-overlay/v1'),
     environment: EnvironmentConfigSchema.optional(),
     profiles: z
-      .record(z.string(), z.object({ plugins: z.record(z.string(), OverlayPluginSchema).optional() }).strict())
+      .record(
+        z.string(),
+        z.object({ plugins: z.record(z.string(), OverlayPluginSchema).optional(), patches: z.array(OverlayProfilePatchSchema).optional() }).strict()
+      )
       .optional()
   })
   .strict();

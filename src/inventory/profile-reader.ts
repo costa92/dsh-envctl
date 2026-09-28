@@ -4,6 +4,7 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type { SourceType } from '../domain.js';
 import { PackageNameRegex } from '../manifest/schema.js';
 import { extractManagedPatches, needsPatchFileRepair, type ExtractedPatch } from '../patch/patch.js';
+import { readProfilePatchState, type ProfilePatchState } from '../profile-patches/entries.js';
 
 export interface InstalledPluginInfo {
   name: string;
@@ -26,6 +27,8 @@ export interface ProfileInventory {
   managedPatches?: ExtractedPatch[];
   // cordis.patch.yml is invalid YAML that rewriting any managed block would repair.
   patchFileRepairable?: boolean;
+  // The profile's own patch entries; absent when the file is missing or not a readable array.
+  profilePatches?: ProfilePatchState;
 }
 
 export interface EnvironmentInventory {
@@ -249,15 +252,17 @@ export async function readEnvironmentInventory(
     const patchFile = path.join(profilePath, 'cordis.patch.yml');
     let managedPatches: ExtractedPatch[] = [];
     let patchFileRepairable = false;
+    let profilePatches: ProfilePatchState | undefined;
     try {
       const patchStat = fs.statSync(patchFile);
       if (patchStat.size <= MAX_JSON_SIZE) {
         const patchContent = fs.readFileSync(patchFile, 'utf8');
         managedPatches = extractManagedPatches(patchContent, profileName);
         patchFileRepairable = needsPatchFileRepair(patchContent);
+        profilePatches = readProfilePatchState(patchContent, profileName);
       }
     } catch {
-      managedPatches = [];
+      // A missing or unreadable file has no patches to report.
     }
 
     result.profiles[profileName] = {
@@ -266,7 +271,8 @@ export async function readEnvironmentInventory(
       plugins,
       rawProfile: rawProfileData,
       managedPatches,
-      ...(patchFileRepairable ? { patchFileRepairable } : {})
+      ...(patchFileRepairable ? { patchFileRepairable } : {}),
+      ...(profilePatches ? { profilePatches } : {})
     };
   }
 

@@ -63,7 +63,8 @@ describe('buildRestartSummary', () => {
       hasChanges: true,
       operations: [op('enable', 'web', 'a'), op('update', 'web', 'b'), op('install', 'cli', 'c'), op('blocked', 'web', 'd')],
       unmanaged: [],
-      unverified: []
+      unverified: [],
+      unmanagedPatches: []
     };
     const summary = buildRestartSummary(plan, new Map<string, HmrStatus>([['web', on], ['cli', off]]));
     expect(summary).toEqual({
@@ -77,7 +78,8 @@ describe('buildRestartSummary', () => {
 
   it('treats a profile without a probe result as unknown', () => {
     const plan: EnvironmentPlan = { hasChanges: true, operations: [op('enable')], unmanaged: [],
-      unverified: [] };
+      unverified: [],
+      unmanagedPatches: [] };
     expect(buildRestartSummary(plan, new Map()).required).toEqual([
       { profile: 'web', package: 'demo-plugin', kind: 'enable', reason: 'hmr-unknown', detail: 'hot reload was not probed' }
     ]);
@@ -90,7 +92,8 @@ describe('profilesToProbe', () => {
       hasChanges: true,
       operations: [op('enable', 'web'), op('configure', 'web'), op('blocked', 'api'), op('install', 'cli')],
       unmanaged: [],
-      unverified: []
+      unverified: [],
+      unmanagedPatches: []
     };
     expect(profilesToProbe(plan)).toEqual(['web', 'cli']);
   });

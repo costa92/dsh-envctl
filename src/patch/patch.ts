@@ -87,7 +87,7 @@ function emptyRootRange(content: string): [number, number] | null {
   return emptyFlowArray || nullScalar ? [root.range[0], root.range[1]] : null;
 }
 
-function flowArrayAsBlock(content: string): string | null {
+export function flowArrayAsBlock(content: string): string | null {
   const doc = YAML.parseDocument(content);
   const root = doc.contents;
   if (doc.errors.length > 0 || !YAML.isSeq(root) || !root.flow) {

@@ -27,7 +27,8 @@ import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { lockEntryId } from '../remote/lock-entries.js';
 import { setProfileBundleEnabled } from './bundles.js';
-import { clearManagedPatches, writeManagedPatches } from './patches.js';
+import { clearManagedPatches, writeManagedPatches, writeProfilePatches } from './patches.js';
+import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
 
 // Longer than the ~2 s awaitWriteFinish window of DSH's HMR watcher, so it unloads the plugin before its files go.
@@ -181,6 +182,11 @@ async function executeWithDsh(
       rollback.undo.push(async () => {
         await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
       });
+      continue;
+    }
+
+    if (operation.kind === 'configure' && operation.alias === PROFILE_PATCHES_ALIAS) {
+      rollback.undo.push(await writeProfilePatches(paths, operation.profile, manifest.profiles[operation.profile]?.patches ?? []));
       continue;
     }
 

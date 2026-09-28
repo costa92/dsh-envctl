@@ -28,7 +28,7 @@ help:
 	@echo "  make demo-gc      - Preview expired trash cleanup"
 	@echo ""
 	@echo "  make smoke-dsh DSH_VERSION=<v> - Install npm DSH <v> in a temp dir and run doctor/apply/plan against it"
-	@echo "  make e2e-dsh DSH_VERSION=<v>   - Run the end-to-end test (main chain, scaffolds, Git sources, overlays, purge/gc, team remote) against npm DSH <v>"
+	@echo "  make e2e-dsh DSH_VERSION=<v>   - Run the end-to-end test (main chain, scaffolds, Git sources, overlays, purge/gc, profile patches, team remote) against npm DSH <v>"
 	@echo ""
 	@echo "Demo paths (override with make TARGET VARIABLE=/path):"
 	@echo "  DSH_WORKSPACE=$(DSH_WORKSPACE)"

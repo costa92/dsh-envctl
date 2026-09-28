@@ -34,6 +34,9 @@ export interface PatchEntry {
   enabled?: boolean;
 }
 
+// A cordis patch entry as DSH reads it (an id-targeted override or an insert list), kept verbatim.
+export type ProfilePatch = Record<string, unknown>;
+
 export interface PluginManifestEntry {
   package: string;
   enabled?: boolean;
@@ -54,6 +57,7 @@ export interface EnvironmentManifest {
     string,
     {
       plugins: Record<string, PluginManifestEntry>;
+      patches?: ProfilePatch[];
     }
   >;
 }
@@ -166,5 +170,5 @@ export interface OverlayPluginEntry {
 export interface EnvironmentOverlay {
   apiVersion: 'dshenv-overlay/v1';
   environment?: EnvironmentManifest['environment'];
-  profiles?: Record<string, { plugins?: Record<string, OverlayPluginEntry> }>;
+  profiles?: Record<string, { plugins?: Record<string, OverlayPluginEntry>; patches?: ProfilePatch[] }>;
 }

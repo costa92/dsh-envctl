@@ -27,6 +27,7 @@
 - **无损环境捕获与接管**：将现有 DSH Profile 盘点为可审阅的候选清单（`capture`），确认事实未过期后再建立所有权（`adopt`）。
 - **多运行时与能力探测**：无缝支持源码运行模式（`--harness-source`）、环境变量（`DSH_CLI`）及全局 PATH 探测（`doctor`）。
 - **结构化输出**：所有命令的成功结果均支持 `--json` 格式；带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr（命令行参数解析错误除外，仍为 commander 的纯文本）。
+- **DSH 配置双向同步**：你在 DSH 里改的设置（模型、语言、权限、技能目录等写进 `cordis.patch.yml` 的条目）由 `dshenv pull` 收进清单，含本机绝对路径的条目放进本机 overlay；`apply` 按清单写回，`plan` 能分辨改动来自 DSH 还是清单。
 - **组件脚手架**：`dshenv new` 从模板生成 skill/agent/tool/mcp 组件包，可选直接登记进清单。
 - **团队共享基线**：`dshenv remote add` 订阅团队 Git 配置仓库，`dshenv sync` 预览并显式接受固定 commit 的更新；远程文件与团队 lock 条目只读，本机定制写本地 overlay，其插件的 lock 条目照常由本机维护。
 
@@ -169,6 +170,8 @@ dshenv adopt --from my-candidate.yaml
 ```
 
 `adopt` 没有交互确认，会直接写入清单、锁文件和状态；`--yes` 为兼容保留，不改变行为。执行前请先审阅候选文件。
+
+接管的 Profile 中写在 `cordis.patch.yml` 受管块之外的条目，`adopt` 会按 [`dshenv pull`](#22-dshenv-pull) 的规则一并收进清单。
 
 ### 5. `dshenv plan`
 比对期望清单与当前 Profile 实际安装状态，计算变更计划。
@@ -371,6 +374,23 @@ dshenv remote remove --yes                                   # 取消订阅，�
 
 查询或升级 dshenv 自身，用法与安装方式的判断见[升级 dshenv](#升级-dshenv)。`--json` 输出 `{status, current, target, direction?, method?, command?}`：`status` 为 `up-to-date`、`newer-installed`（本机版本高于最新版，不做改动）、`available`（仅 `--check`）或 `updated`；`direction` 为 `upgrade` 或 `downgrade`；`method` 为 `npm`、`pnpm`，无法自行替换时为 `null`。
 
+### 22. `dshenv pull`
+
+把 DSH 里改动的设置收进清单，是 `apply` 的反方向。你在 DSH 界面里改模型、语言等设置时，DSH 会改写 Profile 的 `cordis.patch.yml`；`plan` 会在 `Patch entries not in the manifest` 下列出受管块之外的条目，或提示受管块在 DSH 里被改过。
+
+```bash
+dshenv pull --dry-run        # 预览，有变更时退出码 2
+dshenv pull                  # 收进清单，并把这些条目整理进 dshenv 的受管块
+dshenv pull --profile web    # 只处理一个 Profile
+dshenv pull --prefer dsh     # DSH 与清单都改过时，以 DSH 为准（--prefer manifest 以清单为准）
+```
+
+- 条目写进清单的 `profiles.<profile>.patches`，原样保留 `id`、`name`、`config`、`disabled`、`insert` 与 `!!js` 表达式（清单里记作 `{ __jsExpr: ... }`）。
+- 含本机绝对路径（如技能目录）的条目写进当前 overlay；没有选中 overlay 时新建并选中 `local`。带 `--no-overlay` 时遇到这类条目会拒绝。订阅了团队 remote 时基础清单只读，全部条目写进本机 overlay。
+- 自上次 `apply` 以来 DSH 与清单都改过时拒绝执行，需用 `--prefer` 指定以哪一边为准。
+- 写入前先建快照，`dshenv rollback <快照 id> --yes` 可撤销（id 见 `--json` 输出的 `snapshotId`）。
+- `--json` 输出 `{dryRun, changes: [{profile, from, added, changed, removed, base, overlay, overlayName?}], overlayCreated?, operationId?, snapshotId?}`。
+
 ---
 
 ## 退出码规范
@@ -379,7 +399,7 @@ dshenv remote remove --yes                                   # 取消订阅，�
 | :--- | :--- |
 | `0` | 成功 / 环境与清单完全同步（Clean） |
 | `1` | 通用 CLI 错误 / 参数解析失败 |
-| `2` | 存在有效变更计划（Drifted）；`self-update --check` 有可安装的版本 |
+| `2` | 存在有效变更计划（Drifted）；`self-update --check` 有可安装的版本；`pull --dry-run` 有可收进的变更 |
 | `3` | 输入或清单格式校验失败（ValidationError） |
 | `4` | DSH 运行时能力不支持或未找到（CapabilityError） |
 | `5` | 环境降级或运行时响应异常（DegradedError） |

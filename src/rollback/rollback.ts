@@ -4,6 +4,8 @@ import { acquireEnvironmentLock } from '../io/lock.js';
 import { createEnvironmentSnapshot, findEnvironmentSnapshot, readAbsentKeys, restoreEnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { ValidationError } from '../errors.js';
+import { overlayFilePath, readSelectionFile, writeSelectionFile } from '../overlay/selection.js';
+import * as fs from 'node:fs';
 
 export interface RollbackOptions {
   operationId?: string;
@@ -57,6 +59,11 @@ export async function rollbackEnvironment(
       overlayKeys: readAbsentKeys(snapshot)
     });
     await restoreEnvironmentSnapshot(snapshot, paths);
+    // A pull may have created and selected the overlay the restore just removed; a selection of nothing breaks every command.
+    const selected = readSelectionFile(paths);
+    if (selected && !fs.existsSync(overlayFilePath(paths, selected)) && readAbsentKeys(snapshot).includes(`overlays/${selected}.yaml`)) {
+      await writeSelectionFile(paths, null);
+    }
     await appendJournalEntry(paths, {
       operationId,
       type: 'rollback-completed',

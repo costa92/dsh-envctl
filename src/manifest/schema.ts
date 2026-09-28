@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ValidationError } from '../errors.js';
 import * as path from 'node:path';
+import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 
 // A leading dot is refused so '.' and '..' can never name a directory outside the package's own.
 export const PackageNameRegex = /^(?:@[a-z0-9_-][a-z0-9._-]*\/)?[a-z0-9_-][a-z0-9._-]*$/;
@@ -88,7 +89,7 @@ const ProfileNameKeySchema = z.string().refine(notReserved, { message: 'Profile 
 export const PluginAliasSchema = z
   .string()
   .regex(/^\S+$/, { message: 'Plugin alias must not contain whitespace' })
-  .refine(notReserved, { message: 'Plugin alias is reserved' });
+  .refine((name) => notReserved(name) && name !== PROFILE_PATCHES_ALIAS, { message: 'Plugin alias is reserved' });
 
 export const PatchEntrySchema = z
   .object({
@@ -97,6 +98,12 @@ export const PatchEntrySchema = z
     enabled: z.boolean().optional()
   })
   .strict();
+
+export const ProfilePatchSchema = z
+  .record(z.string(), z.unknown())
+  .refine((entry) => (typeof entry.id === 'string' && entry.id.length > 0) || Array.isArray(entry.insert), {
+    message: 'A profile patch needs an id or an insert list'
+  });
 
 export const PluginManifestEntrySchema = z
   .object({
@@ -111,7 +118,8 @@ export const PluginManifestEntrySchema = z
 
 export const ProfileManifestEntrySchema = z
   .object({
-    plugins: z.record(PluginAliasSchema, PluginManifestEntrySchema).default({})
+    plugins: z.record(PluginAliasSchema, PluginManifestEntrySchema).default({}),
+    patches: z.array(ProfilePatchSchema).optional()
   })
   .strict()
   .superRefine((val, ctx) => {

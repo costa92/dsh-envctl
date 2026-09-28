@@ -13,6 +13,7 @@ import { registerNewCommand } from './commands/new.js';
 import { registerRemoteCommands } from './commands/remote.js';
 import { registerRuntimeCommand } from './commands/runtime.js';
 import { registerSelfUpdateCommand } from './commands/self-update.js';
+import { registerPullCommand } from './commands/pull.js';
 import type { Runner } from './self-update/self-update.js';
 
 // src/cli.ts and the bundled lib/*.js both sit one level below package.json.
@@ -66,6 +67,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   registerNewCommand(ctx, plugins);
   registerRemoteCommands(ctx);
   registerRuntimeCommand(ctx);
+  registerPullCommand(ctx);
   registerSelfUpdateCommand(ctx, { version, packageRoot, run: io?.selfUpdateRunner });
 
   try {

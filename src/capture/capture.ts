@@ -190,6 +190,11 @@ export function captureEnvironment(
       }
     }
 
+    const unmanagedPatches = profileInv.profilePatches?.unmanaged.length ?? 0;
+    if (unmanagedPatches > 0) {
+      warnings.push(`Profile ${profileName} has ${unmanagedPatches} patch entr${unmanagedPatches === 1 ? 'y' : 'ies'} outside the manifest; adopt takes them over as with dshenv pull`);
+    }
+
     manifest.profiles[profileName] = {
       plugins: profileManifestPlugins
     };
