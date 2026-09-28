@@ -104,6 +104,20 @@ describe('snapshots with a remote subscription', () => {
     expect(fs.existsSync(paths.remoteFile)).toBe(false);
   });
 
+  it('keeps a recorded-absent overlay that became local in the undo backup of a rollback', async () => {
+    await writeRemoteOwnedFixture(home);
+    await createEnvironmentSnapshot(paths, 'sync-new', { overlayKeys: ['overlays/extra.yaml'] });
+    // The sync created extra.yaml; remote remove then left it in place as a local file, which the user edited.
+    fs.writeFileSync(overlayFile('extra'), `${OWNED_OVERLAY}# mine\n`);
+    fs.rmSync(paths.remoteFile);
+
+    const result = await rollbackEnvironment(paths, { operationId: 'sync-new' });
+    expect(fs.existsSync(overlayFile('extra'))).toBe(false);
+
+    await rollbackEnvironment(paths, { operationId: result.backupSnapshotId });
+    expect(read(overlayFile('extra'))).toBe(`${OWNED_OVERLAY}# mine\n`);
+  });
+
   it('rollback restores the pinned commit and its undo backup keeps the newer one', async () => {
     await writeRemoteOwnedFixture(home);
     await createEnvironmentSnapshot(paths, 'sync-abc');

@@ -75,7 +75,7 @@ async function copySnapshotFiles(paths: EnvironmentPaths, snapshotDir: string, o
   }
 }
 
-function readAbsentKeys(snapshot: EnvironmentSnapshot): string[] {
+export function readAbsentKeys(snapshot: EnvironmentSnapshot): string[] {
   const file = path.join(snapshot.snapshotDir, ABSENT_FILE);
   return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as string[]) : [];
 }
