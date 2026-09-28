@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type { EnvironmentLock, EnvironmentManifest } from '../domain.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
@@ -13,6 +14,7 @@ import { readOverlay } from '../overlay/effective.js';
 import { mergeManifest } from '../overlay/merge.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { buildPlan, type EnvironmentPlan } from '../planner/plan.js';
+import { readSkillDigests } from '../skills/skills.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { isAncestor } from './git.js';
 import {
@@ -147,6 +149,33 @@ function manifestAfter(
   return mergeManifest(snapshot.manifest, overlay, selection.name).manifest;
 }
 
+// envctl/skills as accepting would leave it, laid out in a scratch copy so the preview plan can digest it.
+async function declaredSkillsAfter(paths: EnvironmentPaths, snapshot: RemoteSnapshot, files: RemoteFileChanges): Promise<Record<string, string>> {
+  const changed = [...files.added, ...files.modified, ...files.removed].filter((key) => skillPathFromKey(key) !== null);
+  if (changed.length === 0) {
+    return readSkillDigests(paths.skillsDir);
+  }
+  const scratch = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dshenv-sync-skills-'));
+  try {
+    if (fs.existsSync(paths.skillsDir)) {
+      await fs.promises.cp(paths.skillsDir, scratch, { recursive: true });
+    }
+    for (const key of changed) {
+      const file = path.join(scratch, ...(skillPathFromKey(key) as string[]));
+      if (files.removed.includes(key)) {
+        await fs.promises.rm(file, { force: true });
+        await removeEmptySkillDirs(scratch, key);
+      } else {
+        await fs.promises.mkdir(path.dirname(file), { recursive: true });
+        await fs.promises.writeFile(file, snapshot.files[key]);
+      }
+    }
+    return await readSkillDigests(scratch);
+  } finally {
+    await fs.promises.rm(scratch, { recursive: true, force: true });
+  }
+}
+
 // A killed accept leaves files half-written and remote.json stale; drift errors would then give the wrong advice.
 async function assertNoUnfinishedSync(paths: EnvironmentPaths): Promise<void> {
   const last = (await readJournalEntries(paths))
@@ -180,7 +209,11 @@ export async function prepareSync(input: PrepareSyncInput): Promise<SyncPreview>
   const manifest = manifestAfter(paths, snapshot, files, input.selection);
   const lock = mergeRemoteLock(localLock, ownedEntries, snapshot.lock);
   const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
-  const plan = buildPlan(manifest, lock, await readEnvironmentInventory(paths), state, await readLocalSourceDigests(manifest));
+  const inventory = await readEnvironmentInventory(paths);
+  if (inventory.skills) {
+    inventory.skills = { ...inventory.skills, declared: await declaredSkillsAfter(paths, snapshot, files) };
+  }
+  const plan = buildPlan(manifest, lock, inventory, state, await readLocalSourceDigests(manifest));
 
   const next: RemoteConfig = {
     apiVersion: REMOTE_API_VERSION,
@@ -228,7 +261,7 @@ export async function acceptSync(paths: EnvironmentPaths, preview: SyncPreview):
     }
     for (const key of preview.files.removed) {
       await fs.promises.rm(remoteFilePath(paths, key), { force: true });
-      await removeEmptySkillDirs(paths, key);
+      await removeEmptySkillDirs(paths.skillsDir, key);
     }
     // Local entries are untouched by the merge, so the lock is only rewritten when a team entry changes.
     if (preview.lock && hasChanges(preview.lockEntries)) {
@@ -274,13 +307,13 @@ export async function acceptSync(paths: EnvironmentPaths, preview: SyncPreview):
 }
 
 // A team skill whose last file went away leaves no empty directory for apply to install.
-async function removeEmptySkillDirs(paths: EnvironmentPaths, key: string): Promise<void> {
+async function removeEmptySkillDirs(skillsDir: string, key: string): Promise<void> {
   const skillPath = skillPathFromKey(key);
   if (!skillPath) {
     return;
   }
   for (let depth = skillPath.length - 1; depth >= 1; depth--) {
-    const dir = path.join(paths.skillsDir, ...skillPath.slice(0, depth));
+    const dir = path.join(skillsDir, ...skillPath.slice(0, depth));
     if (!fs.existsSync(dir) || fs.readdirSync(dir).length > 0) {
       return;
     }

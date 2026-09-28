@@ -198,6 +198,24 @@ describe('remote sync engine', () => {
     expect(fs.existsSync(path.join(paths.skillsDir, 'wiki'))).toBe(false);
   });
 
+  it('plans the skill changes a sync brings before it is accepted', async () => {
+    await subscribe();
+    await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v1' }, 'skills');
+    const added = await prepare({ previous: true });
+    expect(added.plan.skillOperations).toMatchObject([{ kind: 'install', name: 'wiki' }]);
+    expect(fs.existsSync(paths.skillsDir)).toBe(false);
+
+    await acceptSync(paths, added);
+    fs.cpSync(path.join(paths.skillsDir, 'wiki'), path.join(paths.dshSkillsDir, 'wiki'), { recursive: true });
+    await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v2' }, 'edit skill');
+    expect((await prepare({ previous: true })).plan.skillOperations).toMatchObject([{ kind: 'update', name: 'wiki' }]);
+
+    await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': null }, 'drop skill');
+    const dropped = (await prepare({ previous: true })).plan;
+    expect(dropped.skillOperations).toEqual([]);
+    expect(dropped.unmanagedSkills).toEqual(['wiki']);
+  });
+
   it('merges team lock updates entry by entry and keeps local entries', async () => {
     await subscribe();
     const lock = readLock();

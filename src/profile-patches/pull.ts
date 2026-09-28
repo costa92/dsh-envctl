@@ -7,7 +7,7 @@ import { ValidationError } from '../errors.js';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { loadManifest, loadState, serializeManifest, serializeState } from '../manifest/files.js';
 import * as path from 'node:path';
-import { replaceSkillDir } from '../skills/skills.js';
+import { remoteSkillNames, replaceSkillDir } from '../skills/skills.js';
 import { readOverlay } from '../overlay/effective.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { overlayFilePath, writeSelectionFile, type OverlaySelection } from '../overlay/selection.js';
@@ -174,7 +174,7 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
         "pass --prefer dsh to keep DSH's version, or --prefer manifest to keep the manifest's"
     );
   }
-  const remoteSkills = new Set(Object.keys(remote?.files ?? {}).flatMap((key) => /^skills\/([^/]+)\//.exec(key)?.[1] ?? []));
+  const remoteSkills = remoteSkillNames(remote?.files ?? {});
   for (const action of skills?.actions ?? []) {
     if (remoteSkills.has(action.name)) {
       throw new ValidationError(
