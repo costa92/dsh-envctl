@@ -211,6 +211,7 @@ export function buildPlan(
           });
         }
       } else {
+        const operationsBefore = operations.length;
         const installedCommit =
           pluginManifest.source.type === 'git' ? commitFromGitSpec(installed?.resolvedSource) : undefined;
         const installedType = installed?.sourceType;
@@ -270,13 +271,17 @@ export function buildPlan(
             targetEnabled
           });
         }
-        if (currentEnabled !== targetEnabled) {
+        // An update runs DSH plugin add, which selects the bundle, so a disabled plugin is disabled again after it.
+        const reselected = !targetEnabled && operations.length > operationsBefore;
+        if (currentEnabled !== targetEnabled || reselected) {
           operations.push({
             kind: targetEnabled ? 'enable' : 'disable',
             profile: profName,
             alias,
             package: pkgName,
-            reason: `Enable state mismatch: current ${currentEnabled} != target ${targetEnabled}`,
+            reason: currentEnabled !== targetEnabled
+              ? `Enable state mismatch: current ${currentEnabled} != target ${targetEnabled}`
+              : 'Plugin stays disabled after the update',
             currentEnabled,
             targetEnabled
           });

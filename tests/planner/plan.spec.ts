@@ -679,6 +679,15 @@ describe('lock versus effective manifest', () => {
     expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: '1.5.0' })]);
   });
 
+  it('disables again after updating a plugin that is and stays disabled, since DSH plugin add selects it', () => {
+    const manifest = npmManifest('1.5.0');
+    manifest.profiles.web.plugins.demo.enabled = false;
+    const inventory = installedAt('1.0.0');
+    inventory.profiles.web.plugins['demo-plugin'].enabled = false;
+    const plan = buildPlan(manifest, npmLock('1.0.0'), inventory);
+    expect(plan.operations.map((op) => op.kind)).toEqual(['update', 'disable']);
+  });
+
   it('keeps using the lock when it matches the exact manifest version', () => {
     const plan = buildPlan(npmManifest('1.0.0'), npmLock('1.0.0'), installedAt('1.0.0'));
     expect(plan.hasChanges).toBe(false);
