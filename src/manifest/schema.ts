@@ -13,8 +13,7 @@ const isAbsolutePath = (val: string) => path.isAbsolute(val);
 export const NpmSourceSchema = z
   .object({
     type: z.literal('npm'),
-    version: z.string().regex(ExactVersionRegex, { message: 'npm version must be an exact version such as 1.2.3' }),
-    registry: z.string().url().optional()
+    version: z.string().regex(ExactVersionRegex, { message: 'npm version must be an exact version such as 1.2.3' })
   })
   .strict();
 
