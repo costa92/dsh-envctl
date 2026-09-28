@@ -2,6 +2,12 @@
 
 # dshenv
 
+[![npm version](https://img.shields.io/npm/v/@costa92/dshenv.svg)](https://www.npmjs.com/package/@costa92/dshenv)
+[![CI](https://github.com/costa92/dshenv/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/costa92/dshenv/actions/workflows/ci.yml)
+[![Release](https://github.com/costa92/dshenv/actions/workflows/release.yml/badge.svg)](https://github.com/costa92/dshenv/releases)
+[![Node.js](https://img.shields.io/node/v/@costa92/dshenv.svg)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 `dshenv` 是用于 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的声明式环境与插件管理工具（Environment-as-Code layer）。
 
 它构建在 DSH 官方插件管理器协议与能力之上，通过声明式清单（`manifest.yaml`）和精确锁文件（`lock.json`）管理多 Profile 的插件、精确版本与配置补丁。
