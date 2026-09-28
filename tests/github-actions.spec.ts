@@ -142,20 +142,26 @@ describe('release workflow', () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  it('runs on v* tags with permission to create releases and sign provenance, after the same quality gates as CI', () => {
+  it('runs on v* tags with permission to create releases and an OIDC token for trusted publishing, after the same quality gates as CI', () => {
     expect(release.on).toEqual({ push: { tags: ['v*'] } });
     expect(release.permissions).toEqual({ contents: 'write', 'id-token': 'write' });
     const runs = allSteps(release).flatMap((step) => (step.run && !step.id ? [step.run.trim()] : []));
     expect(runs.slice(0, 4)).toEqual(['pnpm install --frozen-lockfile', 'pnpm typecheck', 'pnpm test', 'pnpm build']);
   });
 
-  it('publishes the packed tarball to npm with provenance before creating the GitHub release', () => {
+  it('publishes the packed tarball through npm trusted publishing, with no token, before creating the GitHub release', () => {
     const steps = allSteps(release);
     const setupNode = steps.find((step) => step.uses?.startsWith('actions/setup-node@'));
     expect(setupNode?.with?.['registry-url']).toBe('https://registry.npmjs.org');
-    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish ./dist/*.tgz --access public --provenance');
+    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish ./dist/*.tgz --access public');
     expect(publish).toBeGreaterThan(-1);
-    expect(steps[publish].env).toEqual({ NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' });
+    expect(steps[publish].env).toBeUndefined();
+    expect(JSON.stringify(release)).not.toContain('NPM_TOKEN');
+    expect(JSON.stringify(release)).not.toContain('NODE_AUTH_TOKEN');
+    // Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
+    const upgrade = steps.findIndex((step) => step.run?.trim() === 'npm install -g npm@^11.5.1');
+    expect(upgrade).toBeGreaterThan(-1);
+    expect(upgrade).toBeLessThan(publish);
     expect(publish).toBeLessThan(steps.findIndex((step) => step.run?.startsWith('gh release create')));
   });
 
