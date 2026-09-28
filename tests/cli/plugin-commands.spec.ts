@@ -40,6 +40,23 @@ describe('Convenience Plugin CLI Commands', () => {
     });
   });
 
+  it('declares a bundle that ships with DSH through the in-box: spec', async () => {
+    let stderr = '';
+    const io = { stdout: () => {}, stderr: (chunk: string) => { stderr += chunk; } };
+    expect(await runCli(['install', 'in-box:@deepseek-ai/dsh-acp-app', '--profile', 'acp', '--dsh-home', tempHome], io)).toBe(0);
+
+    const manifest = loadManifest(fs.readFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'utf8'));
+    expect(manifest.profiles.acp.plugins['acp-app']).toEqual({
+      package: '@deepseek-ai/dsh-acp-app',
+      enabled: true,
+      source: { type: 'in-box' }
+    });
+
+    expect(await runCli(['install', 'in-box:@deepseek-ai/dsh-base@0.1.7', '--profile', 'acp', '--dsh-home', tempHome], io)).not.toBe(0);
+    expect(stderr).toMatch(/in-box.*no version/);
+    expect(await runCli(['install', 'in-box:@deepseek-ai/dsh-base', '--package', 'x', '--profile', 'acp', '--dsh-home', tempHome], io)).not.toBe(0);
+  });
+
   it('should enable and disable a plugin via dshenv enable / disable', async () => {
     // First install
     await runCli(

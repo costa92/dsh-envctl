@@ -7,7 +7,7 @@ import { buildPlan } from '../planner/plan.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError } from '../errors.js';
-import { ExactVersionRegex } from '../manifest/schema.js';
+import { ExactVersionRegex, PackageNameRegex } from '../manifest/schema.js';
 import type { EnvironmentManifest, PluginManifestEntry, PluginSource } from '../domain.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import { removeOverlayPlugin, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
@@ -79,6 +79,17 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     if (optsPackage !== undefined) {
       throw new ValidationError('--package only applies to git and local sources');
     }
+
+    // A bundle that ships with DSH has no dependency: apply only selects it in the profile's bundle list.
+    if (spec.startsWith('in-box:')) {
+      const packageName = spec.slice('in-box:'.length);
+      if (!PackageNameRegex.test(packageName)) {
+        throw new ValidationError(`in-box takes a package name with no version: in-box:<package>, got '${packageName}'`);
+      }
+      const simpleName = packageName.startsWith('@') ? packageName.split('/')[1] : packageName;
+      return { alias: optsAlias || simpleName.replace(/^(dsh-plugin-|dsh-)/, ''), packageName, source: { type: 'in-box' } };
+    }
+
     let packageName = spec;
     let version: string | undefined;
 

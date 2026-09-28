@@ -6,6 +6,7 @@
 
 ### 新增
 
+- `dshenv install in-box:<包名>`：把随 DSH 发布的 bundle（如 `@deepseek-ai/dsh-acp-app`）声明进清单，不再只能靠 `capture` 生成。
 - `dshenv tools list|enable|disable|config`：按架构图分类列出 Profile 的内置工具与开关状态（读自 `dsh --dump-config`），开关或配置结果写进清单的 profile patches；agent 预设里的工具通过整份复制预设实现，`plan` 列出已固定的预设。
 - DSH 配置双向同步：清单新增 `profiles.<profile>.patches`，原样保存 Profile 自己的 cordis patch 条目（模型、语言、权限、技能目录等），`apply` 把它们写进 `cordis.patch.yml` 的一个受管块。
 - `dshenv pull`：把 DSH 写在受管块之外的条目和在受管块里的改动收进清单，含本机绝对路径的条目写进本机 overlay（没有时新建并选中 `local`），基础清单归团队 remote 所有时全部写进 overlay。两边都改过时需 `--prefer dsh|manifest`；先建快照，可用 `rollback` 撤销。
