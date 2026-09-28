@@ -27,6 +27,7 @@ make smoke-dsh DSH_VERSION=<新版本>
 | `src/scaffold/templates.ts` | `PEER_RANGE`：跨 minor 版本时需要调整上限 |
 | `docs/examples/container/Dockerfile` 及其 README | `DSH_VERSION` 默认值 |
 | `docs/roadmap.md` | 记录验证版本、日期与冒烟结果 |
+| `README.md` | 顶部 DSH 徽标中的已验证版本族 |
 
 `packageOperations` 能力依赖对 Harness 源码中官方 operations export 的只读探测（`src/dsh/surface-probe.ts`）。新版本若调整了该导出，还需要用 `--harness-source` 指向新源码并运行 `dshenv doctor`，确认该项仍为 `available`。
 

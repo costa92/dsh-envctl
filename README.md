@@ -5,7 +5,11 @@
 [![npm version](https://img.shields.io/npm/v/@costa92/dshenv.svg)](https://www.npmjs.com/package/@costa92/dshenv)
 [![CI](https://github.com/costa92/dshenv/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/costa92/dshenv/actions/workflows/ci.yml)
 [![Release](https://github.com/costa92/dshenv/actions/workflows/release.yml/badge.svg)](https://github.com/costa92/dshenv/releases)
+[![GitHub release](https://img.shields.io/github/v/release/costa92/dshenv.svg)](https://github.com/costa92/dshenv/releases/latest)
 [![Node.js](https://img.shields.io/node/v/@costa92/dshenv.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/github/package-json/dependency-version/costa92/dshenv/dev/typescript.svg)](https://www.typescriptlang.org/)
+[![DSH](https://img.shields.io/badge/DSH-0.1.7-blue.svg)](docs/DSH版本升级.md)
+[![Last commit](https://img.shields.io/github/last-commit/costa92/dshenv.svg)](https://github.com/costa92/dshenv/commits/master)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 `dshenv` 是用于 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的声明式环境与插件管理工具（Environment-as-Code layer）。
