@@ -20,6 +20,12 @@ describe('planSkills', () => {
     expect(operations[0].reason).toMatch(/edited in DSH.*dshenv pull.*trash/);
   });
 
+  it('does not point to pull for a team skill edited in DSH, since pull refuses it', () => {
+    const { operations } = planSkills({ declared: { a: 'same' }, live: { a: 'edited' }, remote: ['a'] }, { a: 'same' });
+    expect(operations[0].reason).not.toMatch(/pull/);
+    expect(operations[0].reason).toMatch(/edited in DSH.*team repository.*trash/);
+  });
+
   it('removes an owned skill the manifest dropped and reports the others as unmanaged', () => {
     const { operations, unmanaged } = planSkills({ declared: {}, live: { owned: 'x', mine: 'y' } }, { owned: 'x' });
     expect(operations).toEqual([{ kind: 'remove', name: 'owned', reason: 'Owned skill is no longer declared; apply moves it to trash' }]);

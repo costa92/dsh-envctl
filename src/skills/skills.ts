@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
+import { readRemoteConfig, skillPathFromKey } from '../remote/schema.js';
 import { calculateSourceDigest } from '../source/local.js';
 
 // name -> content digest of each skill directory
@@ -9,6 +10,8 @@ export interface SkillInventory {
   declared: Record<string, string>;
   // $DSH_HOME/skills: what DSH loads
   live: Record<string, string>;
+  // names of the skills the subscribed team remote owns
+  remote?: string[];
 }
 
 export interface SkillOperation {
@@ -22,7 +25,7 @@ const SkillNameRegex = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 // The same entries calculateSourceDigest skips, so a copy digests like its source.
 const SKIPPED = new Set(['node_modules', '.git', '.DS_Store']);
 
-async function readSkillDigests(dir: string): Promise<Record<string, string>> {
+export async function readSkillDigests(dir: string): Promise<Record<string, string>> {
   if (!fs.existsSync(dir)) {
     return {};
   }
@@ -37,7 +40,12 @@ async function readSkillDigests(dir: string): Promise<Record<string, string>> {
 }
 
 export async function readSkillInventory(paths: EnvironmentPaths): Promise<SkillInventory> {
-  return { declared: await readSkillDigests(paths.skillsDir), live: await readSkillDigests(paths.dshSkillsDir) };
+  const remote = [...remoteSkillNames(readRemoteConfig(paths)?.files ?? {})];
+  return { declared: await readSkillDigests(paths.skillsDir), live: await readSkillDigests(paths.dshSkillsDir), remote };
+}
+
+export function remoteSkillNames(remoteFiles: Record<string, string>): Set<string> {
+  return new Set(Object.keys(remoteFiles).flatMap((key) => skillPathFromKey(key)?.[0] ?? []));
 }
 
 // `owned` holds the digest each skill had when both sides last matched (state.skills).
@@ -56,9 +64,11 @@ export function planSkills(
       operations.push({
         kind: 'update',
         name,
-        reason: editedInDsh
-          ? "Skill was edited in DSH; run 'dshenv pull' to keep the edits, or apply to overwrite them (the DSH copy goes to trash)"
-          : 'Skill changed in the manifest'
+        reason: !editedInDsh
+          ? 'Skill changed in the manifest'
+          : skills.remote?.includes(name)
+            ? 'Skill was edited in DSH but belongs to the team remote; change it in the team repository, or apply to restore the team copy (the DSH copy goes to trash)'
+            : "Skill was edited in DSH; run 'dshenv pull' to keep the edits, or apply to overwrite them (the DSH copy goes to trash)"
       });
     }
   }
