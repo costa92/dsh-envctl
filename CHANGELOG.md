@@ -12,6 +12,10 @@
 - `plan` 列出受管块之外的 patch 条目，并能分辨受管块是在 DSH 里改过还是清单改过；`adopt` 接管 Profile 时一并收进这些条目，`capture` 给出提示。
 - loose skill 同步：`$DSH_HOME/skills` 下的技能目录由 `pull` 收进 `envctl/skills/<名字>`，`apply` 复制回 DSH，被覆盖或删除的副本移进 `envctl/trash`；`plan` 列出技能变更与未受管技能；快照与 `rollback` 覆盖 `envctl/skills`；团队配置仓库的 `envctl/skills` 随 `sync` 同步，`sync`/`remote add` 的预览计划包含接受后的技能变更；团队技能在 DSH 里改过时 `plan` 提示去团队仓库改或 `apply` 还原。
 
+### 修复
+
+- 不是 DSH bundle 的插件包（没有 `dsh.bundle`）以前被放进 bundle 列表，DSH 跳过不加载，`plan` 却显示已同步；现在改为用受管的 `insert` 行挂载，同一次 `apply` 内装好并挂载，`enable`/`disable`/`remove` 与 `runtime` 都按挂载判断。
+
 ## 0.2.1 - 2026-09-28
 
 ### 新增
