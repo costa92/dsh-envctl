@@ -15,13 +15,15 @@ if (args.includes('--version')) {
   console.log('0.1.7-rc.2');
   process.exit(0);
 }
-if (!args.includes('remove')) {
+if (process.env.FAKE_DSH_HANG && args.includes('add')) {
+  setInterval(() => {}, 1000);
+} else if (!args.includes('remove')) {
   console.log('Progress: resolved 1, reused 0, downloaded 0, added 0');
   console.error(' ERR_PNPM_FETCH_401  GET https://registry.example.com/x: Unauthorized - //registry.example.com/:_authToken=secret-token');
   console.error('dsh: installation rejected: c-new@1.0.0 is incompatible with dsh 0.1.7-rc.2');
   console.error('dsh: to accept the risk, run: dsh plugin --profile web allow-version c-new@1.0.0 --dsh-version 0.1.7-rc.2 --accept-risk');
   process.exit(1);
-}
+} else {
 const profileDir = path.join(process.env.DSH_HOME, 'profiles', args[args.indexOf('--profile') + 1]);
 const packageName = args.at(-1);
 const pkgJsonPath = path.join(profileDir, 'package.json');
@@ -29,6 +31,7 @@ const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
 delete pkg.dependencies[packageName];
 fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2));
 fs.rmSync(path.join(profileDir, 'node_modules', packageName), { recursive: true, force: true });
+}
 `;
 
 describe('applyEnvironment profile restore on failure', () => {
@@ -162,6 +165,34 @@ describe('applyEnvironment profile restore on failure', () => {
         '  dsh: to accept the risk, run: dsh plugin --profile web allow-version c-new@1.0.0 --dsh-version 0.1.7-rc.2 --accept-risk'
     );
     expect(error.message).not.toContain('secret-token');
+  });
+
+  it('stops a hanging DSH command and restores the profile', async () => {
+    const userPatch = '- id: foo\n  config: {}\n';
+    setup({
+      manifestPlugins: `      b-patched:
+        package: b-patched
+        source: { type: npm, version: "1.0.0" }
+        patches:
+          - id: b-patched
+            config: { mode: new }
+      c-new:
+        package: c-new
+        source: { type: npm, version: "1.0.0" }
+`,
+      installed: ['b-patched'],
+      bundles: ['b-patched'],
+      patchContent: userPatch
+    });
+    process.env.FAKE_DSH_HANG = '1';
+    try {
+      const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+      await expect(applyEnvironment(paths, { dshCommandTimeoutMs: 300 })).rejects.toThrow(/timed out after 300 ms/);
+    } finally {
+      delete process.env.FAKE_DSH_HANG;
+    }
+
+    expect(fs.readFileSync(patchFile(), 'utf8')).toBe(userPatch);
   });
 
   it('should restore a patch file that did not exist before apply by removing it', async () => {

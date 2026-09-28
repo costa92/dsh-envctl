@@ -31,6 +31,8 @@ import { buildRestartSummary, profilesToProbe, type RestartSummary } from './res
 
 // Longer than the ~2 s awaitWriteFinish window of DSH's HMR watcher, so it unloads the plugin before its files go.
 export const HMR_SETTLE_MS = 3000;
+// A hung package install would otherwise hold the environment lock forever.
+export const DSH_COMMAND_TIMEOUT_MS = 10 * 60_000;
 
 export interface ApplyOptions {
   dryRun?: boolean;
@@ -40,6 +42,7 @@ export interface ApplyOptions {
   executor?: (plan: EnvironmentPlan, paths: EnvironmentPaths) => Promise<{ success: boolean; error?: string }>;
   probeHmr?: (profile: string) => Promise<HmrStatus>;
   hmrSettleMs?: number;
+  dshCommandTimeoutMs?: number;
 }
 
 export interface ApplyResult {
@@ -53,13 +56,14 @@ export interface ApplyResult {
 }
 
 // Only DSH's own `dsh:` lines are shown: the raw pnpm output around them can echo registry URLs and tokens.
-function dshFailure(result: { exitCode?: number; stdout?: unknown; stderr?: unknown }): string {
+function dshFailure(result: { exitCode?: number; timedOut?: boolean; stdout?: unknown; stderr?: unknown }, timeoutMs: number): string {
   const diagnostics = [result.stderr, result.stdout]
     .flatMap((output) => (typeof output === 'string' ? output.split('\n') : []))
     .filter((line) => line.startsWith('dsh: '))
     .map((line) => `\n  ${line.trimEnd()}`)
     .join('');
-  return `DSH plugin command exited with code ${String(result.exitCode)}${diagnostics}`;
+  const outcome = result.timedOut ? `timed out after ${timeoutMs} ms` : `exited with code ${String(result.exitCode)}`;
+  return `DSH plugin command ${outcome}${diagnostics}`;
 }
 
 interface ProfileRollback {
@@ -137,6 +141,7 @@ async function executeWithDsh(
     }
   }
 
+  const commandTimeoutMs = options?.dshCommandTimeoutMs ?? DSH_COMMAND_TIMEOUT_MS;
   for (const operation of plan.operations) {
     if (operation.kind === 'enable' || operation.kind === 'disable') {
       const previousIndex = await setProfileBundleEnabled(
@@ -185,11 +190,12 @@ async function executeWithDsh(
           cwd: command.cwd,
           env: { ...process.env, DSH_HOME: paths.home },
           shell: false,
-          reject: false
+          reject: false,
+          timeout: commandTimeoutMs
         }
       );
       if (removeResult.exitCode !== 0) {
-        return { success: false, error: dshFailure(removeResult) };
+        return { success: false, error: dshFailure(removeResult, commandTimeoutMs) };
       }
       // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
       rollback.undo.length = undoStart;
@@ -210,11 +216,12 @@ async function executeWithDsh(
         cwd: command.cwd,
         env: { ...process.env, DSH_HOME: paths.home },
         shell: false,
-        reject: false
+        reject: false,
+        timeout: commandTimeoutMs
       }
     );
     if (result.exitCode !== 0) {
-      return { success: false, error: dshFailure(result) };
+      return { success: false, error: dshFailure(result, commandTimeoutMs) };
     }
   }
 
