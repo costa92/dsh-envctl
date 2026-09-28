@@ -4,6 +4,7 @@ import type { LockEntryDrift } from '../remote/lock-entries.js';
 import { describeRemoteDrift, type RemoteFileDrift } from '../remote/ownership.js';
 import { describeRestartReason, type RestartItem, type RestartSummary } from '../apply/restart-plan.js';
 import type { RuntimeCheckItem } from '../runtime/compare.js';
+import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 
 function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: RestartSummary): string {
   const matches = (item: RestartItem): boolean =>
@@ -18,7 +19,7 @@ function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: R
 export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): string {
   const lines: string[] = [];
 
-  if (!plan.hasChanges && plan.unmanaged.length === 0 && plan.unverified.length === 0) {
+  if (!plan.hasChanges && plan.unmanaged.length === 0 && plan.unverified.length === 0 && plan.unmanagedPatches.length === 0) {
     return 'Environment is in sync with manifest. No changes planned.\n';
   }
 
@@ -40,7 +41,8 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
         details = `[BLOCKED: ${op.blockedReason ?? op.reason}]`;
       }
       const annotation = restart ? restartAnnotation(op, restart) : '';
-      lines.push(`  ${symbol} [${op.profile}] ${op.package} (${op.alias}) ${details}`.trimEnd() + annotation);
+      const target = op.alias === PROFILE_PATCHES_ALIAS ? 'profile patches' : `${op.package} (${op.alias})`;
+      lines.push(`  ${symbol} [${op.profile}] ${target} ${details}`.trimEnd() + annotation);
       if (op.reason) {
         lines.push(`      Reason: ${op.reason}`);
       }
@@ -52,6 +54,14 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
     lines.push('Unmanaged plugins (not in manifest):');
     for (const u of plan.unmanaged) {
       lines.push(`  ? [${u.profile}] ${u.package}`);
+    }
+  }
+
+  if (plan.unmanagedPatches.length > 0) {
+    lines.push('');
+    lines.push("Patch entries not in the manifest (run 'dshenv pull' to manage them):");
+    for (const u of plan.unmanagedPatches) {
+      lines.push(`  ? [${u.profile}] ${u.entries.join(', ')}`);
     }
   }
 

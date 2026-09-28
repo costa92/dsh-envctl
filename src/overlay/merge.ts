@@ -1,6 +1,7 @@
 import type { EnvironmentManifest, EnvironmentOverlay, OverlayPatchEntry, PatchEntry } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { ManifestSchema } from '../manifest/schema.js';
+import { mergeProfilePatches } from '../profile-patches/entries.js';
 
 export type PluginOrigin = 'base' | `overlay:${string}` | `base+overlay:${string}`;
 
@@ -80,6 +81,9 @@ export function mergeManifest(base: EnvironmentManifest, overlay: EnvironmentOve
   for (const [profileName, profileOverlay] of Object.entries(overlay.profiles ?? {})) {
     const target = (manifest.profiles[profileName] ??= { plugins: {} });
     const profileProvenance = (provenance[profileName] ??= {});
+    if (profileOverlay.patches) {
+      target.patches = mergeProfilePatches(target.patches ?? [], profileOverlay.patches);
+    }
     for (const [alias, entry] of Object.entries(profileOverlay.plugins ?? {})) {
       const where = `Overlay '${name}' profile '${profileName}' plugin '${alias}'`;
       const existing = target.plugins[alias];

@@ -11,7 +11,8 @@ describe('renderPlan', () => {
         { kind: 'update', profile: 'web', alias: 'moved', package: 'moved-pkg', reason: 'Source type changed: installed npm != declared git' }
       ],
       unmanaged: [],
-      unverified: []
+      unverified: [],
+      unmanagedPatches: []
     });
     expect(text).not.toMatch(/latest|\? -> \?/);
     expect(text).toContain('  + [web] linked-pkg (linked)\n');
@@ -23,7 +24,8 @@ describe('renderPlan', () => {
       hasChanges: false,
       operations: [],
       unmanaged: [],
-      unverified: [{ profile: 'web', alias: 'demo', package: 'demo-plugin', reason: 'Local source /src/demo cannot be read' }]
+      unverified: [{ profile: 'web', alias: 'demo', package: 'demo-plugin', reason: 'Local source /src/demo cannot be read' }],
+      unmanagedPatches: []
     });
     expect(text).toContain('Unverified plugins');
     expect(text).toContain('  ! [web] demo-plugin (demo): Local source /src/demo cannot be read\n');
@@ -52,7 +54,8 @@ describe('renderPlan', () => {
         }
       ],
       unmanaged: [{ profile: 'web', package: 'extra-pkg' }],
-      unverified: []
+      unverified: [],
+      unmanagedPatches: []
     };
 
     const text = renderPlan(plan);

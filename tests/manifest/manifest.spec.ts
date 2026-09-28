@@ -148,4 +148,28 @@ profiles:
     expect(parsed.apiVersion).toBe('dshenv-capture/v1');
     expect(parsed.warnings).toEqual(['warn1']);
   });
+
+  it('keeps profile patch entries verbatim and requires an id or an insert list', () => {
+    const manifest = loadManifest(`apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins: {}
+    patches:
+      - id: skill-filesystem
+        disabled: false
+        config: { includeDefaultRoots: false }
+      - insert: [{ id: x, name: y }]
+`);
+    expect(manifest.profiles.web.patches).toEqual([
+      { id: 'skill-filesystem', disabled: false, config: { includeDefaultRoots: false } },
+      { insert: [{ id: 'x', name: 'y' }] }
+    ]);
+    expect(() => loadManifest('apiVersion: dshenv/v1\nprofiles:\n  web:\n    patches:\n      - config: {}\n')).toThrow(/needs an id or an insert list/);
+  });
+
+  it('reserves the @profile alias for the profile patch block', () => {
+    expect(() =>
+      loadManifest('apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins:\n      "@profile":\n        package: p\n        source: { type: in-box }\n')
+    ).toThrow(/Plugin alias is reserved/);
+  });
 });

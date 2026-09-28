@@ -1,11 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
-import type { PatchEntry } from '../domain.js';
+import type { PatchEntry, ProfilePatch } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { withProfilePackageLock } from '../io/profile-lock.js';
 import { assertPatchFileArray, extractPluginBlocks, removePatchBlock, repairPatchFile, replacePluginBlocks, splicePluginBlocks } from '../patch/patch.js';
+import { PROFILE_PATCHES_ALIAS, replaceProfileBlock } from '../profile-patches/entries.js';
 
 const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
 const MAX_PATCH_BYTES = 1024 * 1024;
@@ -130,5 +131,36 @@ export async function clearManagedPatches(
     const before = await readProfilePatchFile(paths, profileName);
     await writePatchFile(file, removePatchBlock(repairedOrSelf(before), profileName, pluginAlias));
     return restorePatchFile(paths, profileName, pluginAlias, existed, before);
+  });
+}
+
+// Returns how to undo the write.
+export async function writeProfilePatches(
+  paths: EnvironmentPaths,
+  profileName: string,
+  entries: ProfilePatch[]
+): Promise<RestorePatchFile> {
+  const file = profilePatchFile(paths, profileName);
+  return withPatchFileLock(file, async () => {
+    const existed = fs.existsSync(file);
+    const before = await readProfilePatchFile(paths, profileName);
+    const content = replaceProfileBlock(repairedOrSelf(before), profileName, entries);
+    assertPatchFileArray(content, file);
+    await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
+    return restorePatchFile(paths, profileName, PROFILE_PATCHES_ALIAS, existed, before);
+  });
+}
+
+// Rewrites the whole file from what `transform` makes of its current content, under the lock DSH writes it with.
+export async function rewriteProfilePatchFile(
+  paths: EnvironmentPaths,
+  profileName: string,
+  transform: (content: string) => string
+): Promise<void> {
+  const file = profilePatchFile(paths, profileName);
+  await withPatchFileLock(file, async () => {
+    const content = transform(await readProfilePatchFile(paths, profileName));
+    assertPatchFileArray(content, file);
+    await writePatchFile(file, content);
   });
 }

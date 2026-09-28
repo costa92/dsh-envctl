@@ -49,7 +49,8 @@ describe('renderPlan with a restart summary', () => {
       { kind: 'update', profile: 'web', alias: 'shared', package: 'shared-plugin', reason: 'update', currentVersion: '1.0.0', targetVersion: '1.1.0' }
     ],
     unmanaged: [],
-      unverified: []
+      unverified: [],
+      unmanagedPatches: []
   };
 
   it('annotates each operation', () => {

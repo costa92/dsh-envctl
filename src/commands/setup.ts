@@ -11,6 +11,8 @@ import type { CaptureDocument } from '../domain.js';
 import { assertNotRemoteOwned } from '../remote/ownership.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, type CommandContext } from './context.js';
+import { pullProfilePatches } from '../profile-patches/pull.js';
+import { renderPullResult } from './pull.js';
 
 export function registerSetupCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -98,13 +100,20 @@ export function registerSetupCommands(ctx: CommandContext): void {
       const summary = await adoptEnvironment(paths, parsed.data as CaptureDocument, {
         validateManifest: (manifest) => assertBaseMergesWithOverlay(paths, selection, manifest)
       });
+      // Taking over a profile includes the settings DSH wrote into its patch file.
+      const patches = summary.profiles.length > 0
+        ? await pullProfilePatches(paths, { profiles: summary.profiles, selection, allowOverlayCreation: opts.overlay !== false })
+        : null;
 
       if (opts.json) {
-        writeOut(JSON.stringify(summary, null, 2) + '\n');
+        writeOut(JSON.stringify(patches ? { ...summary, patches } : summary, null, 2) + '\n');
       } else {
         writeOut(`Adopted ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}\n`);
         for (const d of summary.details) {
           writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]\n`);
+        }
+        if (patches && patches.changes.length > 0) {
+          writeOut(renderPullResult(patches));
         }
       }
     });

@@ -113,4 +113,29 @@ describe('mergeManifest', () => {
   ])('rejects %s', (_label, profiles, message) => {
     expect(() => mergeManifest(base(), overlay(profiles), 'laptop')).toThrow(message);
   });
+
+  it('replaces, removes and appends profile patches by id', () => {
+    const withPatches = base();
+    withPatches.profiles.web.patches = [
+      { id: 'locale', config: { preference: 'zh' } },
+      { id: 'model', config: { model: 'a' } }
+    ];
+    const { manifest } = mergeManifest(
+      withPatches,
+      overlay({
+        web: {
+          patches: [
+            { id: 'model', config: { model: 'b' } },
+            { id: 'locale', remove: true },
+            { id: 'skills', config: { customSkillDirs: ['/home/me/skills'] } }
+          ]
+        }
+      }),
+      'laptop'
+    );
+    expect(manifest.profiles.web.patches).toEqual([
+      { id: 'model', config: { model: 'b' } },
+      { id: 'skills', config: { customSkillDirs: ['/home/me/skills'] } }
+    ]);
+  });
 });

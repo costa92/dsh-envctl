@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test of dshenv's main chain against a real npm DSH in an isolated DSH_HOME:
 # adopt -> manifest/lock/ownership -> plan -> apply -> verify on disk and in DSH -> runtime -> rollback -> remove,
-# then scaffolds, Git sources, overlays, purge/gc and a team remote.
+# then scaffolds, Git sources, overlays, purge/gc, profile patches and a team remote.
 # Usage: scripts/e2e-dsh.sh <dsh-version> [work-dir]
 set -uo pipefail
 
@@ -211,7 +211,39 @@ step "gc dry-run" 0 "${run[@]}" gc --older-than 0 --dry-run
 step "gc" 0 "${run[@]}" gc --older-than 0 --yes
 step "trash emptied" 0 test -z "$(ls -A "$envctl/trash" 2>/dev/null)"
 
-# 12. Team remote, in a fresh DSH_HOME: subscribe, apply, follow a team change, refuse local edits and rewrites.
+# 12. Profile patches: settings DSH wrote into cordis.patch.yml are pulled into the manifest, local paths into an overlay.
+patch_file="$DSH_HOME/profiles/web/cordis.patch.yml"
+mkdir -p "$work/skills"
+# DSH turns a fresh profile's `[]` into a block sequence before it appends an entry.
+sed -i '/^\[\]$/d' "$patch_file"
+cat >>"$patch_file" <<EOF
+- id: locale
+  name: "@deepseek-ai/dsh-client-locale"
+  config:
+    preference: zh
+- id: skill-filesystem
+  config:
+    customSkillDirs:
+      - $work/skills
+EOF
+step "plan reports the entries DSH wrote" 0 bash -c '"$@" plan | grep -q "? \[web\] locale, skill-filesystem"' _ "${run[@]}"
+step "pull dry-run" 2 "${run[@]}" pull --dry-run
+step "pull" 0 "${run[@]}" pull
+step "manifest declares the shared entry" 0 grep -q "preference: zh" "$envctl/manifest.yaml"
+step "local overlay holds the machine-local entry" 0 grep -q "$work/skills" "$envctl/overlays/local.yaml"
+step "plan clean after pull" 0 "${run[@]}" plan
+step "dsh composes the pulled settings" 0 bash -c '"$DSH_CLI" --profile web --dump-config | grep -q "$1"' _ "$work/skills"
+sed -i 's/preference: zh/preference: en/' "$patch_file"
+step "plan sees the edit made in DSH" 2 bash -c '"$@" plan | grep -q "edited in DSH"; exit "${PIPESTATUS[0]}"' _ "${run[@]}"
+step "pull the DSH edit" 0 "${run[@]}" pull
+step "manifest follows the DSH edit" 0 grep -q "preference: en" "$envctl/manifest.yaml"
+step "plan clean after pulling the edit" 0 "${run[@]}" plan
+sed -i 's/preference: en/preference: fr/' "$patch_file"
+step "apply overwrites an edit made in DSH" 0 "${run[@]}" apply --yes
+step "patch file back to the manifest" 0 grep -q "preference: en" "$patch_file"
+step "plan clean after overwrite" 0 "${run[@]}" plan
+
+# 13. Team remote, in a fresh DSH_HOME: subscribe, apply, follow a team change, refuse local edits and rewrites.
 export DSH_HOME="$work/team-home"
 envctl="$DSH_HOME/envctl"
 team="$work/team"

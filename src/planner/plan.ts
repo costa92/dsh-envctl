@@ -2,10 +2,12 @@ import * as path from 'node:path';
 import type {
   EnvironmentManifest,
   EnvironmentLock,
-  EnvironmentState
+  EnvironmentState,
+  ProfilePatch
 } from '../domain.js';
 import type { EnvironmentInventory } from '../inventory/profile-reader.js';
 import { computePatchDigest } from '../patch/patch.js';
+import { PROFILE_PATCHES_ALIAS, describeProfilePatch, digestProfilePatches } from '../profile-patches/entries.js';
 
 export type OperationKind =
   | 'install'
@@ -45,11 +47,18 @@ export interface UnverifiedPlugin {
   reason: string;
 }
 
+// Patch entries outside dshenv's blocks, e.g. settings changed in DSH; `dshenv pull` takes them over.
+export interface UnmanagedPatches {
+  profile: string;
+  entries: string[];
+}
+
 export interface EnvironmentPlan {
   hasChanges: boolean;
   operations: PlanOperation[];
   unmanaged: UnmanagedPlugin[];
   unverified: UnverifiedPlugin[];
+  unmanagedPatches: UnmanagedPatches[];
 }
 
 export type StableStatus =
@@ -167,7 +176,8 @@ export function buildPlan(
       hasChanges: false,
       operations: [],
       unmanaged,
-      unverified
+      unverified,
+      unmanagedPatches: []
     };
   }
 
@@ -366,6 +376,11 @@ export function buildPlan(
       }
     }
 
+    const profileOperation = planProfilePatches(profName, profManifest.patches ?? [], profInv, operations);
+    if (profileOperation) {
+      operations.push(profileOperation);
+    }
+
     // Blocks that all match still leave the file unreadable to DSH; rewriting one plugin's blocks repairs the whole file.
     const repairAlias = Object.keys(profManifest.plugins).sort()[0];
     if (profInv?.patchFileRepairable && repairAlias && !operations.some((op) => op.kind === 'configure' && op.profile === profName)) {
@@ -411,9 +426,16 @@ export function buildPlan(
     }
   }
 
-  // Sort operations deterministically: profile -> package -> kind
+  const unmanagedPatches: UnmanagedPatches[] = Object.entries(inventory.profiles)
+    .filter(([, profInv]) => (profInv.profilePatches?.unmanaged.length ?? 0) > 0)
+    .map(([profName, profInv]) => ({ profile: profName, entries: profInv.profilePatches!.unmanaged.map(describeProfilePatch) }))
+    .sort((a, b) => a.profile.localeCompare(b.profile));
+
+  // Sort operations deterministically: profile -> package -> kind; profile patches go last, after the installs that create the profile.
   operations.sort((a, b) => {
     if (a.profile !== b.profile) return a.profile.localeCompare(b.profile);
+    const profileLevel = Number(a.alias === PROFILE_PATCHES_ALIAS) - Number(b.alias === PROFILE_PATCHES_ALIAS);
+    if (profileLevel !== 0) return profileLevel;
     if (a.package !== b.package) return a.package.localeCompare(b.package);
     return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
   });
@@ -427,7 +449,47 @@ export function buildPlan(
     hasChanges: operations.length > 0,
     operations,
     unmanaged,
-    unverified
+    unverified,
+    unmanagedPatches
+  };
+}
+
+function planProfilePatches(
+  profile: string,
+  expected: ProfilePatch[],
+  profInv: EnvironmentInventory['profiles'][string] | undefined,
+  operations: PlanOperation[]
+): PlanOperation | null {
+  const base = { profile, alias: PROFILE_PATCHES_ALIAS, package: PROFILE_PATCHES_ALIAS };
+  if (!profInv) {
+    if (expected.length === 0) {
+      return null;
+    }
+    // DSH creates the profile when it installs a plugin into it; without one there is nowhere to write.
+    if (operations.some((op) => op.profile === profile && op.kind === 'install')) {
+      return { ...base, kind: 'configure', reason: 'Profile patches are not written yet' };
+    }
+    const reason = `Profile '${profile}' does not exist yet; start DSH with --profile ${profile} once, or declare a plugin in it`;
+    return { ...base, kind: 'blocked', reason, blockedReason: reason };
+  }
+  const block = profInv.profilePatches?.block ?? null;
+  if (!block) {
+    return expected.length > 0 ? { ...base, kind: 'configure', reason: 'Profile patches are not written yet' } : null;
+  }
+  if (!block.isDigestValid) {
+    return {
+      ...base,
+      kind: 'configure',
+      reason: "Profile patches were edited in DSH; run 'dshenv pull' to keep the edits, or apply to overwrite them"
+    };
+  }
+  if (block.digest === digestProfilePatches(expected)) {
+    return null;
+  }
+  return {
+    ...base,
+    kind: 'configure',
+    reason: expected.length > 0 ? 'Profile patches changed in the manifest' : 'Profile patches are no longer declared'
   };
 }
 
@@ -468,7 +530,7 @@ export function buildStatus(
     0
   ) {
     status = 'drifted';
-  } else if (plan.unmanaged.length > 0) {
+  } else if (plan.unmanaged.length > 0 || plan.unmanagedPatches.length > 0) {
     status = 'unmanaged';
   } else if (plugins.some((p) => p.status === 'restart-required')) {
     status = 'restart-required';
