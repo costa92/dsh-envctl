@@ -18,7 +18,15 @@ interface Step {
 interface Workflow {
   on?: unknown;
   permissions?: Record<string, string>;
-  jobs: Record<string, { steps: Step[]; strategy?: { matrix?: { node?: unknown[] } } }>;
+  jobs: Record<
+    string,
+    {
+      steps: Step[];
+      strategy?: { matrix?: { node?: unknown[]; include?: Array<Record<string, unknown>> } };
+      'continue-on-error'?: unknown;
+      if?: string;
+    }
+  >;
 }
 
 const readWorkflow = (relative: string): Workflow =>
@@ -26,6 +34,9 @@ const readWorkflow = (relative: string): Workflow =>
 const ci = readWorkflow('.github/workflows/ci.yml');
 const example = readWorkflow('docs/examples/github-actions/dshenv-check.yml');
 const release = readWorkflow('.github/workflows/release.yml');
+const e2e = readWorkflow('.github/workflows/e2e.yml');
+const compat = readWorkflow('.github/workflows/compat.yml');
+const VERIFIED_DSH = '0.1.7-rc.2';
 const packageJson = JSON.parse(fs.readFileSync(path.join(projectDir, 'package.json'), 'utf8')) as {
   version: string;
   scripts: Record<string, string>;
@@ -188,5 +199,36 @@ describe('release workflow', () => {
   it('has a CHANGELOG section for the current package.json version', async () => {
     fs.copyFileSync(path.join(projectDir, 'CHANGELOG.md'), path.join(workDir, 'CHANGELOG.md'));
     expect((await runStep('notes', { GITHUB_REF_NAME: `v${packageJson.version}` }, workDir)).exitCode).toBe(0);
+  });
+});
+
+describe('real DSH workflows', () => {
+  it('runs the end-to-end script against the verified DSH on pushes and pull requests, apart from CI', () => {
+    expect(Object.keys(e2e.on as object).sort()).toEqual(['pull_request', 'push', 'workflow_dispatch']);
+    expect(Object.keys(e2e.jobs)).toEqual(['e2e']);
+    const run = allSteps(e2e).find((step) => step.run?.includes('scripts/e2e-dsh.sh'))?.run ?? '';
+    expect(run).toContain(`inputs.dsh_version || '${VERIFIED_DSH}'`);
+    expect(allSteps(ci).some((step) => step.run?.includes('e2e-dsh'))).toBe(false);
+  });
+
+  it('smoke-tests the verified DSH as a hard check and latest and next as reports only', () => {
+    const smoke = compat.jobs.smoke;
+    expect(smoke.strategy?.matrix?.include).toEqual([
+      { dsh: VERIFIED_DSH, informational: false },
+      { dsh: 'latest', informational: true },
+      { dsh: 'next', informational: true }
+    ]);
+    expect(smoke['continue-on-error']).toBe('${{ matrix.informational }}');
+    expect(smoke.steps.at(-1)?.run).toBe('scripts/smoke-dsh.sh "${{ matrix.dsh }}" "$RUNNER_TEMP/smoke"');
+    expect(Object.keys(compat.on as object)).toContain('schedule');
+  });
+
+  it('pins the same verified DSH as the version gate', async () => {
+    const { knownDshFamily } = await import('../src/dsh/version.js');
+    expect(knownDshFamily(VERIFIED_DSH)).toBe('0.1.7');
+  });
+
+  it.each(['scripts/e2e-dsh.sh', 'scripts/smoke-dsh.sh'])('keeps %s executable', (script) => {
+    expect(fs.statSync(path.join(projectDir, script)).mode & 0o111).not.toBe(0);
   });
 });
