@@ -48,6 +48,11 @@ function parseSequence(content: string, where: string): { doc: YAML.Document; it
   return { doc, items: YAML.isSeq(root) ? (root.items as YAML.Node[]) : [] };
 }
 
+// A cordis entry list such as `dsh --dump-config` prints, with `!!js` values as { __jsExpr }.
+export function parseEntryList(content: string, where: string): ProfilePatch[] {
+  return (parseSequence(content, where).doc.toJS() as ProfilePatch[] | null) ?? [];
+}
+
 function blockRanges(content: string): Array<{ profile: string; plugin: string; digest?: string; payload: string; start: number; end: number }> {
   return [...content.matchAll(BLOCK)].map((match) => ({
     profile: match[1],

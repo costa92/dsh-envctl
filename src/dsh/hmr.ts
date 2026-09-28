@@ -64,9 +64,17 @@ export function parseHmrFromDump(yaml: string): HmrStatus {
 }
 
 export async function probeProfileHmr(profile: string, options: ProbeHmrOptions): Promise<HmrStatus> {
+  const dump = await dumpProfileConfig(profile, options);
+  return dump.ok ? parseHmrFromDump(dump.yaml) : { state: 'unknown', reason: dump.reason };
+}
+
+export type DumpConfigResult = { ok: true; yaml: string } | { ok: false; reason: string };
+
+// The profile tree `dsh --dump-config` composes: bundle layers, the user's patch file, and cordis `!!js` values.
+export async function dumpProfileConfig(profile: string, options: ProbeHmrOptions): Promise<DumpConfigResult> {
   const { command } = options;
   if (!command) {
-    return { state: 'unknown', reason: 'DSH CLI was not found' };
+    return { ok: false, reason: 'DSH CLI was not found' };
   }
   const timeoutMs = options.timeoutMs ?? HMR_PROBE_TIMEOUT_MS;
   const result = await execa(command.file, [...command.args, '--profile', profile, '--dump-config'], {
@@ -78,21 +86,21 @@ export async function probeProfileHmr(profile: string, options: ProbeHmrOptions)
     maxBuffer: 16 * 1024 * 1024
   });
   if (result.timedOut) {
-    return { state: 'unknown', reason: `dsh --dump-config timed out after ${timeoutMs} ms` };
+    return { ok: false, reason: `dsh --dump-config timed out after ${timeoutMs} ms` };
   }
   // Never use execa's messages here: they include the command line, and DSH_CLI args can carry credentials.
   if (result.failed) {
     const stderrLine = firstLine(String(result.stderr ?? ''));
     if (stderrLine) {
-      return { state: 'unknown', reason: stderrLine };
+      return { ok: false, reason: stderrLine };
     }
     if (result.exitCode === undefined && result.code) {
-      return { state: 'unknown', reason: `failed to start dsh (${result.code})` };
+      return { ok: false, reason: `failed to start dsh (${result.code})` };
     }
     if (result.signal) {
-      return { state: 'unknown', reason: `dsh --dump-config was killed by ${result.signal}` };
+      return { ok: false, reason: `dsh --dump-config was killed by ${result.signal}` };
     }
-    return { state: 'unknown', reason: `dsh --dump-config exited with code ${String(result.exitCode)}` };
+    return { ok: false, reason: `dsh --dump-config exited with code ${String(result.exitCode)}` };
   }
-  return parseHmrFromDump(String(result.stdout));
+  return { ok: true, yaml: String(result.stdout) };
 }
