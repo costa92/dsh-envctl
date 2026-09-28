@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: write
-  # npm provenance signs the package with the workflow's OIDC token.
+  # npm trusted publishing authenticates with the workflow's OIDC token and signs provenance with it.
   id-token: write
 
 jobs:
@@ -43,10 +43,11 @@ jobs:
       - run: pnpm build
       # The tarball ships the built lib/, so installing it needs no build step.
       - run: pnpm pack --pack-destination dist
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
+      - run: npm install -g npm@^11.5.1
+      # No token: npm trusts this workflow (configured on npmjs.com) and adds provenance itself.
       # Without ./ npm reads dist/<file> as a GitHub owner/repo shorthand.
-      - run: npm publish ./dist/*.tgz --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish ./dist/*.tgz --access public
       - run: gh release create "$GITHUB_REF_NAME" dist/*.tgz --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}
