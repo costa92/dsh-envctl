@@ -207,6 +207,12 @@ describe('remote sync engine', () => {
     await acceptSync(paths, await prepare({ previous: true }));
     expect(fs.statSync(path.join(paths.skillsDir, 'wiki', 'run.sh')).mode & 0o111).not.toBe(0);
     expect(fs.statSync(path.join(paths.skillsDir, 'wiki', 'SKILL.md')).mode & 0o111).toBe(0);
+
+    fs.writeFileSync(script, 'plain\n', { mode: 0o644 });
+    fs.chmodSync(script, 0o644);
+    await commitTeamFiles(team, {}, 'not a script any more');
+    await acceptSync(paths, await prepare({ previous: true }));
+    expect(fs.statSync(path.join(paths.skillsDir, 'wiki', 'run.sh')).mode & 0o111).toBe(0);
   });
 
   it('plans the skill changes a sync brings before it is accepted', async () => {
