@@ -68,6 +68,27 @@ describe('Managed Git Source Lifecycle', () => {
     expect(result.previousCommit).not.toBe(upstream);
   });
 
+  it.each(['HEAD', 'HEAD~1'])('keeps %s as a revision of the checkout instead of an upstream branch', async (ref) => {
+    await execa('git', ['branch', '-M', 'main'], { cwd: repoDir });
+    await execa('git', ['branch', 'feature'], { cwd: repoDir });
+    const cloneDir = path.join(tempDir, 'clone');
+    await execa('git', ['clone', '--branch', 'feature', repoDir, cloneDir]);
+    fs.writeFileSync(path.join(cloneDir, 'local.js'), '// local\n');
+    await execa('git', ['add', '.'], { cwd: cloneDir });
+    await execa('git', ['-c', 'user.name=Tester', '-c', 'user.email=test@example.com', 'commit', '-m', 'local'], { cwd: cloneDir });
+    for (const version of ['v2', 'v3']) {
+      fs.writeFileSync(path.join(repoDir, 'index.js'), `// ${version}\n`);
+      await execa('git', ['add', '.'], { cwd: repoDir });
+      await execa('git', ['commit', '-m', version], { cwd: repoDir });
+    }
+    const checkout = (await execa('git', ['rev-parse', 'HEAD'], { cwd: cloneDir })).stdout.trim();
+
+    // origin/HEAD and origin/HEAD~1 point at the upstream default branch, which is not what the caller asked for.
+    const result = await safeFastForwardManagedGit(cloneDir, ref);
+
+    expect(result.newCommit).toBe(checkout);
+  });
+
   it('should resolve managed plugin source path correctly', () => {
     const sourceRoot = '/custom/plugins';
     const resolved = resolvePluginSourcePath('agent-teams', sourceRoot);
