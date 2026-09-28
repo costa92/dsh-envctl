@@ -288,6 +288,8 @@ dshenv source clone https://github.com/ex/plugin.git --profile web --as demo
 dshenv source clone https://github.com/ex/plugin.git ./external-checkout
 ```
 
+不是 DSH bundle 的插件包（`package.json` 没有 `dsh.bundle`，例如 [dsh-session-search](https://github.com/Tieboyh/dsh-session-search)）不能放进 bundle 列表，DSH 会跳过它。dshenv 在安装后检查包类型，这类插件改为在 `cordis.patch.yml` 里写一个受管的 `insert` 行挂载（`# dshenv:begin ... plugin=@mount:<alias>`），`enable`/`disable` 切换这一行，`runtime` 按已加载的插件条目判断。
+
 ### 15. `dshenv overlay`
 按机器/环境在 base 清单（`envctl/manifest.yaml`）之上叠加 `envctl/overlays/<name>.yaml`。
 

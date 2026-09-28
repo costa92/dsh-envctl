@@ -96,7 +96,7 @@ profiles:
     );
     fs.writeFileSync(
       path.join(packageDir, 'package.json'),
-      JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.21' })
+      JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.21', dsh: { bundle: {} } })
     );
   }
 
@@ -198,7 +198,7 @@ fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
   dependencies: { [packageName]: version },
   dsh: { profile: { bundles: [packageName] } }
 }));
-fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName, version }));
+fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName, version, dsh: { bundle: {} } }));
 `);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
 
@@ -463,7 +463,7 @@ fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
   dependencies: { [packageName]: version },
   dsh: { profile: { bundles: [packageName] } }
 }));
-fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName, version }));
+fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName, version, dsh: { bundle: {} } }));
 `);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
 
@@ -524,7 +524,7 @@ profiles:
       );
       fs.writeFileSync(
         path.join(profileDir, 'node_modules', 'demo-plugin', 'package.json'),
-        JSON.stringify({ name: 'demo-plugin', version: '0.1.0' })
+        JSON.stringify({ name: 'demo-plugin', version: '0.1.0', dsh: { bundle: {} } })
       );
     };
     writeInstalled(`${url}#${oldCommit}`);
@@ -562,7 +562,7 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
   it('should reinstall a local-file plugin when its source changes and record the digest in the lock', async () => {
     const sourceDir = path.join(tempHome, 'src', 'demo');
     fs.mkdirSync(sourceDir, { recursive: true });
-    fs.writeFileSync(path.join(sourceDir, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '0.1.0' }));
+    fs.writeFileSync(path.join(sourceDir, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '0.1.0', dsh: { bundle: {} } }));
     fs.writeFileSync(path.join(sourceDir, 'index.js'), 'export const v = 1;\n');
     fs.writeFileSync(
       path.join(tempHome, 'envctl', 'manifest.yaml'),
@@ -586,7 +586,7 @@ profiles:
     );
     fs.writeFileSync(
       path.join(profileDir, 'node_modules', 'demo-plugin', 'package.json'),
-      JSON.stringify({ name: 'demo-plugin', version: '0.1.0' })
+      JSON.stringify({ name: 'demo-plugin', version: '0.1.0', dsh: { bundle: {} } })
     );
 
     const calls = path.join(tempHome, 'dsh-calls');

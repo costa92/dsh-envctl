@@ -43,7 +43,7 @@ pkg.dependencies[name] = version;
 fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
 const dir = path.join(profileDir, 'node_modules', ...name.split('/'));
 fs.mkdirSync(dir, { recursive: true });
-fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version }));
+fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version, dsh: { bundle: {} } }));
 `);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
   };
@@ -78,7 +78,7 @@ profiles:
     for (const [name, version] of [[PKG, '0.1.21'], ['other-plugin', '1.0.0']]) {
       const dir = path.join(profileDir, 'node_modules', ...name.split('/'));
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version }));
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version, dsh: { bundle: {} } }));
     }
     fs.writeFileSync(
       profileJson(),

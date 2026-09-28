@@ -117,7 +117,7 @@ export function replacePluginBlocks(
   return splicePluginBlocks(existingContent, profileName, pluginAlias, blocks);
 }
 
-function appendBlocks(existingContent: string, blocks: string): string {
+export function appendBlocks(existingContent: string, blocks: string): string {
   if (blocks.length === 0) return existingContent;
   if (existingContent.length === 0) return blocks;
   // A fresh profile's cordis.patch.yml is a single top-level `[]`. Appending a block

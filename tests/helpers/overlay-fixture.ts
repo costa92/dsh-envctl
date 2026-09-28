@@ -34,7 +34,7 @@ profiles:
   const profileDir = path.join(tempHome, 'profiles', 'web');
   for (const name of ['shared-plugin', 'heavy-plugin']) {
     fs.mkdirSync(path.join(profileDir, 'node_modules', name), { recursive: true });
-    fs.writeFileSync(path.join(profileDir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version: '1.0.0' }));
+    fs.writeFileSync(path.join(profileDir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version: '1.0.0', dsh: { bundle: {} } }));
   }
   fs.writeFileSync(
     path.join(profileDir, 'package.json'),

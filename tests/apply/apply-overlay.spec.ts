@@ -23,7 +23,7 @@ describe('applyEnvironment with an overlay', () => {
     );
     const profileDir = path.join(tempHome, 'profiles', 'web');
     fs.mkdirSync(path.join(profileDir, 'node_modules', 'teams-plugin'), { recursive: true });
-    fs.writeFileSync(path.join(profileDir, 'node_modules', 'teams-plugin', 'package.json'), JSON.stringify({ name: 'teams-plugin', version: '1.0.0' }));
+    fs.writeFileSync(path.join(profileDir, 'node_modules', 'teams-plugin', 'package.json'), JSON.stringify({ name: 'teams-plugin', version: '1.0.0', dsh: { bundle: {} } }));
     fs.writeFileSync(
       path.join(profileDir, 'package.json'),
       JSON.stringify({ dependencies: { 'teams-plugin': '1.0.0' }, dsh: { profile: { bundles: ['teams-plugin'] } } })

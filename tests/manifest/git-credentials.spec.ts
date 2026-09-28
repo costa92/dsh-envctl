@@ -86,7 +86,7 @@ describe('CLI refuses to store git credentials', () => {
   it('skips such dependencies when capturing and warns without the secret', async () => {
     const profileDir = path.join(tempHome, 'profiles', 'web');
     fs.mkdirSync(path.join(profileDir, 'node_modules', 'demo-plugin'), { recursive: true });
-    fs.writeFileSync(path.join(profileDir, 'node_modules', 'demo-plugin', 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0' }));
+    fs.writeFileSync(path.join(profileDir, 'node_modules', 'demo-plugin', 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0', dsh: { bundle: {} } }));
     fs.writeFileSync(
       path.join(profileDir, 'package.json'),
       JSON.stringify({

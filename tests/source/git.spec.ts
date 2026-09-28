@@ -25,7 +25,7 @@ describe('Managed Git Source Lifecycle', () => {
     await execa('git', ['config', 'user.name', 'Tester'], { cwd: repoDir });
     await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: repoDir });
 
-    fs.writeFileSync(path.join(repoDir, 'package.json'), JSON.stringify({ name: 'my-plugin', version: '1.0.0' }));
+    fs.writeFileSync(path.join(repoDir, 'package.json'), JSON.stringify({ name: 'my-plugin', version: '1.0.0', dsh: { bundle: {} } }));
     await execa('git', ['add', '.'], { cwd: repoDir });
     await execa('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir });
   });

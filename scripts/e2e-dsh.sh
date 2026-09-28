@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test of dshenv's main chain against a real npm DSH in an isolated DSH_HOME:
 # adopt -> manifest/lock/ownership -> plan -> apply -> verify on disk and in DSH -> runtime -> rollback -> remove,
-# then scaffolds, Git sources, overlays, purge/gc, profile patches and a team remote.
+# then scaffolds, Git sources, overlays, purge/gc, profile patches, a team remote and an external non-bundle plugin.
 # Usage: scripts/e2e-dsh.sh <dsh-version> [work-dir]
 set -uo pipefail
 
@@ -52,6 +52,27 @@ stop_web() {
   fi
 }
 trap stop_web EXIT
+
+# Starts dsh web for the current DSH_HOME's web profile and sets url once it prints one.
+start_web() {
+  "$DSH_CLI" web --no-open --port 0 >"$1" 2>&1 &
+  web_pid=$!
+  url=""
+  for _ in $(seq 1 60); do
+    url="$(grep -o 'http://127\.0\.0\.1:[0-9]*/?token=[^[:space:]]*' "$1" | head -1)"
+    [ -n "$url" ] && break
+    sleep 1
+  done
+}
+
+# DSH hot-reloads a change a moment after apply, so runtime is asked again until it agrees.
+runtime_ok() {
+  for _ in $(seq 1 30); do
+    DSHENV_DSH_URL="$url" "${run[@]}" runtime --profile web && return 0
+    sleep 2
+  done
+  return 1
+}
 
 mkdir -p "$work/dsh" "$work/home"
 echo "DSH $version, work dir $work"
@@ -114,23 +135,9 @@ step "plan clean after repair" 0 "${run[@]}" plan
 step "profile has $pkg@$pkg_version again" 0 test "$(installed_version "$pkg")" = "$pkg_version"
 
 # 5. Runtime: the running dsh web reports the plugin loaded.
-"$DSH_CLI" web --no-open --port 0 >"$work/web.log" 2>&1 &
-web_pid=$!
-url=""
-for _ in $(seq 1 60); do
-  url="$(grep -o 'http://127\.0\.0\.1:[0-9]*/?token=[^[:space:]]*' "$work/web.log" | head -1)"
-  [ -n "$url" ] && break
-  sleep 1
-done
+start_web "$work/web.log"
 step "dsh web starts and prints its URL" 0 test -n "$url"
 if [ -n "$url" ]; then
-  runtime_ok() {
-    for _ in $(seq 1 30); do
-      DSHENV_DSH_URL="$url" "${run[@]}" runtime --profile web && return 0
-      sleep 2
-    done
-    return 1
-  }
   step "runtime reports the plugin loaded" 0 runtime_ok
 fi
 stop_web
@@ -291,5 +298,33 @@ step "sync --discard-local-changes" 0 "${run[@]}" sync --discard-local-changes -
 git -C "$team" -c user.name=e2e -c user.email=e2e@example.invalid -c commit.gpgsign=false commit -q --amend -m rewritten
 git -C "$team" push -q -f "file://$team.git" HEAD:refs/heads/main
 step "sync refuses rewritten history" 3 "${run[@]}" sync
+
+# 14. An external Git plugin that is not a DSH bundle, in a fresh DSH_HOME: DSH skips such a package in the
+# bundle list, so dshenv mounts it through an insert row, in the same apply that installs it.
+export DSH_HOME="$work/ext-home"
+envctl="$DSH_HOME/envctl"
+ext_url="${E2E_EXT_PLUGIN_URL:-https://github.com/Tieboyh/dsh-session-search.git}"
+ext_pkg="${E2E_EXT_PLUGIN:-@dsh-external/dsh-session-search}"
+step "init a fresh home" 0 "${run[@]}" init
+step "source clone the external plugin" 0 "${run[@]}" source clone "$ext_url" --profile web
+ext_alias="$(alias_of "$ext_pkg")"
+step "apply installs and mounts it in one run" 0 "${run[@]}" apply --yes
+step "plan clean after the external install" 0 "${run[@]}" plan
+step "not in the bundle list" 0 json_true "$DSH_HOME/profiles/web/package.json" "!v.dsh.profile.bundles.includes('$ext_pkg')"
+step "mounted in cordis.patch.yml" 0 grep -q "plugin=@mount:$ext_alias" "$DSH_HOME/profiles/web/cordis.patch.yml"
+step "DSH composes the mounted row" 0 bash -c '"$1" --profile web --dump-config 2>/dev/null | grep -qF "$2"' _ "$DSH_CLI" "$ext_pkg"
+start_web "$work/ext-web.log"
+step "dsh web starts for the external plugin" 0 test -n "$url"
+if [ -n "$url" ]; then
+  step "runtime reports the external plugin loaded" 0 runtime_ok
+  step "disable the external plugin" 0 "${run[@]}" disable "$ext_alias" --profile web
+  step "apply the disable" 0 "${run[@]}" apply --yes
+  step "unmounted from cordis.patch.yml" 1 grep -q "plugin=@mount:$ext_alias" "$DSH_HOME/profiles/web/cordis.patch.yml"
+  step "runtime reports it unloaded" 0 runtime_ok
+  step "enable it again" 0 "${run[@]}" enable "$ext_alias" --profile web
+  step "apply the enable" 0 "${run[@]}" apply --yes
+  step "runtime reports it loaded again" 0 runtime_ok
+fi
+stop_web
 
 exit "$failed"

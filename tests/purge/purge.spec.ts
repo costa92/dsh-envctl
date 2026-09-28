@@ -71,7 +71,7 @@ profiles:
     );
     fs.writeFileSync(
       path.join(packageDir, 'package.json'),
-      JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.21' })
+      JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.21', dsh: { bundle: {} } })
     );
   });
 

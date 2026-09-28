@@ -34,7 +34,7 @@ describe('CLI writes to remote-owned files and lock entries', () => {
     await execa('git', ['config', 'user.name', 'Tester'], { cwd: dir });
     await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
     await execa('git', ['config', 'commit.gpgsign', 'false'], { cwd: dir });
-    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'local-tool', version: '1.0.0' }));
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'local-tool', version: '1.0.0', dsh: { bundle: {} } }));
     await execa('git', ['add', '.'], { cwd: dir });
     await execa('git', ['commit', '--quiet', '-m', 'init'], { cwd: dir });
     return dir;

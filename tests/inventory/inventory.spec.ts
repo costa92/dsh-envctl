@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { readEnvironmentInventory } from '../../src/inventory/profile-reader.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 import { renderPatchBlock } from '../../src/patch/patch.js';
+import { writeMount } from '../../src/patch/mount.js';
 
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -73,7 +74,7 @@ describe('readEnvironmentInventory', () => {
     });
     writeJson(
       path.join(profileDir, 'node_modules', '@nanmicoder', 'dsh-agent-teams', 'package.json'),
-      { name: '@nanmicoder/dsh-agent-teams', version: '0.1.21' }
+      { name: '@nanmicoder/dsh-agent-teams', version: '0.1.21', dsh: { bundle: {} } }
     );
 
     const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
@@ -198,6 +199,37 @@ describe('readEnvironmentInventory', () => {
     expect(pkg.version).toBeUndefined();
     expect(pkg.rawPackageJson).toBeUndefined();
     expect(pkg.installed).toBe(true);
+  });
+
+  it('tells plugin packages that are not DSH bundles apart, and counts them enabled only when mounted', async () => {
+    const profileDir = writeProfile(tempHome, 'web', {
+      bundles: ['@acme/bundle'],
+      dependencies: { '@acme/bundle': '1.0.0', '@acme/plain': '1.0.0', '@acme/other-plain': '1.0.0' }
+    });
+    writeJson(path.join(profileDir, 'node_modules', '@acme', 'bundle', 'package.json'), { name: '@acme/bundle', version: '1.0.0', dsh: { bundle: { patch: './cordis.patch.yml' } } });
+    writeJson(path.join(profileDir, 'node_modules', '@acme', 'plain', 'package.json'), { name: '@acme/plain', version: '1.0.0' });
+    writeJson(path.join(profileDir, 'node_modules', '@acme', 'other-plain', 'package.json'), { name: '@acme/other-plain', version: '1.0.0' });
+    fs.writeFileSync(path.join(profileDir, 'cordis.patch.yml'), writeMount('[]\n', 'web', 'plain', '@acme/plain'));
+
+    const plugins = (await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }))).profiles.web.plugins;
+    expect(plugins['@acme/bundle']).toMatchObject({ bundle: true, enabled: true });
+    expect(plugins['@acme/plain']).toMatchObject({ bundle: false, enabled: true });
+    expect(plugins['@acme/other-plain']).toMatchObject({ bundle: false, enabled: false });
+  });
+
+  it('tells a linked package that is not a DSH bundle apart, as DSH reads it through the link', async () => {
+    const plain = path.join(tempHome, 'plain-src');
+    const bundle = path.join(tempHome, 'bundle-src');
+    writeJson(path.join(plain, 'package.json'), { name: 'plain', version: '1.0.0' });
+    writeJson(path.join(bundle, 'package.json'), { name: 'bundled', version: '1.0.0', dsh: { bundle: {} } });
+    const profileDir = writeProfile(tempHome, 'web', { dependencies: { plain: `link:${plain}`, bundled: `link:${bundle}` } });
+    fs.mkdirSync(path.join(profileDir, 'node_modules'), { recursive: true });
+    fs.symlinkSync(plain, path.join(profileDir, 'node_modules', 'plain'));
+    fs.symlinkSync(bundle, path.join(profileDir, 'node_modules', 'bundled'));
+
+    const plugins = (await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }))).profiles.web.plugins;
+    expect(plugins.plain).toMatchObject({ sourceType: 'local-link', bundle: false, rawPackageJson: undefined });
+    expect(plugins.bundled).toMatchObject({ sourceType: 'local-link', bundle: true });
   });
 
   it('should skip directories that are not DSH profiles', async () => {

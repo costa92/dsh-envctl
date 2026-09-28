@@ -20,7 +20,7 @@ describe('CLI source clone --profile', () => {
     await execa('git', ['init'], { cwd: upstream });
     await execa('git', ['config', 'user.name', 'Tester'], { cwd: upstream });
     await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: upstream });
-    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0' }));
+    fs.writeFileSync(path.join(upstream, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0', dsh: { bundle: {} } }));
     await execa('git', ['add', '.'], { cwd: upstream });
     await execa('git', ['commit', '-m', 'init'], { cwd: upstream });
     await runCli(['init', '--dsh-home', tempHome]);

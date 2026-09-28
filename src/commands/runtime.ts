@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import type { EnvironmentManifest } from '../domain.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { DshError, ValidationError } from '../errors.js';
@@ -84,7 +85,11 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
       const plugins = parseRuntimePlugins(await callDshWeb(session, 'pluginManager', 'listPlugins'), target.endpoint);
 
       const entries = Object.entries(manifest.profiles[profile]?.plugins ?? {});
-      const enabledPackages = entries.filter(([, plugin]) => plugin.enabled !== false).map(([, plugin]) => plugin.package);
+      const installed = (await readEnvironmentInventory(paths)).profiles[profile]?.plugins ?? {};
+      // A mounted plugin is in no bundle, so listBundles cannot show it.
+      const enabledPackages = entries
+        .filter(([, plugin]) => plugin.enabled !== false && installed[plugin.package]?.bundle !== false)
+        .map(([, plugin]) => plugin.package);
       assertSameProfile(paths, profile, enabledPackages, bundles, target.endpoint);
 
       const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
@@ -92,7 +97,8 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
         alias,
         package: plugin.package,
         enabled: plugin.enabled !== false,
-        restartRequired: state?.profiles[profile]?.plugins[plugin.package]?.status === 'restart-required'
+        restartRequired: state?.profiles[profile]?.plugins[plugin.package]?.status === 'restart-required',
+        ...(installed[plugin.package]?.bundle === false ? { mounted: true } : {})
       }));
       const results = checkRuntime(declared, bundles, plugins);
 

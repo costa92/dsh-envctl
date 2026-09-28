@@ -248,3 +248,20 @@ describe('response parsing', () => {
     expect(() => parseRuntimePlugins({}, '127.0.0.1:3080')).toThrow(/DSH at 127\.0\.0\.1:3080 answered listPlugins with an unexpected response shape/);
   });
 });
+
+describe('checkRuntime for a plugin mounted through an insert row', () => {
+  const notBundle = bundle({ enabled: false, error: { code: 'not-bundle' }, rows: [] });
+  const mounted = (overrides: Partial<DeclaredPlugin> = {}) => declared({ mounted: true, ...overrides });
+
+  it('judges it by the loaded plugins, not by the bundle list that reports it as no bundle', () => {
+    expect(checkRuntime([mounted()], [notBundle], [entry('active')])[0].result).toBe('loaded');
+    expect(checkRuntime([mounted()], [notBundle], [entry('failed')])[0].result).toBe('failed');
+    expect(checkRuntime([mounted()], [notBundle], [])[0].result).toBe('loading');
+    expect(checkRuntime([mounted({ restartRequired: true })], [notBundle], [])[0].result).toBe('not-loaded');
+  });
+
+  it('expects no loaded entry when it is disabled', () => {
+    expect(checkRuntime([mounted({ enabled: false })], [notBundle], [])[0].result).toBe('unloaded');
+    expect(checkRuntime([mounted({ enabled: false, restartRequired: true })], [notBundle], [entry('active')])[0].result).toBe('still-loaded');
+  });
+});
