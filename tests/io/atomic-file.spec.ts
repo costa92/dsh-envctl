@@ -43,6 +43,22 @@ describe('writeAtomic', () => {
     expect(fs.readdirSync(tempDir)).toEqual(['race.txt']);
   });
 
+  it('should not leave a partial target when the fallback copy fails', async () => {
+    const targetFile = path.join(tempDir, 'partial.txt');
+    const link = vi.spyOn(fs.promises, 'link').mockRejectedValue(Object.assign(new Error('hardlinks unsupported'), { code: 'EPERM' }));
+    const copy = vi.spyOn(fs.promises, 'copyFile').mockImplementation(async (_src, dest) => {
+      fs.writeFileSync(String(dest), 'half');
+      throw Object.assign(new Error('no space'), { code: 'ENOSPC' });
+    });
+    try {
+      await expect(writeAtomic(targetFile, 'whole', 'create')).rejects.toThrow(/no space/);
+    } finally {
+      link.mockRestore();
+      copy.mockRestore();
+    }
+    expect(fs.readdirSync(tempDir)).toEqual([]);
+  });
+
   it('should refuse to overwrite existing file in create mode and preserve original bytes', async () => {
     const targetFile = path.join(tempDir, 'test.txt');
     fs.writeFileSync(targetFile, 'original content', 'utf8');

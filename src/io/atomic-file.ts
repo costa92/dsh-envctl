@@ -69,9 +69,17 @@ export async function writeAtomic(
           if ((copyErr as NodeJS.ErrnoException).code === 'EEXIST') {
             throw new FileExistsError(targetPath);
           }
+          // EXCL means any target now present is ours; half-copied, it would block every retry.
+          await fs.promises.rm(targetPath, { force: true });
           throw copyErr;
         }
         await fs.promises.unlink(tempPath);
+        const targetHandle = await fs.promises.open(targetPath, 'r');
+        try {
+          await targetHandle.sync();
+        } finally {
+          await targetHandle.close();
+        }
       }
     } else {
       await fs.promises.rename(tempPath, targetPath);
