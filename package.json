@@ -1,5 +1,5 @@
 {
-  "name": "dshenv",
+  "name": "@costa92/dshenv",
   "version": "0.1.1",
   "description": "Environment-as-Code manager for DeepSeek Harness",
   "license": "MIT",

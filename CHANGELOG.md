@@ -6,8 +6,8 @@
 
 ### 变更
 
-- npm 包名改为 `dshenv`，发布到 npm registry：`npm install -g dshenv`。命令名不变。
-- 从 Git 地址用 pnpm 安装时，放行参数改为 `--allow-build=dshenv`；卸载改为 `pnpm remove --global dshenv`。
+- 发布到 npm registry，包名 `@costa92/dshenv`（无作用域的 `dshenv` 被 npm 以与 dotenv、osenv 过于相似为由拒绝）：`npm install -g @costa92/dshenv`。命令名仍为 `dshenv`。
+- 从 Git 地址用 pnpm 安装时，放行参数改为 `--allow-build=@costa92/dshenv`；卸载改为 `pnpm remove --global @costa92/dshenv`。
 - Release 工作流把同一份 `.tgz` 发布到 npm（带 provenance）并附在 GitHub Release 上。
 
 ## 0.1.0 - 2026-09-27
