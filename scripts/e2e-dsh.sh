@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test of dshenv's main chain against a real npm DSH in an isolated DSH_HOME:
-# adopt -> manifest/lock/ownership -> plan -> apply -> verify on disk and in DSH -> runtime -> rollback -> remove.
+# adopt -> manifest/lock/ownership -> plan -> apply -> verify on disk and in DSH -> runtime -> rollback -> remove,
+# then scaffolds, Git sources, overlays, purge/gc and a team remote.
 # Usage: scripts/e2e-dsh.sh <dsh-version> [work-dir]
 set -uo pipefail
 
@@ -146,5 +147,105 @@ step "apply remove" 0 "${run[@]}" apply --yes
 step "plan clean after remove" 0 "${run[@]}" plan
 step "profile no longer has $pkg" 0 test -z "$(installed_version "$pkg")"
 step "ownership released" 0 json_true "$envctl/state.json" "!v.ownership?.web?.['$pkg']"
+
+# 8. Scaffolds: every package kind installs and composes; a loose skill needs no package.
+for kind in skill agent mcp; do
+  step "scaffold and declare a $kind package" 0 bash -c 'cd "$1" && "${@:3}" new "$2" "e2e-$2" -p web' _ "$work" "$kind" "${run[@]}"
+done
+step "scaffold a loose skill" 0 "${run[@]}" new skill e2e-loose --loose
+step "loose skill written to DSH_HOME/skills" 0 test -f "$DSH_HOME/skills/e2e-loose/SKILL.md"
+step "plan shows the scaffold installs" 2 "${run[@]}" plan
+step "apply scaffold installs" 0 "${run[@]}" apply --yes
+step "plan clean after scaffold installs" 0 "${run[@]}" plan
+for kind in skill agent mcp; do
+  step "dsh composes the $kind package" 0 bash -c '"$DSH_CLI" --profile web --dump-config | grep -q "$1"' _ "e2e-$kind"
+done
+
+# 9. Git source: clone into envctl/sources with the commit locked; an upstream commit pulled in plans an update.
+git_origin="$work/git-origin"
+git_pkg="e2e-git-tool"
+commit_all() {
+  git -C "$1" add -A && git -C "$1" -c user.name=e2e -c user.email=e2e@example.invalid -c commit.gpgsign=false commit -qm "$2"
+}
+step "scaffold the Git plugin repository" 0 "${run[@]}" new tool "$git_pkg" --dir "$git_origin"
+step "commit the Git plugin repository" 0 bash -c 'git init -q --initial-branch=main "$1" && git -C "$1" add -A && git -C "$1" -c user.name=e2e -c user.email=e2e@example.invalid -c commit.gpgsign=false commit -qm init' _ "$git_origin"
+step "source clone into the profile" 0 "${run[@]}" source clone "file://$git_origin" --profile web
+git_alias="$(alias_of "$git_pkg")"
+step "clone stored under envctl/sources" 0 test -d "$envctl/sources/web/$git_pkg/.git"
+step "lock pins the cloned commit" 0 json_true "$envctl/lock.json" "v.profiles.web.plugins['$git_alias']?.source?.commit === '$(git -C "$git_origin" rev-parse HEAD)'"
+step "apply Git source install" 0 "${run[@]}" apply --yes
+step "plan clean after Git install" 0 "${run[@]}" plan
+echo "// upstream change" >>"$git_origin/index.js"
+commit_all "$git_origin" upstream
+step "source pull fast-forwards the clone" 0 "${run[@]}" source pull --profile web --as "$git_alias" --ref main
+step "lock follows the pulled commit" 0 json_true "$envctl/lock.json" "v.profiles.web.plugins['$git_alias']?.source?.commit === '$(git -C "$git_origin" rev-parse HEAD)'"
+step "plan sees the pulled commit as an update" 2 "${run[@]}" plan
+step "apply Git update" 0 "${run[@]}" apply --yes
+step "plan clean after Git update" 0 "${run[@]}" plan
+
+# 10. Overlay: a per-machine plugin lives only in the overlay and leaves with it.
+mkdir -p "$envctl/overlays"
+printf 'apiVersion: dshenv-overlay/v1\nprofiles: {}\n' >"$envctl/overlays/mine.yaml"
+step "overlay use" 0 "${run[@]}" overlay use mine
+step "declare a plugin in the overlay" 0 bash -c 'cd "$1" && "${@:2}" new agent e2e-overlay -p web --layer overlay' _ "$work" "${run[@]}"
+step "overlay file holds the plugin" 0 grep -q e2e-overlay "$envctl/overlays/mine.yaml"
+step "base manifest does not" 1 grep -q e2e-overlay "$envctl/manifest.yaml"
+step "overlay show" 0 "${run[@]}" overlay show
+step "apply overlay install" 0 "${run[@]}" apply --yes
+step "plan clean with the overlay" 0 "${run[@]}" plan
+step "plan without the overlay wants it gone" 2 "${run[@]}" --no-overlay plan
+step "overlay use --none" 0 "${run[@]}" overlay use --none
+step "apply removes the overlay plugin" 0 "${run[@]}" apply --yes
+step "plan clean without the overlay" 0 "${run[@]}" plan
+# pnpm leaves the link: symlink in node_modules, so check what the profile declares and composes.
+step "profile no longer declares the overlay plugin" 0 json_true "$DSH_HOME/profiles/web/package.json" "!v.dependencies?.['e2e-overlay'] && !v.dsh.profile.bundles.includes('e2e-overlay')"
+
+# 11. Purge moves an owned plugin's clone into trash; gc empties expired trash.
+step "purge dry-run" 0 "${run[@]}" purge "$git_alias" --profile web --dry-run
+step "purge" 0 "${run[@]}" purge "$git_alias" --profile web --yes
+step "clone moved out of envctl/sources" 1 test -e "$envctl/sources/web/$git_pkg"
+step "declare remove of the purged plugin" 0 "${run[@]}" remove "$git_alias" --profile web
+step "apply remove of the purged plugin" 0 "${run[@]}" apply --yes
+step "plan clean after purge" 0 "${run[@]}" plan
+step "gc dry-run" 0 "${run[@]}" gc --older-than 0 --dry-run
+step "gc" 0 "${run[@]}" gc --older-than 0 --yes
+step "trash emptied" 0 test -z "$(ls -A "$envctl/trash" 2>/dev/null)"
+
+# 12. Team remote, in a fresh DSH_HOME: subscribe, apply, follow a team change, refuse local edits and rewrites.
+export DSH_HOME="$work/team-home"
+envctl="$DSH_HOME/envctl"
+team="$work/team"
+git init -q --bare --initial-branch=main "$team.git"
+git init -q --initial-branch=main "$team"
+mkdir -p "$team/envctl"
+team_manifest() {
+  printf 'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins:\n      teams:\n        package: "%s"\n        source: { type: npm, version: "%s" }\n%b' "$pkg" "$pkg_version" "$1" >"$team/envctl/manifest.yaml"
+}
+team_manifest ""
+commit_all "$team" initial
+git -C "$team" push -q "file://$team.git" HEAD:refs/heads/main
+step "remote add refuses a URL with credentials" 3 "${run[@]}" remote add "https://user:secret@example.invalid/team.git"
+step "remote add previews" 2 "${run[@]}" remote add "file://$team.git"
+step "remote add --yes" 0 "${run[@]}" remote add "file://$team.git" --yes
+step "remote show" 0 "${run[@]}" remote show
+step "plan shows the team plugin" 2 "${run[@]}" plan
+step "apply team plugin" 0 "${run[@]}" apply --yes
+step "plan clean after team apply" 0 "${run[@]}" plan
+step "profile has the team plugin" 0 test "$(installed_version "$pkg")" = "$pkg_version"
+team_manifest '        enabled: false\n'
+commit_all "$team" "disable teams"
+git -C "$team" push -q "file://$team.git" HEAD:refs/heads/main
+step "sync previews the team change" 2 "${run[@]}" sync
+step "sync --yes" 0 "${run[@]}" sync --yes
+step "plan shows the disable" 2 "${run[@]}" plan
+step "apply team change" 0 "${run[@]}" apply --yes
+step "plan clean after sync" 0 "${run[@]}" plan
+step "sync up to date" 0 "${run[@]}" sync
+echo "# local edit" >>"$envctl/manifest.yaml"
+step "sync refuses local edits to remote files" 3 "${run[@]}" sync
+step "sync --discard-local-changes" 0 "${run[@]}" sync --discard-local-changes --yes
+git -C "$team" -c user.name=e2e -c user.email=e2e@example.invalid -c commit.gpgsign=false commit -q --amend -m rewritten
+git -C "$team" push -q -f "file://$team.git" HEAD:refs/heads/main
+step "sync refuses rewritten history" 3 "${run[@]}" sync
 
 exit "$failed"
