@@ -6,7 +6,7 @@
 
 ### 新增
 
-- `dshenv self-update`：用 `npm view --prefer-online` 查询 npm 上的版本，再用安装 dshenv 的包管理器（全局 npm 或 pnpm）升级自身；`--check` 只查询，有新版本时退出码 2；`--to <版本>` 指定精确版本。本地链接或源码检出的安装不会被替换。
+- `dshenv self-update`：用 `npm view --prefer-online` 查询 npm 上的版本，再用安装 dshenv 的包管理器（全局 npm 或 pnpm）升级自身，安装输出直接显示在终端。`--check` 只查询，有可安装版本时退出码 2；`--to <版本>` 指定精确版本，可用于降级。不带 `--to` 时不会降级预发布版或本地构建。本地链接、源码检出和从 Git 地址安装的 dshenv 不会被替换。失败时只显示错误码，不带出 registry 地址或 token。
 - README 与使用教程补充升级 dshenv 的说明。
 
 ## 0.2.0 - 2026-09-28
