@@ -22,7 +22,7 @@ function candidateKey(rel: string): string | null {
   if (rel === 'manifest.yaml' || rel === 'lock.json') {
     return rel;
   }
-  return /^overlays\/[^/]+\.yaml$/.test(rel) ? rel : null;
+  return /^overlays\/[^/]+\.yaml$/.test(rel) || rel.startsWith('skills/') ? rel : null;
 }
 
 // Local paths and their digests only mean something on the machine that recorded them.
@@ -79,7 +79,8 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
       continue;
     }
     if (key !== 'lock.json' && !isRemoteFileKey(key)) {
-      throw new ValidationError(`Remote overlay ${entry.path} has an invalid name (allowed: letters, digits, '.', '_', '-')`);
+      const kind = key.startsWith('skills/') ? 'skill file' : 'overlay';
+      throw new ValidationError(`Remote ${kind} ${entry.path} has an invalid name (allowed: letters, digits, '.', '_', '-')`);
     }
     if (entry.type !== 'blob' || !REGULAR_FILE_MODES.has(entry.mode)) {
       throw new ValidationError(`Remote file ${entry.path} must be a regular file`);

@@ -144,6 +144,8 @@ export interface EnvironmentState {
     Record<string, PluginOwnershipRecord>
   >;
   appliedOverlay?: string;
+  // Skills dshenv manages in $DSH_HOME/skills, with the digest both sides had when they last matched.
+  skills?: Record<string, string>;
 }
 
 export interface CaptureDocument {

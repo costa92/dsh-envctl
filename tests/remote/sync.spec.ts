@@ -185,6 +185,19 @@ describe('remote sync engine', () => {
     expect(preview.lockEntries).toEqual(NO_ENTRY_CHANGES);
   });
 
+  it('syncs team skills file by file and removes emptied skill directories', async () => {
+    await subscribe();
+    await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v1', 'envctl/skills/wiki/refs/a.md': 'ref' }, 'skills');
+    const added = await prepare({ previous: true });
+    expect(added.files.added).toEqual(['skills/wiki/SKILL.md', 'skills/wiki/refs/a.md']);
+    await acceptSync(paths, added);
+    expect(read(path.join(paths.skillsDir, 'wiki', 'refs', 'a.md'))).toBe('ref');
+
+    await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': null, 'envctl/skills/wiki/refs/a.md': null }, 'drop skill');
+    await acceptSync(paths, await prepare({ previous: true }));
+    expect(fs.existsSync(path.join(paths.skillsDir, 'wiki'))).toBe(false);
+  });
+
   it('merges team lock updates entry by entry and keeps local entries', async () => {
     await subscribe();
     const lock = readLock();

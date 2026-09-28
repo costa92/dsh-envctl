@@ -8,6 +8,7 @@ import type {
 import type { EnvironmentInventory } from '../inventory/profile-reader.js';
 import { computePatchDigest } from '../patch/patch.js';
 import { PROFILE_PATCHES_ALIAS, describeProfilePatch, digestProfilePatches } from '../profile-patches/entries.js';
+import { planSkills, type SkillOperation } from '../skills/skills.js';
 
 export type OperationKind =
   | 'install'
@@ -59,6 +60,9 @@ export interface EnvironmentPlan {
   unmanaged: UnmanagedPlugin[];
   unverified: UnverifiedPlugin[];
   unmanagedPatches: UnmanagedPatches[];
+  // Loose skills in $DSH_HOME/skills; home-wide, so kept apart from the per-profile operations.
+  skillOperations: SkillOperation[];
+  unmanagedSkills: string[];
 }
 
 export type StableStatus =
@@ -177,7 +181,9 @@ export function buildPlan(
       operations: [],
       unmanaged,
       unverified,
-      unmanagedPatches: []
+      unmanagedPatches: [],
+      skillOperations: [],
+      unmanagedSkills: []
     };
   }
 
@@ -445,12 +451,16 @@ export function buildPlan(
     return a.package.localeCompare(b.package);
   });
 
+  const skills = inventory.skills ? planSkills(inventory.skills, state?.skills) : { operations: [], unmanaged: [] };
+
   return {
-    hasChanges: operations.length > 0,
+    hasChanges: operations.length > 0 || skills.operations.length > 0,
     operations,
     unmanaged,
     unverified,
-    unmanagedPatches
+    unmanagedPatches,
+    skillOperations: skills.operations,
+    unmanagedSkills: skills.unmanaged
   };
 }
 
@@ -530,7 +540,9 @@ export function buildStatus(
     0
   ) {
     status = 'drifted';
-  } else if (plan.unmanaged.length > 0 || plan.unmanagedPatches.length > 0) {
+  } else if (plan.skillOperations.length > 0) {
+    status = 'drifted';
+  } else if (plan.unmanaged.length > 0 || plan.unmanagedPatches.length > 0 || plan.unmanagedSkills.length > 0) {
     status = 'unmanaged';
   } else if (plugins.some((p) => p.status === 'restart-required')) {
     status = 'restart-required';

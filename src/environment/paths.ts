@@ -16,6 +16,9 @@ export interface EnvironmentPaths {
   overlaySelectionFile: string;
   remoteFile: string;
   remoteDir: string;
+  // Skills the manifest declares, and the $DSH_HOME/skills directory DSH loads loose skills from.
+  skillsDir: string;
+  dshSkillsDir: string;
 }
 
 export interface ResolvePathsInput {
@@ -60,6 +63,8 @@ export function resolveEnvironmentPaths(input?: ResolvePathsInput): EnvironmentP
     overlaysDir: path.join(managerDir, 'overlays'),
     overlaySelectionFile: path.join(managerDir, 'overlay-selection.json'),
     remoteFile: path.join(managerDir, 'remote.json'),
-    remoteDir: path.join(managerDir, 'remote')
+    remoteDir: path.join(managerDir, 'remote'),
+    skillsDir: path.join(managerDir, 'skills'),
+    dshSkillsDir: path.join(home, 'skills')
   };
 }

@@ -227,10 +227,12 @@ cat >>"$patch_file" <<EOF
       - $work/skills
 EOF
 step "plan reports the entries DSH wrote" 0 bash -c '"$@" plan | grep -q "? \[web\] locale, skill-filesystem"' _ "${run[@]}"
+step "plan reports the loose skill" 0 bash -c '"$@" plan | grep -q "? e2e-loose"' _ "${run[@]}"
 step "pull dry-run" 2 "${run[@]}" pull --dry-run
 step "pull" 0 "${run[@]}" pull
 step "manifest declares the shared entry" 0 grep -q "preference: zh" "$envctl/manifest.yaml"
 step "local overlay holds the machine-local entry" 0 grep -q "$work/skills" "$envctl/overlays/local.yaml"
+step "envctl/skills holds the loose skill" 0 test -f "$envctl/skills/e2e-loose/SKILL.md"
 step "plan clean after pull" 0 "${run[@]}" plan
 step "dsh composes the pulled settings" 0 bash -c '"$DSH_CLI" --profile web --dump-config | grep -q "$1"' _ "$work/skills"
 sed -i 's/preference: zh/preference: en/' "$patch_file"
@@ -242,6 +244,14 @@ sed -i 's/preference: en/preference: fr/' "$patch_file"
 step "apply overwrites an edit made in DSH" 0 "${run[@]}" apply --yes
 step "patch file back to the manifest" 0 grep -q "preference: en" "$patch_file"
 step "plan clean after overwrite" 0 "${run[@]}" plan
+echo "manifest edit" >>"$envctl/skills/e2e-loose/SKILL.md"
+step "plan sees the skill changed in the manifest" 2 "${run[@]}" plan
+step "apply copies the skill into DSH" 0 "${run[@]}" apply --yes
+step "DSH has the manifest's skill" 0 grep -q "manifest edit" "$DSH_HOME/skills/e2e-loose/SKILL.md"
+echo "dsh edit" >>"$DSH_HOME/skills/e2e-loose/SKILL.md"
+step "pull the skill edited in DSH" 0 "${run[@]}" pull
+step "envctl/skills follows DSH" 0 grep -q "dsh edit" "$envctl/skills/e2e-loose/SKILL.md"
+step "plan clean after the skill round trip" 0 "${run[@]}" plan
 
 # 13. Team remote, in a fresh DSH_HOME: subscribe, apply, follow a team change, refuse local edits and rewrites.
 export DSH_HOME="$work/team-home"
@@ -249,7 +259,8 @@ envctl="$DSH_HOME/envctl"
 team="$work/team"
 git init -q --bare --initial-branch=main "$team.git"
 git init -q --initial-branch=main "$team"
-mkdir -p "$team/envctl"
+mkdir -p "$team/envctl/skills/team-skill"
+printf -- '---\nname: team-skill\ndescription: Shared by the team.\n---\n' >"$team/envctl/skills/team-skill/SKILL.md"
 team_manifest() {
   printf 'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins:\n      teams:\n        package: "%s"\n        source: { type: npm, version: "%s" }\n%b' "$pkg" "$pkg_version" "$1" >"$team/envctl/manifest.yaml"
 }
@@ -264,6 +275,7 @@ step "plan shows the team plugin" 2 "${run[@]}" plan
 step "apply team plugin" 0 "${run[@]}" apply --yes
 step "plan clean after team apply" 0 "${run[@]}" plan
 step "profile has the team plugin" 0 test "$(installed_version "$pkg")" = "$pkg_version"
+step "DSH has the team skill" 0 test -f "$DSH_HOME/skills/team-skill/SKILL.md"
 team_manifest '        enabled: false\n'
 commit_all "$team" "disable teams"
 git -C "$team" push -q "file://$team.git" HEAD:refs/heads/main

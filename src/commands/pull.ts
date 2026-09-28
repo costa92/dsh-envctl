@@ -3,8 +3,8 @@ import { pullProfilePatches, type PullResult } from '../profile-patches/pull.js'
 import { resolveCliPaths, resolveCliOverlay, profileOption, type CommandContext } from './context.js';
 
 export function renderPullResult(result: PullResult): string {
-  if (result.changes.length === 0) {
-    return 'Nothing to pull: every patch entry in DSH matches the manifest.\n';
+  if (result.changes.length === 0 && !result.skills) {
+    return 'Nothing to pull: every patch entry and skill in DSH matches the manifest.\n';
   }
   const lines = result.changes.map((change) => {
     const entries = [
@@ -18,6 +18,10 @@ export function renderPullResult(result: PullResult): string {
       ? `[${change.profile}] keeps the manifest, dropping DSH's edits (${layers})`
       : `[${change.profile}] from DSH: ${summary} (${layers})`;
   });
+  if (result.skills) {
+    const { added, changed, removed } = result.skills;
+    lines.push(`[skills] from DSH: ${[...added.map((name) => `+ ${name}`), ...changed.map((name) => `~ ${name}`), ...removed.map((name) => `- ${name}`)].join(', ')}`);
+  }
   if (result.overlayCreated) {
     lines.push(`Machine-local entries went into overlay '${result.overlayCreated}', now selected.`);
   }
@@ -30,7 +34,7 @@ export function registerPullCommand(ctx: CommandContext): void {
 
   program
     .command('pull')
-    .description('Take patch entries changed or added in DSH into the manifest')
+    .description('Take patch entries and loose skills changed in DSH into the manifest')
     .option('-p, --profile <name>', 'only this profile', profileOption)
     .option('--prefer <side>', 'when both DSH and the manifest changed since the last apply: dsh or manifest')
     .option('--dry-run', 'show what would be taken over without writing')
@@ -48,7 +52,7 @@ export function registerPullCommand(ctx: CommandContext): void {
         allowOverlayCreation: opts.overlay !== false
       });
       writeOut(opts.json ? `${JSON.stringify(result, null, 2)}\n` : renderPullResult(result));
-      if (result.dryRun && result.changes.length > 0) {
+      if (result.dryRun && (result.changes.length > 0 || result.skills)) {
         setExitCode(2);
       }
     });

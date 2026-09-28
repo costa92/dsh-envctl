@@ -6,6 +6,9 @@ import { writeAtomic } from './atomic-file.js';
 
 // Overlay keys the snapshot was asked to save that did not exist at the time.
 const ABSENT_FILE = 'absent.json';
+// Marks a snapshot that saved envctl/skills, so restoring one taken before skills existed leaves the directory alone.
+const SKILLS_MARKER = 'skills-saved';
+const SKILLS_DIR = 'skills';
 
 export interface EnvironmentSnapshot {
   snapshotId: string;
@@ -52,6 +55,11 @@ async function copySnapshotFiles(paths: EnvironmentPaths, snapshotDir: string, o
       const dest = path.join(snapshotDir, path.basename(file));
       await fs.promises.copyFile(file, dest);
     }
+  }
+
+  await fs.promises.writeFile(path.join(snapshotDir, SKILLS_MARKER), '');
+  if (fs.existsSync(paths.skillsDir)) {
+    await fs.promises.cp(paths.skillsDir, path.join(snapshotDir, SKILLS_DIR), { recursive: true });
   }
 
   const remote = readRemoteConfig(paths);
@@ -124,6 +132,13 @@ export async function restoreEnvironmentSnapshot(
     }
   }
   await restoreRemoteFiles(snapshot, paths);
+  if (fs.existsSync(path.join(snapshot.snapshotDir, SKILLS_MARKER))) {
+    await fs.promises.rm(paths.skillsDir, { recursive: true, force: true });
+    const saved = path.join(snapshot.snapshotDir, SKILLS_DIR);
+    if (fs.existsSync(saved)) {
+      await fs.promises.cp(saved, paths.skillsDir, { recursive: true });
+    }
+  }
 }
 
 export async function listEnvironmentSnapshots(paths: EnvironmentPaths): Promise<EnvironmentSnapshot[]> {

@@ -12,7 +12,9 @@ describe('renderPlan', () => {
       ],
       unmanaged: [],
       unverified: [],
-      unmanagedPatches: []
+      unmanagedPatches: [],
+      skillOperations: [],
+      unmanagedSkills: []
     });
     expect(text).not.toMatch(/latest|\? -> \?/);
     expect(text).toContain('  + [web] linked-pkg (linked)\n');
@@ -25,7 +27,9 @@ describe('renderPlan', () => {
       operations: [],
       unmanaged: [],
       unverified: [{ profile: 'web', alias: 'demo', package: 'demo-plugin', reason: 'Local source /src/demo cannot be read' }],
-      unmanagedPatches: []
+      unmanagedPatches: [],
+      skillOperations: [],
+      unmanagedSkills: []
     });
     expect(text).toContain('Unverified plugins');
     expect(text).toContain('  ! [web] demo-plugin (demo): Local source /src/demo cannot be read\n');
@@ -55,7 +59,9 @@ describe('renderPlan', () => {
       ],
       unmanaged: [{ profile: 'web', package: 'extra-pkg' }],
       unverified: [],
-      unmanagedPatches: []
+      unmanagedPatches: [],
+      skillOperations: [],
+      unmanagedSkills: []
     };
 
     const text = renderPlan(plan);

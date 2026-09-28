@@ -5,6 +5,7 @@ import type { SourceType } from '../domain.js';
 import { PackageNameRegex } from '../manifest/schema.js';
 import { extractManagedPatches, needsPatchFileRepair, type ExtractedPatch } from '../patch/patch.js';
 import { readProfilePatchState, type ProfilePatchState } from '../profile-patches/entries.js';
+import { readSkillInventory, type SkillInventory } from '../skills/skills.js';
 
 export interface InstalledPluginInfo {
   name: string;
@@ -33,6 +34,7 @@ export interface ProfileInventory {
 
 export interface EnvironmentInventory {
   profiles: Record<string, ProfileInventory>;
+  skills?: SkillInventory;
 }
 
 const MAX_JSON_SIZE = 1024 * 1024; // 1 MiB
@@ -192,7 +194,8 @@ export async function readEnvironmentInventory(
   paths: EnvironmentPaths
 ): Promise<EnvironmentInventory> {
   const result: EnvironmentInventory = {
-    profiles: {}
+    profiles: {},
+    skills: await readSkillInventory(paths)
   };
 
   if (!fs.existsSync(paths.profilesDir)) {
