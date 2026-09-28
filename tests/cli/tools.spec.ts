@@ -112,7 +112,7 @@ process.exit(1);
     ]);
   });
 
-  it('builds a base-layer write from the base alone, leaving what the active overlay declares out', async () => {
+  it('refuses a base-layer write the active overlay would override', async () => {
     fs.mkdirSync(path.join(tempHome, 'envctl', 'overlays'), { recursive: true });
     fs.writeFileSync(
       path.join(tempHome, 'envctl', 'overlays', 'local.yaml'),
@@ -131,10 +131,13 @@ profiles:
 `
     );
     expect((await run(['tools', 'disable', 'tool-web', '-p', 'web', '--overlay', 'local'])).stderr).toMatch(/--layer base or --layer overlay/);
-    expect((await run(['tools', 'disable', 'tool-web', '-p', 'web', '--overlay', 'local', '--layer', 'base'])).code).toBe(0);
-    const [patch] = manifest().profiles.web.patches!;
-    expect(patch.config).not.toHaveProperty('machineOnly');
-    expect((patch.config as { plugins: unknown[] }).plugins).toHaveLength(2);
+    const refused = await run(['tools', 'disable', 'tool-web', '-p', 'web', '--overlay', 'local', '--layer', 'base']);
+    expect(refused.code).not.toBe(0);
+    expect(refused.stderr).toMatch(/overlay 'local' declares 'preset-standard'.*--layer overlay/);
+    expect(manifest().profiles.web.patches).toBeUndefined();
+
+    const json = JSON.parse((await run(['tools', 'config', 'tool-web', 'x.y', '1', '-p', 'web', '--overlay', 'local', '--layer', 'overlay', '--json'])).stdout);
+    expect(json.status).toBe('set');
   });
 
   it('keeps both edits when two commands change the same preset at once', async () => {

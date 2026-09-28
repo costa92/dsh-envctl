@@ -166,27 +166,24 @@ function findRow(rows: unknown, id: string): ProfilePatch | undefined {
   return found;
 }
 
-// A preset tool goes to the preset asked for, else the default one; a tool no preset holds is a top-level row.
+// The row tools list shows: the chosen preset's (asked for, else the default) when it holds the tool, else the
+// profile-wide one. A tool only another preset holds needs --preset, so a write never lands in an unexpected agent.
 export function locateTool(tree: ProfilePatch[], id: string, presetName?: string): ToolTarget {
   const presets = presetsOf(tree);
+  const chosen = presetName !== undefined ? findPreset(presets, presetName) : presets.find((preset) => preset.id === defaultPresetId(tree, presets));
   const holders = presets.filter((preset) => findRow((preset.entry.config as Record<string, unknown>).plugins, id));
-  if (presetName !== undefined) {
-    const preset = findPreset(presets, presetName);
-    if (!holders.includes(preset)) {
-      const others = holders.map((holder) => holder.id).join(', ');
-      throw new ValidationError(`Tool '${id}' is not in preset '${preset.id}'${others ? `; it is in: ${others}` : ''}`);
-    }
-    return presetTarget(preset, id);
-  }
-  const fallback = holders.find((holder) => holder.id === defaultPresetId(tree, presets)) ?? holders[0];
-  if (fallback) {
-    return presetTarget(fallback, id);
+  if (chosen && holders.includes(chosen)) {
+    return presetTarget(chosen, id);
   }
   const row = findRow(tree, id);
-  if (!row) {
-    throw new ValidationError(`Tool '${id}' is not part of this profile; install its package first (dshenv install)`);
+  if (row) {
+    return { location: { kind: 'top' }, row };
   }
-  return { location: { kind: 'top' }, row };
+  if (holders.length > 0) {
+    const where = holders.map((holder) => holder.id).join(', ');
+    throw new ValidationError(`Tool '${id}' is not in preset '${chosen?.id}'; it is in ${where}: pass --preset ${holders[0].id}`);
+  }
+  throw new ValidationError(`Tool '${id}' is not part of this profile; install its package first (dshenv install)`);
 }
 
 function presetTarget(preset: Preset, id: string): ToolTarget {

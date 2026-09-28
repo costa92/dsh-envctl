@@ -6,7 +6,7 @@ import { ValidationError } from '../errors.js';
 import { getAtPath, parseConfigValue } from '../config/config.js';
 import { resolveDshCommand } from '../dsh/command.js';
 import { dumpProfileConfig } from '../dsh/hmr.js';
-import { loadEffectiveManifest } from '../overlay/effective.js';
+import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { mergeProfilePatches, overrideKey } from '../profile-patches/entries.js';
 import {
@@ -144,12 +144,23 @@ export function registerToolsCommands(ctx: CommandContext): void {
       writeOut(renderTools(header, rows, presetName !== undefined));
     });
 
-  async function change(toolId: string, cmdOpts: { profile: string; preset?: string; layer?: string }, toolChange: ToolChange, verb: string): Promise<void> {
+  async function change(
+    toolId: string,
+    cmdOpts: { profile: string; preset?: string; layer?: string },
+    toolChange: ToolChange,
+    verb: string,
+    status: string
+  ): Promise<void> {
     const opts: CliOpts = program.opts();
     const paths = resolveCliPaths(opts);
     const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
     const tree = await composedProfile(paths, opts, cmdOpts.profile);
     const target = locateTool(tree, toolId, cmdOpts.preset);
+    const patchId = target.location.kind === 'preset' ? target.location.entry : String(target.row.id);
+    // The overlay's entry replaces the base one with the same id, so a base write under it would change nothing.
+    if (!overlay && selection && readOverlay(paths, selection.name).profiles?.[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId)) {
+      throw new ValidationError(`The active overlay '${selection.name}' declares '${patchId}', which overrides the base; use --layer overlay`);
+    }
     // Built under the write lock from the layer written, so a concurrent edit of the same preset is kept and
     // a base write never takes in what the overlay declares. An overlay entry replaces the base one, so it starts from both.
     const patch = overlay
@@ -170,15 +181,15 @@ export function registerToolsCommands(ctx: CommandContext): void {
       ? `\nPreset '${location.preset}' is now pinned in the manifest as patch '${location.entry}': DSH upgrades to this preset no longer apply until that patch is removed.`
       : '';
     if (opts.json) {
-      writeOut(`${JSON.stringify({ status: verb.toLowerCase(), profile: cmdOpts.profile, tool: toolId, location, patch, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}) }, null, 2)}\n`);
+      writeOut(`${JSON.stringify({ status, profile: cmdOpts.profile, tool: toolId, location, patch, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}) }, null, 2)}\n`);
     } else {
       writeOut(`${verb} tool '${toolId}' ${describeTarget(cmdOpts.profile, target)}${overlay ? ` (overlay '${overlay.name}')` : ''}. Apply to write the live patch.${pinned}\n`);
     }
   }
 
   for (const toggle of [
-    { name: 'enable', verb: 'Enabled', kind: 'enable' as const },
-    { name: 'disable', verb: 'Disabled', kind: 'disable' as const }
+    { name: 'enable', verb: 'Enabled', kind: 'enable' as const, status: 'enabled' },
+    { name: 'disable', verb: 'Disabled', kind: 'disable' as const, status: 'disabled' }
   ]) {
     tools
       .command(`${toggle.name} <tool>`)
@@ -186,7 +197,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
       .requiredOption('-p, --profile <name>', 'target profile', profileOption)
       .option('--preset <name>', 'agent preset holding the tool (default: the profile default)')
       .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
-      .action((tool: string, cmdOpts) => change(tool, cmdOpts, { kind: toggle.kind }, toggle.verb));
+      .action((tool: string, cmdOpts) => change(tool, cmdOpts, { kind: toggle.kind }, toggle.verb, toggle.status));
   }
 
   tools
@@ -197,7 +208,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (tool: string, dottedPath: string | undefined, value: string | undefined, cmdOpts) => {
       if (dottedPath !== undefined && value !== undefined) {
-        await change(tool, cmdOpts, { kind: 'set', path: dottedPath, value: parseConfigValue(value) }, `Set ${dottedPath} of`);
+        await change(tool, cmdOpts, { kind: 'set', path: dottedPath, value: parseConfigValue(value) }, `Set ${dottedPath} of`, 'set');
         return;
       }
       const opts: CliOpts = program.opts();

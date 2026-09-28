@@ -127,11 +127,24 @@ describe('tool catalog', () => {
     expect(patch).toMatchObject({ id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset', disabled: false });
   });
 
+  it('targets what tools list shows: the chosen preset when it holds the tool, else the profile-wide row', () => {
+    const tree = parseComposedProfile(WEB_DUMP.replace("- id: mcp-resources\n  name: '@deepseek-ai/dsh-mcp-resources'\n", "- id: mcp-resources\n  name: '@deepseek-ai/dsh-mcp-resources'\n- id: tool-extra\n  name: '@deepseek-ai/dsh-tool-web'\n").replace("    id: ptc\n    plugins:\n", "    id: ptc\n    plugins:\n      - id: tool-extra\n        name: '@deepseek-ai/dsh-tool-web'\n"));
+    expect(locateTool(tree, 'tool-extra').location).toEqual({ kind: 'top' });
+    expect(locateTool(tree, 'tool-bash', 'ptc').location).toEqual({ kind: 'top' });
+    expect(locateTool(tree, 'tool-extra', 'ptc').location).toMatchObject({ preset: 'ptc' });
+    expect(() => locateTool(parseComposedProfile(WEB_DUMP), 'tool-web', 'standard')).not.toThrow();
+  });
+
+  it('points to --preset for a tool only another preset holds', () => {
+    const tree = parseComposedProfile(WEB_DUMP.replace("    id: ptc\n    plugins:\n", "    id: ptc\n    plugins:\n      - id: tool-only-ptc\n        name: '@deepseek-ai/dsh-tool-web'\n"));
+    expect(() => locateTool(tree, 'tool-only-ptc')).toThrow(/not in preset 'standard'.*--preset ptc/);
+  });
+
   it('targets the preset asked for, and explains a tool that is not in the composition', () => {
     const tree = parseComposedProfile(WEB_DUMP);
     expect(locateTool(tree, 'tool-web', 'ptc').location).toEqual({ kind: 'preset', entry: 'preset-ptc', preset: 'ptc' });
     expect(locateTool(tree, 'tool-web', 'preset-ptc').location).toMatchObject({ entry: 'preset-ptc' });
-    expect(() => locateTool(tree, 'tool-ralph', 'ptc')).toThrow(/not in preset 'ptc'.*standard/);
+    expect(() => locateTool(tree, 'tool-ralph', 'ptc')).toThrow(/not in preset 'ptc'.*--preset standard/);
     expect(() => locateTool(tree, 'tool-lsp')).toThrow(/not part of this profile/);
     expect(() => locateTool(tree, 'tool-web', 'nope')).toThrow(/No agent preset 'nope'.*standard, ptc/);
   });

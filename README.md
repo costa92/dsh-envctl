@@ -408,6 +408,8 @@ dshenv apply --yes                                         # 写进 DSH
 - 结果写进清单的 `profiles.<profile>.patches`，与 `pull` 管理的条目相同；overlay 激活时用 `--layer base|overlay` 选择写入层。
 - 顶层工具行（如 headless Profile）只写一条小 patch：`{id, name, disabled}` 或 `config`。DSH 的 patch 会整体替换一行的 `config`，所以 `config` 设置时会把当前整份配置连同改动一起写入。
 - web 等 Profile 的工具在 agent 预设（`preset-standard`、`preset-ptc` 等）里，按 id 的 patch 够不到预设内部，只能整份替换预设的 `config`。dshenv 会把当前预设整份复制进清单再改目标工具（`!!js` 条件原样保留），这个预设从此**固定**：DSH 升级对它的改动不再生效，`plan` 会在 `Pinned agent presets` 下列出。删掉清单里那条预设 patch 并 `apply`，即恢复跟随 DSH。
+- 目标与 `tools list` 显示的一致：先找 `--preset` 指定的预设（不指定时用 DSH 当前的默认预设），其中没有该工具时改 profile 级那一行；只有别的预设里有时报错，提示加 `--preset`。
+- overlay 已声明同一个 id 的条目时，写 base 会被它覆盖而不生效，因此会拒绝，请改用 `--layer overlay`。
 - 不在 Profile 组合里的工具（如默认未装的 `tool-lsp`、`tool-terminal`）不能用 `enable` 打开，需先安装对应的包。
 
 ---
