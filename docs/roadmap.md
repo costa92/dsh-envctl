@@ -135,10 +135,27 @@
 ## 错误输出、Git 安装与版本冒烟（已实现）
 
 - [x] 带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr；解析前抛出的错误按 `--` 之前的 argv 判断；commander 参数错误仍为纯文本
-- [x] `prepare` 构建 `lib/`，支持 `pnpm add -g --allow-build=dsh-envctl "git+ssh://…#<ref>"`；隔离 `PNPM_HOME` 实测全局安装可运行。npm 从 Git 地址安装在准备阶段崩溃（npm 10.9 arborist），只支持 pnpm
+- [x] `prepare` 构建 `lib/`，支持从 Git 地址安装：`pnpm add -g --allow-build=@costa92/dshenv "git+https://github.com/costa92/dshenv.git#<ref>"`；隔离 `PNPM_HOME` 实测全局安装可运行。npm 从 Git 地址安装在准备阶段崩溃（npm 10.9 arborist），只支持 pnpm；推荐改用 npm 包（见「发布与分发」）
 - [x] `make smoke-dsh DSH_VERSION=<v>`：临时目录安装 npm 版 DSH，隔离 `DSH_HOME` 下跑 doctor、install/disable/remove 的 apply 与 plan；门禁拒绝时带 `--allow-untested-dsh` 继续。放宽门禁的步骤见 [`DSH版本升级.md`](DSH版本升级.md)
 - [x] 真实冒烟（2026-09-27）：`0.1.7-rc.2` 13 步全部通过；`0.1.6-alpha.2` 被门禁拒绝，带覆盖参数全部通过。npm 上尚无更新的版本
 - [x] 全量测试套件覆盖（当前 89 个测试文件，798 项测试全部通过）
+
+## 发布与分发（已实现）
+
+- [x] 开源：MIT 许可证；GitHub 仓库 [`costa92/dshenv`](https://github.com/costa92/dshenv)（2026-09-28 由 `costa92/dsh-envctl` 改名，与 npm 包名一致，旧地址自动跳转）
+- [x] 版本号只取 `package.json`（`dshenv --version` 读取它）；变更记录见 [`CHANGELOG.md`](../CHANGELOG.md)
+- [x] 推送 `v*` tag 触发 `.github/workflows/release.yml`：核对 tag 与版本、从 CHANGELOG 取发布说明、跑与 CI 相同的检查、`pnpm pack` 后把同一份 `.tgz` 发布到 npm（带 provenance）并附在 GitHub Release 上。步骤见 [`发布流程.md`](发布流程.md)
+- [x] npm 包 [`@costa92/dshenv`](https://www.npmjs.com/package/@costa92/dshenv)：`npm install -g @costa92/dshenv`，命令名 `dshenv`。无作用域的 `dshenv` 被 npm 以与 dotenv、osenv 过于相似为由拒绝
+- [x] 已发布：0.1.0（首个公开版本，仅 GitHub Release）、0.1.1（首次发布到 npm）、0.1.2（容器端到端测试发现的修复）、0.1.3（仓库改名后的元数据）
+- [ ] 改用 npm Trusted Publishing，去掉最长 90 天有效的 `NPM_TOKEN`
+
+## 容器端到端测试与修复（已实现）
+
+- [x] 干净容器（`node:22-slim`，非 root）从 npm 安装 dshenv 与 DSH `0.1.7-rc.2`，覆盖全部 24 个顶层命令（`rollback`、`purge` 只做 dry-run）共 107 项检查：npm 插件完整生命周期与配置、overlay、capture/adopt、四类脚手架与本地来源漂移、Git 来源 clone/pull、rollback/gc/purge、对运行中 `dsh web` 的 `runtime`、团队远程订阅与同步
+- [x] 首次运行（0.1.1）发现并修复：Git 来源缺少 `git+` 前缀导致 `file://` 等地址安装失败；DSH 插件命令失败时只剩退出码（改为显示 DSH 自己的 `dsh:` 诊断行，不显示 pnpm 原始输出）；`adopt` 替换已有插件时丢失已声明的 `patches`；`status <插件>` 不认别名；`source pull --ref <分支名>` 快进到本地分支自身而没有更新
+- [x] Codex 审查上述修复，指出 `source pull` 会把 `HEAD`、`HEAD~1` 等修订改写为上游引用；改为只对与上游分支完全同名的 ref 跟随 `origin/<ref>`，复审无问题
+- [x] 0.1.2、0.1.3 发布后以 npm 安装包重跑，107 项全部通过
+- [ ] 把容器端到端测试脚本收进仓库，作为发版前的回归检查（目前在仓库外）
 
 ## 延后能力
 
