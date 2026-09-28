@@ -153,7 +153,7 @@ describe('release workflow', () => {
     const steps = allSteps(release);
     const setupNode = steps.find((step) => step.uses?.startsWith('actions/setup-node@'));
     expect(setupNode?.with?.['registry-url']).toBe('https://registry.npmjs.org');
-    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish dist/*.tgz --access public --provenance');
+    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish ./dist/*.tgz --access public --provenance');
     expect(publish).toBeGreaterThan(-1);
     expect(steps[publish].env).toEqual({ NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' });
     expect(publish).toBeLessThan(steps.findIndex((step) => step.run?.startsWith('gh release create')));

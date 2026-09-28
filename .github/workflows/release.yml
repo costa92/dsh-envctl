@@ -43,7 +43,8 @@ jobs:
       - run: pnpm build
       # The tarball ships the built lib/, so installing it needs no build step.
       - run: pnpm pack --pack-destination dist
-      - run: npm publish dist/*.tgz --access public --provenance
+      # Without ./ npm reads dist/<file> as a GitHub owner/repo shorthand.
+      - run: npm publish ./dist/*.tgz --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: gh release create "$GITHUB_REF_NAME" dist/*.tgz --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
