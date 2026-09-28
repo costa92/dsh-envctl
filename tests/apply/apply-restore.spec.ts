@@ -8,6 +8,7 @@ import { applyPatchBlock } from '../../src/patch/patch.js';
 
 // Fake DSH: `remove` succeeds, `add` always fails with DSH's own diagnostics mixed into raw pnpm output.
 const FAKE_DSH = `
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 const args = process.argv.slice(2);
@@ -16,6 +17,9 @@ if (args.includes('--version')) {
   process.exit(0);
 }
 if (process.env.FAKE_DSH_HANG && args.includes('add')) {
+  // Like pnpm under dsh: a child of its own that outlives a kill of dsh alone.
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  fs.writeFileSync(process.env.FAKE_DSH_HANG, String(child.pid));
   setInterval(() => {}, 1000);
 } else if (!args.includes('remove')) {
   console.log('Progress: resolved 1, reused 0, downloaded 0, added 0');
@@ -184,13 +188,30 @@ describe('applyEnvironment profile restore on failure', () => {
       bundles: ['b-patched'],
       patchContent: userPatch
     });
-    process.env.FAKE_DSH_HANG = '1';
+    const pidFile = path.join(tempHome, 'child.pid');
+    process.env.FAKE_DSH_HANG = pidFile;
     try {
       const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-      await expect(applyEnvironment(paths, { dshCommandTimeoutMs: 300 })).rejects.toThrow(/timed out after 300 ms/);
+      await expect(applyEnvironment(paths, { dshCommandTimeoutMs: 500 })).rejects.toThrow(/timed out after 500 ms/);
     } finally {
       delete process.env.FAKE_DSH_HANG;
     }
+
+    const childPid = Number(fs.readFileSync(pidFile, 'utf8'));
+    const alive = (): boolean => {
+      try {
+        process.kill(childPid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (let waited = 0; alive() && waited < 2000; waited += 50) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const survived = alive();
+    if (survived) process.kill(childPid, 'SIGKILL');
+    expect(survived).toBe(false);
 
     expect(fs.readFileSync(patchFile(), 'utf8')).toBe(userPatch);
   });

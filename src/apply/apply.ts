@@ -18,9 +18,10 @@ import { acquireEnvironmentLock } from '../io/lock.js';
 import { createEnvironmentSnapshot, restoreEnvironmentSnapshot, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
+import { killProcessTree } from '../io/process-tree.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
-import { probeDsh, resolveDshCommand } from '../dsh/command.js';
+import { probeDsh, resolveDshCommand, type CommandSpec } from '../dsh/command.js';
 import { capabilitiesFor } from '../dsh/capabilities.js';
 import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
@@ -64,6 +65,33 @@ function dshFailure(result: { exitCode?: number; timedOut?: boolean; stdout?: un
     .join('');
   const outcome = result.timedOut ? `timed out after ${timeoutMs} ms` : `exited with code ${String(result.exitCode)}`;
   return `DSH plugin command ${outcome}${diagnostics}`;
+}
+
+async function runDshPluginCommand(
+  command: CommandSpec,
+  args: string[],
+  paths: EnvironmentPaths,
+  timeoutMs: number
+): Promise<{ exitCode?: number; timedOut: boolean; stdout?: unknown; stderr?: unknown }> {
+  const subprocess = execa(command.file, [...command.args, ...args], {
+    cwd: command.cwd,
+    env: { ...process.env, DSH_HOME: paths.home },
+    shell: false,
+    reject: false
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    if (subprocess.pid !== undefined) {
+      killProcessTree(subprocess.pid);
+    }
+  }, timeoutMs);
+  try {
+    const result = await subprocess;
+    return { exitCode: result.exitCode, timedOut, stdout: result.stdout, stderr: result.stderr };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 interface ProfileRollback {
@@ -183,16 +211,11 @@ async function executeWithDsh(
       if (previousIndex !== -1 && hmrByProfile.get(operation.profile)?.state === 'on') {
         await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS);
       }
-      const removeResult = await execa(
-        command.file,
-        [...command.args, 'plugin', '--profile', operation.profile, 'remove', operation.package],
-        {
-          cwd: command.cwd,
-          env: { ...process.env, DSH_HOME: paths.home },
-          shell: false,
-          reject: false,
-          timeout: commandTimeoutMs
-        }
+      const removeResult = await runDshPluginCommand(
+        command,
+        ['plugin', '--profile', operation.profile, 'remove', operation.package],
+        paths,
+        commandTimeoutMs
       );
       if (removeResult.exitCode !== 0) {
         return { success: false, error: dshFailure(removeResult, commandTimeoutMs) };
@@ -209,16 +232,11 @@ async function executeWithDsh(
       throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
     }
 
-    const result = await execa(
-      command.file,
-      [...command.args, 'plugin', '--profile', operation.profile, 'add', packageSpec(manifest, lock, operation)],
-      {
-        cwd: command.cwd,
-        env: { ...process.env, DSH_HOME: paths.home },
-        shell: false,
-        reject: false,
-        timeout: commandTimeoutMs
-      }
+    const result = await runDshPluginCommand(
+      command,
+      ['plugin', '--profile', operation.profile, 'add', packageSpec(manifest, lock, operation)],
+      paths,
+      commandTimeoutMs
     );
     if (result.exitCode !== 0) {
       return { success: false, error: dshFailure(result, commandTimeoutMs) };
