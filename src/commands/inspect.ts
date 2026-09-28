@@ -85,7 +85,10 @@ export function registerInspectCommands(ctx: CommandContext): void {
       const summary = buildStatus(manifest, state, inventory, plan);
       if (plugin) {
         summary.plugins = summary.plugins.filter(
-          (entry) => entry.package === plugin || entry.package.endsWith(`/${plugin}`)
+          (entry) =>
+            entry.package === plugin ||
+            entry.package.endsWith(`/${plugin}`) ||
+            manifest?.profiles[entry.profile]?.plugins[plugin]?.package === entry.package
         );
         if (summary.plugins.length === 0) {
           throw new ValidationError(`Plugin not found in status: ${plugin}`);

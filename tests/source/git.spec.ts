@@ -53,6 +53,21 @@ describe('Managed Git Source Lifecycle', () => {
     await expect(safeFastForwardManagedGit(repoDir, 'HEAD')).rejects.toThrow(/dirty working tree/i);
   });
 
+  it.each(['main', 'origin/main'])('fast-forwards a clone to the upstream commit when given %s', async (ref) => {
+    await execa('git', ['branch', '-M', 'main'], { cwd: repoDir });
+    const cloneDir = path.join(tempDir, 'clone');
+    await execa('git', ['clone', repoDir, cloneDir]);
+    fs.writeFileSync(path.join(repoDir, 'index.js'), '// v2\n');
+    await execa('git', ['add', '.'], { cwd: repoDir });
+    await execa('git', ['commit', '-m', 'v2'], { cwd: repoDir });
+    const upstream = (await execa('git', ['rev-parse', 'HEAD'], { cwd: repoDir })).stdout.trim();
+
+    const result = await safeFastForwardManagedGit(cloneDir, ref);
+
+    expect(result.newCommit).toBe(upstream);
+    expect(result.previousCommit).not.toBe(upstream);
+  });
+
   it('should resolve managed plugin source path correctly', () => {
     const sourceRoot = '/custom/plugins';
     const resolved = resolvePluginSourcePath('agent-teams', sourceRoot);

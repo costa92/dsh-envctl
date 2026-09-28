@@ -52,6 +52,16 @@ export interface ApplyResult {
   restart?: RestartSummary;
 }
 
+// Only DSH's own `dsh:` lines are shown: the raw pnpm output around them can echo registry URLs and tokens.
+function dshFailure(result: { exitCode?: number; stdout?: unknown; stderr?: unknown }): string {
+  const diagnostics = [result.stderr, result.stdout]
+    .flatMap((output) => (typeof output === 'string' ? output.split('\n') : []))
+    .filter((line) => line.startsWith('dsh: '))
+    .map((line) => `\n  ${line.trimEnd()}`)
+    .join('');
+  return `DSH plugin command exited with code ${String(result.exitCode)}${diagnostics}`;
+}
+
 interface ProfileRollback {
   // dshenv's own profile edits, undone in reverse order when apply fails.
   undo: Array<() => Promise<void>>;
@@ -76,7 +86,9 @@ function packageSpec(
     case 'git': {
       const commit = lockedGitCommit(plugin.source, lockedSource) ?? plugin.source.commit;
       if (!commit) throw new ValidationError(`Git plugin '${plugin.package}' has no locked commit`);
-      return `${plugin.source.url}#${commit}`;
+      // pnpm reads a bare file:// or non-hosted https:// URL as a local path or tarball, not a Git repository.
+      const url = /^(?:https?|ssh|file):\/\//i.test(plugin.source.url) ? `git+${plugin.source.url}` : plugin.source.url;
+      return `${url}#${commit}`;
     }
     case 'local-link':
       return `link:${plugin.source.path}`;
@@ -179,7 +191,7 @@ async function executeWithDsh(
         }
       );
       if (removeResult.exitCode !== 0) {
-        return { success: false, error: `DSH plugin command exited with code ${String(removeResult.exitCode)}` };
+        return { success: false, error: dshFailure(removeResult) };
       }
       // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
       rollback.undo.length = undoStart;
@@ -202,7 +214,7 @@ async function executeWithDsh(
       }
     );
     if (result.exitCode !== 0) {
-      return { success: false, error: `DSH plugin command exited with code ${String(result.exitCode)}` };
+      return { success: false, error: dshFailure(result) };
     }
   }
 

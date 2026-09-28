@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { adoptEnvironment } from '../../src/adopt/adopt.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
-import { loadState } from '../../src/manifest/files.js';
+import { loadManifest, loadState } from '../../src/manifest/files.js';
 import type { CaptureDocument } from '../../src/domain.js';
 
 describe('adoptEnvironment', () => {
@@ -91,6 +91,57 @@ describe('adoptEnvironment', () => {
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeDefined();
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].package).toBe('@nanmicoder/dsh-agent-teams');
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].lockedVersion).toBe('0.1.21');
+  });
+
+  it('keeps the declared patches of a plugin the manifest already has', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.mkdirSync(path.dirname(paths.manifestFile), { recursive: true });
+    fs.writeFileSync(
+      paths.manifestFile,
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      teams:
+        package: "@nanmicoder/dsh-agent-teams"
+        enabled: true
+        source: { type: npm, version: "0.1.20" }
+        patches:
+          - id: teams
+            config: { taskPlanning: captain }
+`
+    );
+    const candidate: CaptureDocument = {
+      apiVersion: 'dshenv-capture/v1',
+      manifest: {
+        apiVersion: 'dshenv/v1',
+        profiles: {
+          web: {
+            plugins: {
+              'agent-teams': {
+                package: '@nanmicoder/dsh-agent-teams',
+                enabled: true,
+                source: { type: 'npm', version: '0.1.21' }
+              }
+            }
+          }
+        }
+      },
+      lock: { apiVersion: 'dshenv-lock/v1', profiles: {} },
+      warnings: []
+    };
+
+    await adoptEnvironment(paths, candidate);
+
+    const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+    expect(manifest.profiles.web.plugins).toEqual({
+      teams: {
+        package: '@nanmicoder/dsh-agent-teams',
+        enabled: true,
+        source: { type: 'npm', version: '0.1.21' },
+        patches: [{ id: 'teams', config: { taskPlanning: 'captain' } }]
+      }
+    });
   });
 
   it('should reject stale candidate when live inventory differs from candidate facts', async () => {
