@@ -5,7 +5,7 @@ import type { PatchEntry } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { withProfilePackageLock } from '../io/profile-lock.js';
-import { extractPluginBlocks, removePatchBlock, replacePluginBlocks, splicePluginBlocks } from '../patch/patch.js';
+import { assertPatchFileArray, extractPluginBlocks, removePatchBlock, replacePluginBlocks, splicePluginBlocks } from '../patch/patch.js';
 
 const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
 const MAX_PATCH_BYTES = 1024 * 1024;
@@ -99,6 +99,7 @@ export async function writeManagedPatches(
     const existed = fs.existsSync(file);
     const before = await readProfilePatchFile(paths, profileName);
     const content = replacePluginBlocks(before, profileName, pluginAlias, active);
+    assertPatchFileArray(content, file);
     await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
     return restorePatchFile(paths, profileName, pluginAlias, existed, before);
   });

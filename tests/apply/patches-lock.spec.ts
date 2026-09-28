@@ -57,14 +57,14 @@ describe('cordis.patch.yml profile lock', () => {
   });
 
   it('waits for a lock held by DSH before restoring a patch snapshot', async () => {
-    fs.writeFileSync(patchFile(), 'original\n');
+    fs.writeFileSync(patchFile(), dshPatch);
     const restore = await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }]);
     fs.writeFileSync(lockFile(), '999999\n', { mode: 0o600 });
     setTimeout(() => fs.rmSync(lockFile(), { force: true }), 300);
     const started = Date.now();
     await restore();
     expect(Date.now() - started).toBeGreaterThanOrEqual(250);
-    expect(fs.readFileSync(patchFile(), 'utf8')).toBe('original\n');
+    expect(fs.readFileSync(patchFile(), 'utf8')).toBe(dshPatch);
     expect(fs.existsSync(lockFile())).toBe(false);
   });
 
@@ -128,6 +128,12 @@ describe('cordis.patch.yml profile lock', () => {
 
     const content = fs.readFileSync(patchFile(), 'utf8');
     expect(content).toBe(dshPatch);
+  });
+
+  it('refuses to write managed patches into a file that is not a top-level array', async () => {
+    fs.writeFileSync(patchFile(), 'keep: 1\n');
+    await expect(writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }])).rejects.toThrow(/top-level YAML array/);
+    expect(fs.readFileSync(patchFile(), 'utf8')).toBe('keep: 1\n');
   });
 
   it('writes patches for a profile whose directory does not exist yet without locking', async () => {

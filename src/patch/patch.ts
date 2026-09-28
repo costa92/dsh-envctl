@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import * as YAML from 'yaml';
+import { ValidationError } from '../errors.js';
 
 export interface ExtractedPatch {
   profile: string;
@@ -83,6 +84,25 @@ function emptyFlowArrayRange(content: string): [number, number] | null {
   return [root.range[0], root.range[1]];
 }
 
+function flowArrayAsBlock(content: string): string | null {
+  const doc = YAML.parseDocument(content);
+  const root = doc.contents;
+  if (doc.errors.length > 0 || !YAML.isSeq(root) || !root.flow) {
+    return null;
+  }
+  root.flow = false;
+  return doc.toString();
+}
+
+// DSH reads cordis.patch.yml as one top-level array; anything else would be written out broken.
+export function assertPatchFileArray(content: string, file: string): void {
+  const docs = YAML.parseAllDocuments(content);
+  const root = docs[0]?.contents;
+  if (docs.length > 1 || docs.some((doc) => doc.errors.length > 0) || (root !== null && root !== undefined && !YAML.isSeq(root))) {
+    throw new ValidationError(`${file} must hold a single top-level YAML array of patch entries`);
+  }
+}
+
 // Replaces every managed block of one plugin with one block per patch, written where the first old block was.
 export function replacePluginBlocks(
   existingContent: string,
@@ -110,7 +130,9 @@ export function splicePluginBlocks(existingContent: string, profileName: string,
       const after = lineEnd === -1 ? '' : existingContent.slice(lineEnd + 1);
       return `${existingContent.slice(0, start)}${restOfLine ? `${restOfLine}\n` : ''}${blocks}${after}`;
     }
-    return `${existingContent}${existingContent.endsWith('\n') ? '\n' : '\n\n'}${blocks}`;
+    // A block sequence cannot follow a flow array either, so a non-empty one is rewritten in block style first.
+    const base = flowArrayAsBlock(existingContent) ?? existingContent;
+    return `${base}${base.endsWith('\n') ? '\n' : '\n\n'}${blocks}`;
   }
 
   let result = '';

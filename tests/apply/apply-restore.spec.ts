@@ -112,7 +112,7 @@ describe('applyEnvironment profile restore on failure', () => {
   });
 
   it('should undo bundle and patch edits when a later DSH command fails', async () => {
-    const userPatch = '# user-owned settings\nfoo: 1\n';
+    const userPatch = '# user-owned settings\n- id: foo\n  config: { bar: 1 }\n';
     setup({
       manifestPlugins: `      a-toggle:
         package: a-toggle

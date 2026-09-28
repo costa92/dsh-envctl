@@ -153,6 +153,14 @@ suffix: true
     for (const text of kept) expect(updated).toContain(text);
   });
 
+  it('keeps a non-empty flow array valid by rewriting it as a block sequence', () => {
+    const updated = applyPatchBlock('[{id: existing, config: {}}]\n', 'web', 'demo', 'demo', { k: 1 });
+    const docs = YAML.parseAllDocuments(updated);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].errors).toEqual([]);
+    expect(YAML.parse(updated)).toEqual([{ id: 'existing', config: {} }, expect.objectContaining({ id: 'demo', config: { k: 1 } })]);
+  });
+
   it('leaves a top-level empty array when the last block leaves a fresh profile patch file', () => {
     const originalFile = '# Your patch layer for this dsh profile\n[]\n';
     const withBlock = applyPatchBlock(originalFile, 'web', 'demo', 'demo', { k: 1 });
