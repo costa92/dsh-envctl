@@ -114,6 +114,19 @@ describe('tool catalog', () => {
     expect((next[2].config as Record<string, unknown>[])[0]).toMatchObject({ id: 'tool-ralph', disabled: false });
   });
 
+  it('follows the preset the registry selected as default, as DSH does while mode selection is on', () => {
+    const selected = WEB_DUMP.replace('    default: standard\n', '    default: standard\n    selectedDefault: ptc\n');
+    expect(locateTool(parseComposedProfile(selected), 'tool-web').location).toMatchObject({ preset: 'ptc' });
+    const off = selected.replace('    selectedDefault: ptc\n', '    selectedDefault: ptc\n    modeSelectionEnabled: false\n');
+    expect(locateTool(parseComposedProfile(off), 'tool-web').location).toMatchObject({ preset: 'standard' });
+  });
+
+  it('names the preset package when it extends an id-only preset patch, so plan still sees the pin', () => {
+    const tree = parseComposedProfile(WEB_DUMP);
+    const patch = toolPatch(tree, [{ id: 'preset-standard', disabled: false }], locateTool(tree, 'tool-web'), { kind: 'disable' });
+    expect(patch).toMatchObject({ id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset', disabled: false });
+  });
+
   it('targets the preset asked for, and explains a tool that is not in the composition', () => {
     const tree = parseComposedProfile(WEB_DUMP);
     expect(locateTool(tree, 'tool-web', 'ptc').location).toEqual({ kind: 'preset', entry: 'preset-ptc', preset: 'ptc' });

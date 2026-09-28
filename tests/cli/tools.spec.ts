@@ -112,6 +112,44 @@ process.exit(1);
     ]);
   });
 
+  it('builds a base-layer write from the base alone, leaving what the active overlay declares out', async () => {
+    fs.mkdirSync(path.join(tempHome, 'envctl', 'overlays'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempHome, 'envctl', 'overlays', 'local.yaml'),
+      `apiVersion: dshenv-overlay/v1
+profiles:
+  web:
+    patches:
+      - id: preset-standard
+        name: '@deepseek-ai/dsh-agent-preset'
+        config:
+          id: standard
+          machineOnly: /home/me
+          plugins:
+            - id: tool-web
+              name: '@deepseek-ai/dsh-tool-web'
+`
+    );
+    expect((await run(['tools', 'disable', 'tool-web', '-p', 'web', '--overlay', 'local'])).stderr).toMatch(/--layer base or --layer overlay/);
+    expect((await run(['tools', 'disable', 'tool-web', '-p', 'web', '--overlay', 'local', '--layer', 'base'])).code).toBe(0);
+    const [patch] = manifest().profiles.web.patches!;
+    expect(patch.config).not.toHaveProperty('machineOnly');
+    expect((patch.config as { plugins: unknown[] }).plugins).toHaveLength(2);
+  });
+
+  it('keeps both edits when two commands change the same preset at once', async () => {
+    const results = await Promise.all([
+      run(['tools', 'disable', 'tool-web', '-p', 'web']),
+      run(['tools', 'enable', 'tool-bash', '-p', 'web'])
+    ]);
+    expect(results.map((result) => result.code)).toEqual([0, 0]);
+    const plugins = (manifest().profiles.web.patches![0].config as { plugins: Record<string, unknown>[] }).plugins;
+    expect(plugins).toEqual([
+      expect.objectContaining({ id: 'tool-bash', disabled: false }),
+      expect.objectContaining({ id: 'tool-web', disabled: true })
+    ]);
+  });
+
   it('refuses a profile that does not exist yet and a tool outside the composition', async () => {
     const missing = await run(['tools', 'list', '-p', 'nope']);
     expect(missing.code).not.toBe(0);

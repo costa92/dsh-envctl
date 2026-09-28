@@ -8,7 +8,7 @@ import { resolveDshCommand } from '../dsh/command.js';
 import { dumpProfileConfig } from '../dsh/hmr.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
-import { overrideKey } from '../profile-patches/entries.js';
+import { mergeProfilePatches, overrideKey } from '../profile-patches/entries.js';
 import {
   TOOL_CATEGORIES,
   declaredToolRow,
@@ -150,18 +150,21 @@ export function registerToolsCommands(ctx: CommandContext): void {
     const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
     const tree = await composedProfile(paths, opts, cmdOpts.profile);
     const target = locateTool(tree, toolId, cmdOpts.preset);
-    const patch = toolPatch(tree, declaredPatches(paths, selection, cmdOpts.profile), target, toolChange);
-    if (overlay) {
-      await writeOverlay(paths, overlay, (doc) => {
-        const profile = ((doc.profiles ??= {})[cmdOpts.profile] ??= {});
-        profile.patches = upsertPatch(profile.patches, patch);
-      });
-    } else {
-      await writeBase(paths, selection, (manifest) => {
-        const profile = (manifest.profiles[cmdOpts.profile] ??= { plugins: {} });
-        profile.patches = upsertPatch(profile.patches, patch);
-      });
-    }
+    // Built under the write lock from the layer written, so a concurrent edit of the same preset is kept and
+    // a base write never takes in what the overlay declares. An overlay entry replaces the base one, so it starts from both.
+    const patch = overlay
+      ? await writeOverlay(paths, overlay, (doc, base) => {
+          const profile = ((doc.profiles ??= {})[cmdOpts.profile] ??= {});
+          const next = toolPatch(tree, mergeProfilePatches(base.profiles[cmdOpts.profile]?.patches ?? [], profile.patches ?? []), target, toolChange);
+          profile.patches = upsertPatch(profile.patches, next);
+          return next;
+        })
+      : await writeBase(paths, selection, (manifest) => {
+          const profile = (manifest.profiles[cmdOpts.profile] ??= { plugins: {} });
+          const next = toolPatch(tree, profile.patches ?? [], target, toolChange);
+          profile.patches = upsertPatch(profile.patches, next);
+          return next;
+        });
     const location = target.location;
     const pinned = location.kind === 'preset'
       ? `\nPreset '${location.preset}' is now pinned in the manifest as patch '${location.entry}': DSH upgrades to this preset no longer apply until that patch is removed.`

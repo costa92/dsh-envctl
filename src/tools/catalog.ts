@@ -100,8 +100,10 @@ function presetsOf(tree: ProfilePatch[]): Preset[] {
 
 function defaultPresetId(tree: ProfilePatch[], presets: Preset[]): string | undefined {
   const registry = tree.find((entry) => entry.name === PRESET_REGISTRY_PACKAGE);
-  const configured = isRecord(registry?.config) && typeof registry.config.default === 'string' ? registry.config.default : undefined;
-  return configured ?? presets[0]?.id;
+  const config = isRecord(registry?.config) ? registry.config : {};
+  // As DSH's AgentPresetRegistry: the selected default wins while mode selection is on, which it is unless set false.
+  const selected = config.modeSelectionEnabled !== false && typeof config.selectedDefault === 'string' ? config.selectedDefault : undefined;
+  return selected ?? (typeof config.default === 'string' ? config.default : undefined) ?? presets[0]?.id;
 }
 
 // Rows in a list and in the cordis groups nested in it, with the group each sits in.
@@ -234,7 +236,7 @@ export function toolPatch(tree: ProfilePatch[], declared: ProfilePatch[], target
   if (!replaced) {
     throw new ValidationError(`Preset '${location.preset}' declared in the manifest no longer holds tool '${String(target.row.id)}'`);
   }
-  return { ...(existing ?? { id: location.entry, name: presetRow.name }), config };
+  return { ...(existing ?? { id: location.entry }), name: presetRow.name, config };
 }
 
 export function isPresetPatch(entry: ProfilePatch): boolean {
