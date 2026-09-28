@@ -103,7 +103,7 @@ export async function readLocalSourceDigests(manifest: EnvironmentManifest | nul
         const digest = await calculateSourceDigest(plugin.source.path);
         (digests[profileName] ??= {})[alias] = digest;
       } catch {
-        // Left out on purpose: the planner blocks an installed plugin whose source has no digest.
+        // Left out on purpose: the planner reports an installed plugin whose source has no digest as unverified.
       }
     }
   }

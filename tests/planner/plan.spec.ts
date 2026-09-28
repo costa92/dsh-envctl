@@ -574,11 +574,18 @@ describe('buildPlan', () => {
       }
     );
 
-    it('should block when the source of an installed local plugin cannot be read', () => {
-      const plan = buildPlan(manifestFor('local-file'), lockWith('local-file', 'old-digest'), inventory, null, {});
-      expect(plan.operations).toEqual([
-        expect.objectContaining({ kind: 'blocked', blockedReason: expect.stringContaining('/src/demo') })
+    it('should report an installed local plugin whose source cannot be read as unverified without blocking', () => {
+      const disabled = manifestFor('local-file');
+      disabled.profiles.web.plugins.demo.enabled = false;
+      const plan = buildPlan(disabled, lockWith('local-file', 'old-digest'), inventory, null, {});
+      expect(plan.operations.map((op) => op.kind)).toEqual(['disable']);
+      expect(plan.unverified).toEqual([
+        { profile: 'web', alias: 'demo', package: 'demo-plugin', reason: expect.stringContaining('/src/demo') }
       ]);
+
+      const status = buildStatus(disabled, null, inventory, plan);
+      expect(status.status).toBe('degraded');
+      expect(status.plugins).toEqual([{ profile: 'web', package: 'demo-plugin', status: 'degraded' }]);
     });
   });
 });

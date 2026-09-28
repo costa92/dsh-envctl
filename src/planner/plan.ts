@@ -37,10 +37,19 @@ export interface UnmanagedPlugin {
 // profile -> alias -> current digest of the plugin's local source directory
 export type LocalSourceDigests = Record<string, Record<string, string>>;
 
+// Declared and installed, but without the evidence to tell whether it matches; reported, never blocking.
+export interface UnverifiedPlugin {
+  profile: string;
+  alias: string;
+  package: string;
+  reason: string;
+}
+
 export interface EnvironmentPlan {
   hasChanges: boolean;
   operations: PlanOperation[];
   unmanaged: UnmanagedPlugin[];
+  unverified: UnverifiedPlugin[];
 }
 
 export type StableStatus =
@@ -145,6 +154,7 @@ export function buildPlan(
 ): EnvironmentPlan {
   const operations: PlanOperation[] = [];
   const unmanaged: UnmanagedPlugin[] = [];
+  const unverified: UnverifiedPlugin[] = [];
 
   if (!manifest) {
     // No manifest, inventory plugins are unmanaged
@@ -156,7 +166,8 @@ export function buildPlan(
     return {
       hasChanges: false,
       operations: [],
-      unmanaged
+      unmanaged,
+      unverified
     };
   }
 
@@ -238,16 +249,7 @@ export function buildPlan(
         const declaredType = pluginManifest.source.type;
         const unverifiable = unreadableLocalSource(pluginManifest.source, localDigests?.[profName]?.[alias], localDigests !== undefined);
         if (unverifiable) {
-          operations.push({
-            kind: 'blocked',
-            profile: profName,
-            alias,
-            package: pkgName,
-            reason: unverifiable,
-            blockedReason: unverifiable,
-            targetEnabled
-          });
-          continue;
+          unverified.push({ profile: profName, alias, package: pkgName, reason: unverifiable });
         }
         if (installedType && installedType !== declaredType && installedType !== 'in-box' && declaredType !== 'in-box') {
           operations.push({
@@ -412,7 +414,8 @@ export function buildPlan(
   return {
     hasChanges: operations.length > 0,
     operations,
-    unmanaged
+    unmanaged,
+    unverified
   };
 }
 
@@ -491,6 +494,7 @@ function collectPluginStatuses(
       .map((op) => `${op.profile}\0${op.package}`)
   );
   const unmanaged = new Set(plan.unmanaged.map((u) => `${u.profile}\0${u.package}`));
+  const unverified = new Set(plan.unverified.map((u) => `${u.profile}\0${u.package}`));
 
   const seen = new Set<string>();
   const push = (profile: string, pkg: string, status: StableStatus) => {
@@ -508,7 +512,7 @@ function collectPluginStatuses(
       const stateStatus = state?.profiles?.[profName]?.plugins?.[pkgName]?.status;
       if (unmanaged.has(key)) {
         push(profName, pkgName, 'unmanaged');
-      } else if (blocked.has(key)) {
+      } else if (blocked.has(key) || unverified.has(key)) {
         push(profName, pkgName, 'degraded');
       } else if (drifted.has(key)) {
         push(profName, pkgName, 'drifted');
@@ -526,7 +530,7 @@ function collectPluginStatuses(
     for (const [profName, profManifest] of Object.entries(manifest.profiles)) {
       for (const plugin of Object.values(profManifest.plugins)) {
         const key = `${profName}\0${plugin.package}`;
-        if (blocked.has(key)) {
+        if (blocked.has(key) || unverified.has(key)) {
           push(profName, plugin.package, 'degraded');
         } else if (drifted.has(key)) {
           push(profName, plugin.package, 'drifted');
