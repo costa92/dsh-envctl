@@ -75,6 +75,18 @@ pnpm link --global
 dshenv --version
 ```
 
+### 升级 dshenv
+
+```bash
+dshenv self-update --check     # 只查询：有新版本时退出码 2，已是最新时退出码 0
+dshenv self-update             # 升级到 npm 上的最新版本
+dshenv self-update --to 0.2.0  # 升级或回退到指定的精确版本
+```
+
+`self-update` 用 `npm view --prefer-online` 查询版本，再用安装 dshenv 的包管理器替换自身：全局 npm 安装执行 `npm install -g @costa92/dshenv@<版本> --prefer-online`，全局 pnpm 安装执行 `pnpm add -g @costa92/dshenv@<版本>`。本地链接或源码检出安装的 dshenv 不会被替换，命令以退出码 3 给出升级方法（`git pull && pnpm build`）。
+
+也可以手动升级：`npm install -g @costa92/dshenv@latest --prefer-online`。刚发布的版本在本机 npm 缓存过期前可能报 `notarget`，加 `--prefer-online` 即可。升级前先看 [CHANGELOG](CHANGELOG.md) 中的「变更」，例如 0.2.0 起清单不再接受 npm 来源的 `registry` 字段，lock 中的 git `commit` 必须是十六进制 commit id。
+
 完整流程、能力边界、agent-teams 示例和常见问题见 [中文使用教程](docs/使用教程.md)。
 
 DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容性，放宽版本门禁的步骤见 [DSH 新版本兼容验证](docs/DSH版本升级.md)。
@@ -339,6 +351,10 @@ dshenv remote remove --yes                                   # 取消订阅，�
 - 每次接受都会先建快照，用 `dshenv rollback <快照 id> --yes` 撤销（id 见接受时输出的 `snapshot ...`；之后又 `apply` 过时，不带 id 的 `rollback --yes` 只会撤销那次 apply）；接受后不会自动 `apply`。接受更新即同意执行其中声明的插件。
 - URL 不得内嵌凭据（认证交给 SSH 或 git credential helper）；git 失败时退出码 1，并带出 git 的原始错误。
 - `--json` 时 `sync` 输出 `{status, from, to, files: {added, modified, removed}, lockEntries: {added, modified, removed}, plan}`，lock 条目写作 `<profile>/<alias>`，`status` 为 `up-to-date`、`pending` 或 `accepted`。
+
+### 21. `dshenv self-update`
+
+查询或升级 dshenv 自身，用法与安装方式的判断见[升级 dshenv](#升级-dshenv)。`--json` 输出 `{status, current, target, method?, command?}`，`status` 为 `up-to-date`、`available`（仅 `--check`）或 `updated`。
 
 ---
 
