@@ -26,7 +26,7 @@ import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { lockEntryId } from '../remote/lock-entries.js';
 import { setProfileBundleEnabled } from './bundles.js';
-import { clearManagedPatches, snapshotProfilePatchFile, writeManagedPatches } from './patches.js';
+import { clearManagedPatches, writeManagedPatches } from './patches.js';
 import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
 
 // Longer than the ~2 s awaitWriteFinish window of DSH's HMR watcher, so it unloads the plugin before its files go.
@@ -156,15 +156,13 @@ async function executeWithDsh(
       if (!plugin) {
         throw new ValidationError(`Plugin '${operation.alias}' is missing from profile '${operation.profile}'`);
       }
-      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile, operation.alias));
-      await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches ?? []);
+      rollback.undo.push(await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches ?? []));
       continue;
     }
 
     if (operation.kind === 'remove') {
       const undoStart = rollback.undo.length;
-      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile, operation.alias));
-      await clearManagedPatches(paths, operation.profile, operation.alias);
+      rollback.undo.push(await clearManagedPatches(paths, operation.profile, operation.alias));
       const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
       rollback.undo.push(async () => {
         await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
@@ -195,7 +193,9 @@ async function executeWithDsh(
       }
       // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
       rollback.undo.length = undoStart;
-      rollback.keep.push(() => clearManagedPatches(paths, operation.profile, operation.alias));
+      rollback.keep.push(async () => {
+        await clearManagedPatches(paths, operation.profile, operation.alias);
+      });
       continue;
     }
 

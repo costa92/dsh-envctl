@@ -58,15 +58,18 @@ export async function readProfilePatchFile(paths: EnvironmentPaths, profileName:
   return fs.readFileSync(file, 'utf8');
 }
 
+export type RestorePatchFile = () => Promise<void>;
+
 // Restores the file as it was, unless DSH wrote it after dshenv did; then only this plugin's blocks go back.
-export async function snapshotProfilePatchFile(
+// `content` must be read under the same lock hold as the write it undoes, or a DSH edit made in between is lost.
+function restorePatchFile(
   paths: EnvironmentPaths,
   profileName: string,
-  pluginAlias: string
-): Promise<() => Promise<void>> {
+  pluginAlias: string,
+  existed: boolean,
+  content: string
+): RestorePatchFile {
   const file = profilePatchFile(paths, profileName);
-  const existed = fs.existsSync(file);
-  const content = await readProfilePatchFile(paths, profileName);
   return () =>
     withPatchFileLock(file, async () => {
       const current = fs.existsSync(file) ? await readProfilePatchFile(paths, profileName) : null;
@@ -83,31 +86,38 @@ export async function snapshotProfilePatchFile(
     });
 }
 
+// Returns how to undo the write.
 export async function writeManagedPatches(
   paths: EnvironmentPaths,
   profileName: string,
   pluginAlias: string,
   patches: PatchEntry[]
-): Promise<void> {
+): Promise<RestorePatchFile> {
   const active = patches.filter((patch) => patch.enabled !== false);
   const file = profilePatchFile(paths, profileName);
-  await withPatchFileLock(file, async () => {
-    const content = replacePluginBlocks(await readProfilePatchFile(paths, profileName), profileName, pluginAlias, active);
+  return withPatchFileLock(file, async () => {
+    const existed = fs.existsSync(file);
+    const before = await readProfilePatchFile(paths, profileName);
+    const content = replacePluginBlocks(before, profileName, pluginAlias, active);
     await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
+    return restorePatchFile(paths, profileName, pluginAlias, existed, before);
   });
 }
 
+// Returns how to undo the clear.
 export async function clearManagedPatches(
   paths: EnvironmentPaths,
   profileName: string,
   pluginAlias: string
-): Promise<void> {
+): Promise<RestorePatchFile> {
   const file = profilePatchFile(paths, profileName);
   if (!fs.existsSync(file)) {
-    return;
+    return async () => {};
   }
-  await withPatchFileLock(file, async () => {
-    const next = removePatchBlock(await readProfilePatchFile(paths, profileName), profileName, pluginAlias);
-    await writePatchFile(file, next);
+  return withPatchFileLock(file, async () => {
+    const existed = fs.existsSync(file);
+    const before = await readProfilePatchFile(paths, profileName);
+    await writePatchFile(file, removePatchBlock(before, profileName, pluginAlias));
+    return restorePatchFile(paths, profileName, pluginAlias, existed, before);
   });
 }
