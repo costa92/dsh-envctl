@@ -711,11 +711,11 @@ describe('lock versus effective manifest', () => {
     expect(plan.operations.map((op) => op.kind)).toEqual(['update', 'disable']);
   });
 
-  it('blocks when the installed npm package reports no version', () => {
+  it('reinstalls when the installed npm package reports no version', () => {
     const inventory = installedAt('1.0.0');
     delete inventory.profiles.web.plugins['demo-plugin'].version;
     const plan = buildPlan(npmManifest('1.0.0'), npmLock('1.0.0'), inventory);
-    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'blocked', blockedReason: expect.stringContaining('no version') })]);
+    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: '1.0.0', reason: expect.stringContaining('no version') })]);
   });
 
   it('keeps using the lock when it matches the exact manifest version', () => {

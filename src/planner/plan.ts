@@ -98,17 +98,8 @@ export function lockedGitCommit(source: ManifestSource, locked: LockedSource): s
   return source.type === 'git' && locked?.type === 'git' && locked.url === source.url ? locked.commit : undefined;
 }
 
-// Without this evidence an installed plugin would read as in sync while nothing proves it.
-function missingEvidence(
-  source: ManifestSource,
-  installedType: string | undefined,
-  installedVersion: string | undefined,
-  localDigest: string | undefined,
-  digestsRead: boolean
-): string | undefined {
-  if (source.type === 'npm' && installedType === 'npm' && !installedVersion) {
-    return `Installed npm package reports no version, so it cannot be checked against ${source.version}`;
-  }
+// Without a readable source an installed local plugin would read as in sync while nothing proves it.
+function unreadableLocalSource(source: ManifestSource, localDigest: string | undefined, digestsRead: boolean): string | undefined {
   if ((source.type === 'local-file' || source.type === 'local-link') && digestsRead && !localDigest) {
     return `Local source ${source.path} cannot be read, so the installed copy cannot be checked against it`;
   }
@@ -245,7 +236,7 @@ export function buildPlan(
           pluginManifest.source.type === 'git' ? commitFromGitSpec(installed?.resolvedSource) : undefined;
         const installedType = installed?.sourceType;
         const declaredType = pluginManifest.source.type;
-        const unverifiable = missingEvidence(pluginManifest.source, installedType, currentVersion, localDigests?.[profName]?.[alias], localDigests !== undefined);
+        const unverifiable = unreadableLocalSource(pluginManifest.source, localDigests?.[profName]?.[alias], localDigests !== undefined);
         if (unverifiable) {
           operations.push({
             kind: 'blocked',
@@ -268,13 +259,16 @@ export function buildPlan(
             currentEnabled,
             targetEnabled
           });
-        } else if (targetVersion && currentVersion && targetVersion !== currentVersion) {
+        } else if (targetVersion && (currentVersion ? targetVersion !== currentVersion : installedType === 'npm')) {
+          // A reinstall writes the version that proves the package matches.
           operations.push({
             kind: 'update',
             profile: profName,
             alias,
             package: pkgName,
-            reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
+            reason: currentVersion
+              ? `Version mismatch: current ${currentVersion} != target ${targetVersion}`
+              : `Installed npm package reports no version; reinstalling ${targetVersion}`,
             currentVersion,
             targetVersion,
             currentEnabled,
