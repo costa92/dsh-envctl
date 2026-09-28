@@ -4,6 +4,9 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import { readRemoteConfig, remoteFilePath, remoteOverlayKeys, type RemoteConfig } from '../remote/schema.js';
 import { writeAtomic } from './atomic-file.js';
 
+// Overlay keys the snapshot was asked to save that did not exist at the time.
+const ABSENT_FILE = 'absent.json';
+
 export interface EnvironmentSnapshot {
   snapshotId: string;
   snapshotDir: string;
@@ -23,9 +26,26 @@ export async function createEnvironmentSnapshot(
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const snapshotId = `${timestamp}-${operationId}`;
   const snapshotDir = path.join(paths.backupsDir, snapshotId);
+  // Built under a dot name and renamed when complete, so rollback never picks a half-copied snapshot.
+  const stagingDir = path.join(paths.backupsDir, `.${snapshotId}.partial`);
 
-  await fs.promises.mkdir(snapshotDir, { recursive: true });
+  await fs.promises.mkdir(stagingDir, { recursive: true });
+  try {
+    await copySnapshotFiles(paths, stagingDir, options);
+    await fs.promises.rename(stagingDir, snapshotDir);
+  } catch (err) {
+    await fs.promises.rm(stagingDir, { recursive: true, force: true });
+    throw err;
+  }
 
+  return {
+    snapshotId,
+    snapshotDir,
+    timestamp
+  };
+}
+
+async function copySnapshotFiles(paths: EnvironmentPaths, snapshotDir: string, options?: SnapshotOptions): Promise<void> {
   const filesToBackup = [paths.manifestFile, paths.lockFile, paths.stateFile];
   for (const file of filesToBackup) {
     if (fs.existsSync(file)) {
@@ -38,20 +58,26 @@ export async function createEnvironmentSnapshot(
   if (remote) {
     await fs.promises.copyFile(paths.remoteFile, path.join(snapshotDir, 'remote.json'));
   }
+  const absent: string[] = [];
   for (const key of new Set([...remoteOverlayKeys(remote), ...(options?.overlayKeys ?? [])])) {
     const file = remoteFilePath(paths, key);
     if (fs.existsSync(file) && fs.statSync(file).isFile()) {
       const dest = path.join(snapshotDir, key);
       await fs.promises.mkdir(path.dirname(dest), { recursive: true });
       await fs.promises.copyFile(file, dest);
+    } else if (!fs.existsSync(file)) {
+      absent.push(key);
     }
   }
+  // An operation killed before remote.json names a file it created leaves no other trace of it.
+  if (absent.length > 0) {
+    await fs.promises.writeFile(path.join(snapshotDir, ABSENT_FILE), JSON.stringify(absent));
+  }
+}
 
-  return {
-    snapshotId,
-    snapshotDir,
-    timestamp
-  };
+export function readAbsentKeys(snapshot: EnvironmentSnapshot): string[] {
+  const file = path.join(snapshot.snapshotDir, ABSENT_FILE);
+  return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as string[]) : [];
 }
 
 function currentRemoteConfig(paths: EnvironmentPaths): RemoteConfig | null {
@@ -64,8 +90,8 @@ function currentRemoteConfig(paths: EnvironmentPaths): RemoteConfig | null {
 }
 
 async function restoreRemoteFiles(snapshot: EnvironmentSnapshot, paths: EnvironmentPaths): Promise<void> {
-  // Overlays the remote owns now but the snapshot does not hold did not exist as saved, so they go.
-  for (const key of remoteOverlayKeys(currentRemoteConfig(paths))) {
+  // Overlays the remote owns now, or that were recorded absent, but the snapshot does not hold did not exist as saved, so they go.
+  for (const key of new Set([...remoteOverlayKeys(currentRemoteConfig(paths)), ...readAbsentKeys(snapshot)])) {
     if (!fs.existsSync(path.join(snapshot.snapshotDir, key))) {
       await fs.promises.rm(remoteFilePath(paths, key), { force: true });
     }
@@ -108,7 +134,7 @@ export async function listEnvironmentSnapshots(paths: EnvironmentPaths): Promise
   const entries = await fs.promises.readdir(paths.backupsDir, { withFileTypes: true });
   const snapshots: EnvironmentSnapshot[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) {
       continue;
     }
     snapshots.push({

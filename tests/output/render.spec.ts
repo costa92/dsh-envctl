@@ -10,11 +10,24 @@ describe('renderPlan', () => {
         { kind: 'install', profile: 'web', alias: 'linked', package: 'linked-pkg', reason: 'missing' },
         { kind: 'update', profile: 'web', alias: 'moved', package: 'moved-pkg', reason: 'Source type changed: installed npm != declared git' }
       ],
-      unmanaged: []
+      unmanaged: [],
+      unverified: []
     });
     expect(text).not.toMatch(/latest|\? -> \?/);
     expect(text).toContain('  + [web] linked-pkg (linked)\n');
     expect(text).toContain('  ~ [web] moved-pkg (moved)\n');
+  });
+
+  it('lists plugins whose local source could not be checked', () => {
+    const text = renderPlan({
+      hasChanges: false,
+      operations: [],
+      unmanaged: [],
+      unverified: [{ profile: 'web', alias: 'demo', package: 'demo-plugin', reason: 'Local source /src/demo cannot be read' }]
+    });
+    expect(text).toContain('Unverified plugins');
+    expect(text).toContain('  ! [web] demo-plugin (demo): Local source /src/demo cannot be read\n');
+    expect(text).not.toContain('in sync');
   });
 
   it('should render install, blocked, and unmanaged with text symbols', () => {
@@ -38,7 +51,8 @@ describe('renderPlan', () => {
           blockedReason: 'patch evidence missing'
         }
       ],
-      unmanaged: [{ profile: 'web', package: 'extra-pkg' }]
+      unmanaged: [{ profile: 'web', package: 'extra-pkg' }],
+      unverified: []
     };
 
     const text = renderPlan(plan);

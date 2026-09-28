@@ -3,7 +3,6 @@ export type SourceType = 'npm' | 'git' | 'local-link' | 'local-file' | 'in-box' 
 export interface NpmSource {
   type: 'npm';
   version: string;
-  registry?: string;
 }
 
 export interface GitSource {

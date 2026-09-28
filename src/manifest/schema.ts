@@ -13,8 +13,7 @@ const isAbsolutePath = (val: string) => path.isAbsolute(val);
 export const NpmSourceSchema = z
   .object({
     type: z.literal('npm'),
-    version: z.string().regex(ExactVersionRegex, { message: 'npm version must be an exact version such as 1.2.3' }),
-    registry: z.string().url().optional()
+    version: z.string().regex(ExactVersionRegex, { message: 'npm version must be an exact version such as 1.2.3' })
   })
   .strict();
 
@@ -164,7 +163,8 @@ export const GitLockSourceSchema = z
   .object({
     type: z.literal('git'),
     url: gitUrlSchema,
-    commit: z.string().min(1)
+    // A branch or tag would let the same lock install different code later.
+    commit: z.string().regex(/^[0-9a-f]{7,64}$/i, { message: 'git commit must be a 7-64 character hexadecimal commit id' })
   })
   .strict();
 

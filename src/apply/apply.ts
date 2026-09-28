@@ -18,19 +18,22 @@ import { acquireEnvironmentLock } from '../io/lock.js';
 import { createEnvironmentSnapshot, restoreEnvironmentSnapshot, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
+import { killProcessTree } from '../io/process-tree.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
-import { probeDsh, resolveDshCommand } from '../dsh/command.js';
+import { probeDsh, resolveDshCommand, type CommandSpec } from '../dsh/command.js';
 import { capabilitiesFor } from '../dsh/capabilities.js';
 import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { lockEntryId } from '../remote/lock-entries.js';
 import { setProfileBundleEnabled } from './bundles.js';
-import { clearManagedPatches, snapshotProfilePatchFile, writeManagedPatches } from './patches.js';
+import { clearManagedPatches, writeManagedPatches } from './patches.js';
 import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
 
 // Longer than the ~2 s awaitWriteFinish window of DSH's HMR watcher, so it unloads the plugin before its files go.
 export const HMR_SETTLE_MS = 3000;
+// A hung package install would otherwise hold the environment lock forever.
+export const DSH_COMMAND_TIMEOUT_MS = 10 * 60_000;
 
 export interface ApplyOptions {
   dryRun?: boolean;
@@ -40,6 +43,7 @@ export interface ApplyOptions {
   executor?: (plan: EnvironmentPlan, paths: EnvironmentPaths) => Promise<{ success: boolean; error?: string }>;
   probeHmr?: (profile: string) => Promise<HmrStatus>;
   hmrSettleMs?: number;
+  dshCommandTimeoutMs?: number;
 }
 
 export interface ApplyResult {
@@ -53,13 +57,41 @@ export interface ApplyResult {
 }
 
 // Only DSH's own `dsh:` lines are shown: the raw pnpm output around them can echo registry URLs and tokens.
-function dshFailure(result: { exitCode?: number; stdout?: unknown; stderr?: unknown }): string {
+function dshFailure(result: { exitCode?: number; timedOut?: boolean; stdout?: unknown; stderr?: unknown }, timeoutMs: number): string {
   const diagnostics = [result.stderr, result.stdout]
     .flatMap((output) => (typeof output === 'string' ? output.split('\n') : []))
     .filter((line) => line.startsWith('dsh: '))
     .map((line) => `\n  ${line.trimEnd()}`)
     .join('');
-  return `DSH plugin command exited with code ${String(result.exitCode)}${diagnostics}`;
+  const outcome = result.timedOut ? `timed out after ${timeoutMs} ms` : `exited with code ${String(result.exitCode)}`;
+  return `DSH plugin command ${outcome}${diagnostics}`;
+}
+
+async function runDshPluginCommand(
+  command: CommandSpec,
+  args: string[],
+  paths: EnvironmentPaths,
+  timeoutMs: number
+): Promise<{ exitCode?: number; timedOut: boolean; stdout?: unknown; stderr?: unknown }> {
+  const subprocess = execa(command.file, [...command.args, ...args], {
+    cwd: command.cwd,
+    env: { ...process.env, DSH_HOME: paths.home },
+    shell: false,
+    reject: false
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    if (subprocess.pid !== undefined) {
+      killProcessTree(subprocess.pid);
+    }
+  }, timeoutMs);
+  try {
+    const result = await subprocess;
+    return { exitCode: result.exitCode, timedOut, stdout: result.stdout, stderr: result.stderr };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 interface ProfileRollback {
@@ -137,6 +169,7 @@ async function executeWithDsh(
     }
   }
 
+  const commandTimeoutMs = options?.dshCommandTimeoutMs ?? DSH_COMMAND_TIMEOUT_MS;
   for (const operation of plan.operations) {
     if (operation.kind === 'enable' || operation.kind === 'disable') {
       const previousIndex = await setProfileBundleEnabled(
@@ -156,15 +189,13 @@ async function executeWithDsh(
       if (!plugin) {
         throw new ValidationError(`Plugin '${operation.alias}' is missing from profile '${operation.profile}'`);
       }
-      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile, operation.alias));
-      await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches ?? []);
+      rollback.undo.push(await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches ?? []));
       continue;
     }
 
     if (operation.kind === 'remove') {
       const undoStart = rollback.undo.length;
-      rollback.undo.push(await snapshotProfilePatchFile(paths, operation.profile, operation.alias));
-      await clearManagedPatches(paths, operation.profile, operation.alias);
+      rollback.undo.push(await clearManagedPatches(paths, operation.profile, operation.alias));
       const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
       rollback.undo.push(async () => {
         await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
@@ -180,22 +211,20 @@ async function executeWithDsh(
       if (previousIndex !== -1 && hmrByProfile.get(operation.profile)?.state === 'on') {
         await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS);
       }
-      const removeResult = await execa(
-        command.file,
-        [...command.args, 'plugin', '--profile', operation.profile, 'remove', operation.package],
-        {
-          cwd: command.cwd,
-          env: { ...process.env, DSH_HOME: paths.home },
-          shell: false,
-          reject: false
-        }
+      const removeResult = await runDshPluginCommand(
+        command,
+        ['plugin', '--profile', operation.profile, 'remove', operation.package],
+        paths,
+        commandTimeoutMs
       );
       if (removeResult.exitCode !== 0) {
-        return { success: false, error: dshFailure(removeResult) };
+        return { success: false, error: dshFailure(removeResult, commandTimeoutMs) };
       }
       // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
       rollback.undo.length = undoStart;
-      rollback.keep.push(() => clearManagedPatches(paths, operation.profile, operation.alias));
+      rollback.keep.push(async () => {
+        await clearManagedPatches(paths, operation.profile, operation.alias);
+      });
       continue;
     }
 
@@ -203,18 +232,14 @@ async function executeWithDsh(
       throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
     }
 
-    const result = await execa(
-      command.file,
-      [...command.args, 'plugin', '--profile', operation.profile, 'add', packageSpec(manifest, lock, operation)],
-      {
-        cwd: command.cwd,
-        env: { ...process.env, DSH_HOME: paths.home },
-        shell: false,
-        reject: false
-      }
+    const result = await runDshPluginCommand(
+      command,
+      ['plugin', '--profile', operation.profile, 'add', packageSpec(manifest, lock, operation)],
+      paths,
+      commandTimeoutMs
     );
     if (result.exitCode !== 0) {
-      return { success: false, error: dshFailure(result) };
+      return { success: false, error: dshFailure(result, commandTimeoutMs) };
     }
   }
 
@@ -317,6 +342,35 @@ function assertNoTeamEntryOverwritten(
       );
     }
   }
+}
+
+// A plugin apply installed is dshenv's to remove once the manifest drops it, as if it had been adopted.
+function recordInstalledOwnership(
+  pruned: EnvironmentState['ownership'],
+  plan: EnvironmentPlan,
+  manifest: EnvironmentManifest,
+  now: string,
+  operationId: string
+): EnvironmentState['ownership'] {
+  const ownership = { ...pruned };
+  for (const operation of plan.operations) {
+    const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
+    if (operation.kind !== 'install' || !plugin || ownership[operation.profile]?.[plugin.package]) {
+      continue;
+    }
+    ownership[operation.profile] = {
+      ...ownership[operation.profile],
+      [plugin.package]: {
+        package: plugin.package,
+        alias: operation.alias,
+        sourceType: plugin.source.type,
+        lockedVersion: plugin.source.type === 'npm' ? plugin.source.version : undefined,
+        adoptedAt: now,
+        adoptedBy: operationId
+      }
+    };
+  }
+  return ownership;
 }
 
 function pruneOwnership(
@@ -517,7 +571,7 @@ async function planAndApply(
       lastApplied: now,
       appliedLockHash: lockHash,
       profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),
-      ownership: pruneOwnership(state?.ownership, manifest),
+      ownership: recordInstalledOwnership(pruneOwnership(state?.ownership, manifest), plan, manifest, now, operationId),
       ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {})
     };
 

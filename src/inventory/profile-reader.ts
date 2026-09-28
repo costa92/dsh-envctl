@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { SourceType } from '../domain.js';
 import { PackageNameRegex } from '../manifest/schema.js';
-import { extractManagedPatches, type ExtractedPatch } from '../patch/patch.js';
+import { extractManagedPatches, needsPatchFileRepair, type ExtractedPatch } from '../patch/patch.js';
 
 export interface InstalledPluginInfo {
   name: string;
@@ -24,6 +24,8 @@ export interface ProfileInventory {
   plugins: Record<string, InstalledPluginInfo>;
   rawProfile?: Record<string, unknown>;
   managedPatches?: ExtractedPatch[];
+  // cordis.patch.yml is invalid YAML that rewriting any managed block would repair.
+  patchFileRepairable?: boolean;
 }
 
 export interface EnvironmentInventory {
@@ -246,10 +248,13 @@ export async function readEnvironmentInventory(
 
     const patchFile = path.join(profilePath, 'cordis.patch.yml');
     let managedPatches: ExtractedPatch[] = [];
+    let patchFileRepairable = false;
     try {
       const patchStat = fs.statSync(patchFile);
       if (patchStat.size <= MAX_JSON_SIZE) {
-        managedPatches = extractManagedPatches(fs.readFileSync(patchFile, 'utf8'), profileName);
+        const patchContent = fs.readFileSync(patchFile, 'utf8');
+        managedPatches = extractManagedPatches(patchContent, profileName);
+        patchFileRepairable = needsPatchFileRepair(patchContent);
       }
     } catch {
       managedPatches = [];
@@ -260,7 +265,8 @@ export async function readEnvironmentInventory(
       path: profilePath,
       plugins,
       rawProfile: rawProfileData,
-      managedPatches
+      managedPatches,
+      ...(patchFileRepairable ? { patchFileRepairable } : {})
     };
   }
 

@@ -134,6 +134,32 @@ describe('CLI source clone --profile', () => {
     expect(stderr).toContain('requires --as');
   });
 
+  it('keeps a concurrent clone when a second clone of the same package fails', async () => {
+    const run = (args: string[]) => runCli([...args, '--dsh-home', tempHome], { stdout: () => {}, stderr: () => {} });
+    const codes = await Promise.all([
+      run(['source', 'clone', upstream, '--profile', 'web', '--as', 'demo']),
+      run(['source', 'clone', upstream, '--profile', 'web', '--as', 'demo'])
+    ]);
+
+    expect(codes.sort()).toEqual([0, 3]);
+    expect(fs.existsSync(path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin', 'package.json'))).toBe(true);
+  });
+
+  it('leaves the manifest untouched when the lock file is corrupt', async () => {
+    const manifestFile = path.join(tempHome, 'envctl', 'manifest.yaml');
+    const before = fs.readFileSync(manifestFile, 'utf8');
+    fs.writeFileSync(path.join(tempHome, 'envctl', 'lock.json'), '{not json');
+
+    const code = await runCli(
+      ['source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome],
+      { stdout: () => {}, stderr: () => {} }
+    );
+
+    expect(code).not.toBe(0);
+    expect(fs.readFileSync(manifestFile, 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin'))).toBe(false);
+  });
+
   it('keeps patches and the enabled state when cloning over an existing alias', async () => {
     const run = (args: string[]) => runCli([...args, '--dsh-home', tempHome], { stdout: () => {}, stderr: () => {} });
     await run(['install', 'demo-plugin@1.0.0', '--profile', 'web', '--as', 'demo']);

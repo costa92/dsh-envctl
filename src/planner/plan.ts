@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import type {
   EnvironmentManifest,
   EnvironmentLock,
@@ -36,10 +37,19 @@ export interface UnmanagedPlugin {
 // profile -> alias -> current digest of the plugin's local source directory
 export type LocalSourceDigests = Record<string, Record<string, string>>;
 
+// Declared and installed, but without the evidence to tell whether it matches; reported, never blocking.
+export interface UnverifiedPlugin {
+  profile: string;
+  alias: string;
+  package: string;
+  reason: string;
+}
+
 export interface EnvironmentPlan {
   hasChanges: boolean;
   operations: PlanOperation[];
   unmanaged: UnmanagedPlugin[];
+  unverified: UnverifiedPlugin[];
 }
 
 export type StableStatus =
@@ -78,7 +88,7 @@ const KIND_ORDER: Record<OperationKind, number> = {
 
 // Only a hex fragment proves which commit is installed; branch names and bare URLs are not evidence.
 function commitFromGitSpec(spec: string | undefined): string | undefined {
-  return spec?.match(/#([0-9a-f]{7,40})$/i)?.[1].toLowerCase();
+  return spec?.match(/#([0-9a-f]{7,64})$/i)?.[1].toLowerCase();
 }
 
 function lockedLocalDigest(
@@ -95,6 +105,25 @@ type ManifestSource = EnvironmentManifest['profiles'][string]['plugins'][string]
 // effective manifest declares, never override it.
 export function lockedGitCommit(source: ManifestSource, locked: LockedSource): string | undefined {
   return source.type === 'git' && locked?.type === 'git' && locked.url === source.url ? locked.commit : undefined;
+}
+
+// Without a readable source an installed local plugin would read as in sync while nothing proves it.
+function unreadableLocalSource(source: ManifestSource, localDigest: string | undefined, digestsRead: boolean): string | undefined {
+  if ((source.type === 'local-file' || source.type === 'local-link') && digestsRead && !localDigest) {
+    return `Local source ${source.path} cannot be read, so the installed copy cannot be checked against it`;
+  }
+  return undefined;
+}
+
+// The installed spec is the evidence; the lock stands in when the inventory could not resolve one.
+function localPathMoved(
+  type: 'local-file' | 'local-link',
+  declared: string,
+  installed: string | undefined,
+  locked: LockedSource
+): boolean {
+  const current = installed ?? (locked?.type === type ? locked.path : undefined);
+  return current !== undefined && path.normalize(current) !== path.normalize(declared);
 }
 
 function isSameCommit(a: string, b: string): boolean {
@@ -125,6 +154,7 @@ export function buildPlan(
 ): EnvironmentPlan {
   const operations: PlanOperation[] = [];
   const unmanaged: UnmanagedPlugin[] = [];
+  const unverified: UnverifiedPlugin[] = [];
 
   if (!manifest) {
     // No manifest, inventory plugins are unmanaged
@@ -136,7 +166,8 @@ export function buildPlan(
     return {
       hasChanges: false,
       operations: [],
-      unmanaged
+      unmanaged,
+      unverified
     };
   }
 
@@ -211,10 +242,15 @@ export function buildPlan(
           });
         }
       } else {
+        const operationsBefore = operations.length;
         const installedCommit =
           pluginManifest.source.type === 'git' ? commitFromGitSpec(installed?.resolvedSource) : undefined;
         const installedType = installed?.sourceType;
         const declaredType = pluginManifest.source.type;
+        const unverifiable = unreadableLocalSource(pluginManifest.source, localDigests?.[profName]?.[alias], localDigests !== undefined);
+        if (unverifiable) {
+          unverified.push({ profile: profName, alias, package: pkgName, reason: unverifiable });
+        }
         if (installedType && installedType !== declaredType && installedType !== 'in-box' && declaredType !== 'in-box') {
           operations.push({
             kind: 'update',
@@ -225,15 +261,31 @@ export function buildPlan(
             currentEnabled,
             targetEnabled
           });
-        } else if (targetVersion && currentVersion && targetVersion !== currentVersion) {
+        } else if (targetVersion && (currentVersion ? targetVersion !== currentVersion : installedType === 'npm')) {
+          // A reinstall writes the version that proves the package matches.
           operations.push({
             kind: 'update',
             profile: profName,
             alias,
             package: pkgName,
-            reason: `Version mismatch: current ${currentVersion} != target ${targetVersion}`,
+            reason: currentVersion
+              ? `Version mismatch: current ${currentVersion} != target ${targetVersion}`
+              : `Installed npm package reports no version; reinstalling ${targetVersion}`,
             currentVersion,
             targetVersion,
+            currentEnabled,
+            targetEnabled
+          });
+        } else if (
+          (pluginManifest.source.type === 'local-file' || pluginManifest.source.type === 'local-link') &&
+          localPathMoved(pluginManifest.source.type, pluginManifest.source.path, installed?.resolvedSource, lockEntry?.source)
+        ) {
+          operations.push({
+            kind: 'update',
+            profile: profName,
+            alias,
+            package: pkgName,
+            reason: `Local source path changed to ${pluginManifest.source.path}`,
             currentEnabled,
             targetEnabled
           });
@@ -257,26 +309,33 @@ export function buildPlan(
             currentEnabled,
             targetEnabled
           });
-        } else if (gitLockCommit && installedCommit && !isSameCommit(installedCommit, gitLockCommit)) {
+        } else if (gitLockCommit && installedType === 'git' && (!installedCommit || !isSameCommit(installedCommit, gitLockCommit))) {
+          // A spec such as #main names no commit, so the installed code cannot be shown to match the lock.
           operations.push({
             kind: 'update',
             profile: profName,
             alias,
             package: pkgName,
-            reason: `Commit mismatch: current ${installedCommit} != locked ${gitLockCommit}`,
+            reason: installedCommit
+              ? `Commit mismatch: current ${installedCommit} != locked ${gitLockCommit}`
+              : `Installed git spec pins no commit; reinstalling at locked ${gitLockCommit}`,
             currentVersion: installedCommit,
             targetVersion: gitLockCommit,
             currentEnabled,
             targetEnabled
           });
         }
-        if (currentEnabled !== targetEnabled) {
+        // An update runs DSH plugin add, which selects the bundle, so a disabled plugin is disabled again after it.
+        const reselected = !targetEnabled && operations.length > operationsBefore;
+        if (currentEnabled !== targetEnabled || reselected) {
           operations.push({
             kind: targetEnabled ? 'enable' : 'disable',
             profile: profName,
             alias,
             package: pkgName,
-            reason: `Enable state mismatch: current ${currentEnabled} != target ${targetEnabled}`,
+            reason: currentEnabled !== targetEnabled
+              ? `Enable state mismatch: current ${currentEnabled} != target ${targetEnabled}`
+              : 'Plugin stays disabled after the update',
             currentEnabled,
             targetEnabled
           });
@@ -305,6 +364,18 @@ export function buildPlan(
           targetEnabled
         });
       }
+    }
+
+    // Blocks that all match still leave the file unreadable to DSH; rewriting one plugin's blocks repairs the whole file.
+    const repairAlias = Object.keys(profManifest.plugins).sort()[0];
+    if (profInv?.patchFileRepairable && repairAlias && !operations.some((op) => op.kind === 'configure' && op.profile === profName)) {
+      operations.push({
+        kind: 'configure',
+        profile: profName,
+        alias: repairAlias,
+        package: profManifest.plugins[repairAlias].package,
+        reason: 'cordis.patch.yml is not valid YAML; rewriting the managed blocks repairs it'
+      });
     }
   }
 
@@ -355,7 +426,8 @@ export function buildPlan(
   return {
     hasChanges: operations.length > 0,
     operations,
-    unmanaged
+    unmanaged,
+    unverified
   };
 }
 
@@ -434,6 +506,7 @@ function collectPluginStatuses(
       .map((op) => `${op.profile}\0${op.package}`)
   );
   const unmanaged = new Set(plan.unmanaged.map((u) => `${u.profile}\0${u.package}`));
+  const unverified = new Set(plan.unverified.map((u) => `${u.profile}\0${u.package}`));
 
   const seen = new Set<string>();
   const push = (profile: string, pkg: string, status: StableStatus) => {
@@ -451,7 +524,7 @@ function collectPluginStatuses(
       const stateStatus = state?.profiles?.[profName]?.plugins?.[pkgName]?.status;
       if (unmanaged.has(key)) {
         push(profName, pkgName, 'unmanaged');
-      } else if (blocked.has(key)) {
+      } else if (blocked.has(key) || unverified.has(key)) {
         push(profName, pkgName, 'degraded');
       } else if (drifted.has(key)) {
         push(profName, pkgName, 'drifted');
@@ -469,7 +542,7 @@ function collectPluginStatuses(
     for (const [profName, profManifest] of Object.entries(manifest.profiles)) {
       for (const plugin of Object.values(profManifest.plugins)) {
         const key = `${profName}\0${plugin.package}`;
-        if (blocked.has(key)) {
+        if (blocked.has(key) || unverified.has(key)) {
           push(profName, plugin.package, 'degraded');
         } else if (drifted.has(key)) {
           push(profName, plugin.package, 'drifted');

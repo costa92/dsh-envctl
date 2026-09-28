@@ -42,6 +42,18 @@ describe('snapshots with a remote subscription', () => {
     expect(fs.readdirSync(path.join(snapshot.snapshotDir, 'overlays'))).toEqual(['team.yaml']);
   });
 
+  it('deletes an overlay the interrupted operation created before remote.json named it', async () => {
+    await writeRemoteOwnedFixture(home);
+    const snapshot = await createEnvironmentSnapshot(paths, 'op-crash', { overlayKeys: ['overlays/extra.yaml'] });
+    // Killed after writing the new overlay but before remote.json recorded it.
+    fs.writeFileSync(overlayFile('extra'), OWNED_OVERLAY);
+
+    await restoreEnvironmentSnapshot(snapshot, paths);
+
+    expect(fs.existsSync(overlayFile('extra'))).toBe(false);
+    expect(fs.existsSync(overlayFile('team'))).toBe(true);
+  });
+
   it('restores owned files, deletes overlays owned since, and leaves local overlays alone', async () => {
     await writeRemoteOwnedFixture(home);
     const remoteBefore = read(paths.remoteFile);
@@ -90,6 +102,20 @@ describe('snapshots with a remote subscription', () => {
     expect(read(overlayFile('team'))).toBe(`${LOCAL_OVERLAY}# local team\n`);
     expect(fs.existsSync(overlayFile('absent'))).toBe(false);
     expect(fs.existsSync(paths.remoteFile)).toBe(false);
+  });
+
+  it('keeps a recorded-absent overlay that became local in the undo backup of a rollback', async () => {
+    await writeRemoteOwnedFixture(home);
+    await createEnvironmentSnapshot(paths, 'sync-new', { overlayKeys: ['overlays/extra.yaml'] });
+    // The sync created extra.yaml; remote remove then left it in place as a local file, which the user edited.
+    fs.writeFileSync(overlayFile('extra'), `${OWNED_OVERLAY}# mine\n`);
+    fs.rmSync(paths.remoteFile);
+
+    const result = await rollbackEnvironment(paths, { operationId: 'sync-new' });
+    expect(fs.existsSync(overlayFile('extra'))).toBe(false);
+
+    await rollbackEnvironment(paths, { operationId: result.backupSnapshotId });
+    expect(read(overlayFile('extra'))).toBe(`${OWNED_OVERLAY}# mine\n`);
   });
 
   it('rollback restores the pinned commit and its undo backup keeps the newer one', async () => {

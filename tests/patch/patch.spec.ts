@@ -6,7 +6,9 @@ import {
   applyPatchBlock,
   removePatchBlock,
   replacePluginBlocks,
-  extractManagedPatches
+  extractManagedPatches,
+  assertPatchFileArray,
+  repairPatchFile
 } from '../../src/patch/patch.js';
 
 describe('Managed Patch Block Manager', () => {
@@ -151,6 +153,36 @@ suffix: true
     expect(docs[0].errors).toEqual([]);
     expect(extractManagedPatches(updated, 'web')[0].config).toEqual({ k: 1 });
     for (const text of kept) expect(updated).toContain(text);
+  });
+
+  it('keeps a non-empty flow array valid by rewriting it as a block sequence', () => {
+    const updated = applyPatchBlock('[{id: existing, config: {}}]\n', 'web', 'demo', 'demo', { k: 1 });
+    const docs = YAML.parseAllDocuments(updated);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].errors).toEqual([]);
+    expect(YAML.parse(updated)).toEqual([{ id: 'existing', config: {} }, expect.objectContaining({ id: 'demo', config: { k: 1 } })]);
+  });
+
+  it.each(['~\n', 'null\n', '---\n', '# note\n~  # empty\n'])('treats a null document %j as an empty array', (originalFile) => {
+    const updated = applyPatchBlock(originalFile, 'web', 'demo', 'demo', { k: 1 });
+    expect(() => assertPatchFileArray(updated, 'cordis.patch.yml')).not.toThrow();
+    expect(YAML.parse(updated)).toEqual([expect.objectContaining({ id: 'demo', config: { k: 1 } })]);
+  });
+
+  it('repairs a file the old append left invalid and keeps every managed block', () => {
+    const other = renderPatchBlock('web', 'other', 'o1', { b: 1 });
+    const broken = `[{id: existing, config: {}}]\n\n${other}\n`;
+    expect(() => assertPatchFileArray(broken, 'cordis.patch.yml')).toThrow();
+
+    const repaired = repairPatchFile(broken);
+    expect(repaired).not.toBeNull();
+    expect(() => assertPatchFileArray(repaired!, 'cordis.patch.yml')).not.toThrow();
+    expect(YAML.parse(repaired!).map((entry: { id: string }) => entry.id)).toEqual(['existing', 'o1']);
+    expect(repaired).toContain(other);
+  });
+
+  it('does not repair a file whose own content is not an array', () => {
+    expect(repairPatchFile('keep: 1\n')).toBeNull();
   });
 
   it('leaves a top-level empty array when the last block leaves a fresh profile patch file', () => {

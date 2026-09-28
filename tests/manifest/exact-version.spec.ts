@@ -19,6 +19,11 @@ describe('exact npm versions', () => {
     expect(loadManifest(manifestWith(version)).profiles.web.plugins.demo.source).toEqual({ type: 'npm', version });
   });
 
+  it('rejects a registry, which apply would not use', () => {
+    const manifest = manifestWith('1.2.3').replace('version: "1.2.3" }', 'version: "1.2.3", registry: "https://npm.example.com" }');
+    expect(() => loadManifest(manifest)).toThrow(/registry/);
+  });
+
   it('rejects a range in an overlay source override', () => {
     const overlay = `apiVersion: dshenv-overlay/v1
 profiles:

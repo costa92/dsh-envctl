@@ -18,7 +18,7 @@ function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: R
 export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): string {
   const lines: string[] = [];
 
-  if (!plan.hasChanges && plan.unmanaged.length === 0) {
+  if (!plan.hasChanges && plan.unmanaged.length === 0 && plan.unverified.length === 0) {
     return 'Environment is in sync with manifest. No changes planned.\n';
   }
 
@@ -52,6 +52,14 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
     lines.push('Unmanaged plugins (not in manifest):');
     for (const u of plan.unmanaged) {
       lines.push(`  ? [${u.profile}] ${u.package}`);
+    }
+  }
+
+  if (plan.unverified.length > 0) {
+    lines.push('');
+    lines.push('Unverified plugins (cannot be checked against the manifest):');
+    for (const u of plan.unverified) {
+      lines.push(`  ! [${u.profile}] ${u.package} (${u.alias}): ${u.reason}`);
     }
   }
 

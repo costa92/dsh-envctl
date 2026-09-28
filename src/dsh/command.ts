@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { execa } from 'execa';
 import { DegradedError } from '../errors.js';
 import { parseDshVersion } from './version.js';
@@ -58,21 +59,7 @@ export function resolveDshCommand(input?: ResolveDshCommandInput): CommandSpec |
     };
   }
 
-  const checkWhich = input?.which ?? ((cmd: string) => {
-    // In Node.js / POSIX, check if PATH has executable
-    const pathDirs = (process.env.PATH || '').split(':');
-    for (const dir of pathDirs) {
-      const fullPath = `${dir}/${cmd}`;
-      try {
-        if (fs.existsSync(fullPath)) {
-          return fullPath;
-        }
-      } catch {
-        // ignore
-      }
-    }
-    return null;
-  });
+  const checkWhich = input?.which ?? ((cmd: string) => findOnPath(cmd));
 
   const dshPath = checkWhich('dsh');
   if (dshPath) {
@@ -82,6 +69,30 @@ export function resolveDshCommand(input?: ResolveDshCommandInput): CommandSpec |
     };
   }
 
+  return null;
+}
+
+// Windows separates PATH with ';' and finds commands through PATHEXT, e.g. the dsh.cmd npm installs.
+export function findOnPath(
+  cmd: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): string | null {
+  const windows = platform === 'win32';
+  const dirs = (env.PATH ?? env.Path ?? '').split(windows ? ';' : ':').filter(Boolean);
+  const extensions = windows ? (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
+  for (const dir of dirs) {
+    for (const extension of extensions) {
+      const fullPath = path.join(dir, `${cmd}${extension}`);
+      try {
+        if (fs.statSync(fullPath).isFile()) {
+          return fullPath;
+        }
+      } catch {
+        // not here
+      }
+    }
+  }
   return null;
 }
 

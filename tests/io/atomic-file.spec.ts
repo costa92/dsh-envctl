@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -23,6 +23,40 @@ describe('writeAtomic', () => {
     const stat = fs.statSync(targetFile);
     // mode includes permissions
     expect(stat.isFile()).toBe(true);
+  });
+
+  it('should not overwrite a file created concurrently when hardlinks are unsupported', async () => {
+    const targetFile = path.join(tempDir, 'race.txt');
+    const spy = vi.spyOn(fs.promises, 'link').mockImplementation(async () => {
+      // Another process creates the target just as the filesystem refuses the hardlink.
+      fs.writeFileSync(targetFile, 'theirs');
+      throw Object.assign(new Error('hardlinks unsupported'), { code: 'EPERM' });
+    });
+    const access = vi.spyOn(fs.promises, 'access').mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+    try {
+      await expect(writeAtomic(targetFile, 'ours', 'create')).rejects.toThrow();
+    } finally {
+      spy.mockRestore();
+      access.mockRestore();
+    }
+    expect(fs.readFileSync(targetFile, 'utf8')).toBe('theirs');
+    expect(fs.readdirSync(tempDir)).toEqual(['race.txt']);
+  });
+
+  it('should not leave a partial target when the fallback copy fails', async () => {
+    const targetFile = path.join(tempDir, 'partial.txt');
+    const link = vi.spyOn(fs.promises, 'link').mockRejectedValue(Object.assign(new Error('hardlinks unsupported'), { code: 'EPERM' }));
+    const copy = vi.spyOn(fs.promises, 'copyFile').mockImplementation(async (_src, dest) => {
+      fs.writeFileSync(String(dest), 'half');
+      throw Object.assign(new Error('no space'), { code: 'ENOSPC' });
+    });
+    try {
+      await expect(writeAtomic(targetFile, 'whole', 'create')).rejects.toThrow(/no space/);
+    } finally {
+      link.mockRestore();
+      copy.mockRestore();
+    }
+    expect(fs.readdirSync(tempDir)).toEqual([]);
   });
 
   it('should refuse to overwrite existing file in create mode and preserve original bytes', async () => {

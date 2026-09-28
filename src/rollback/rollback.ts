@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
-import { createEnvironmentSnapshot, findEnvironmentSnapshot, restoreEnvironmentSnapshot } from '../io/backup.js';
+import { createEnvironmentSnapshot, findEnvironmentSnapshot, readAbsentKeys, restoreEnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { ValidationError } from '../errors.js';
 
@@ -52,7 +52,10 @@ export async function rollbackEnvironment(
       details: { snapshotId: snapshot.snapshotId, targetOperationId: options?.operationId }
     });
     // A fresh id, so lookups by the restored snapshot's operation id never match this backup.
-    const backup = await createEnvironmentSnapshot(paths, `pre-rollback-${crypto.randomBytes(6).toString('hex')}`);
+    // Files the restore deletes as absent may be local by now, so the backup must hold them too.
+    const backup = await createEnvironmentSnapshot(paths, `pre-rollback-${crypto.randomBytes(6).toString('hex')}`, {
+      overlayKeys: readAbsentKeys(snapshot)
+    });
     await restoreEnvironmentSnapshot(snapshot, paths);
     await appendJournalEntry(paths, {
       operationId,

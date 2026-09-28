@@ -103,7 +103,7 @@ export async function readLocalSourceDigests(manifest: EnvironmentManifest | nul
         const digest = await calculateSourceDigest(plugin.source.path);
         (digests[profileName] ??= {})[alias] = digest;
       } catch {
-        // An unreadable source gives no evidence of drift; install/update will surface the error.
+        // Left out on purpose: the planner reports an installed plugin whose source has no digest as unverified.
       }
     }
   }

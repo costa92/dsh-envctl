@@ -17,7 +17,7 @@ import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
 import { ExactVersionRegex, hasEmbeddedCredentials } from '../manifest/schema.js';
 
-const GIT_COMMIT_RE = /^[0-9a-f]{7,40}$/i;
+const GIT_COMMIT_RE = /^[0-9a-f]{7,64}$/i;
 
 function parseGitSpec(spec: string): { url: string; commit?: string } {
   const hashIndex = spec.lastIndexOf('#');

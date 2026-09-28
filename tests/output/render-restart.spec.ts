@@ -48,7 +48,8 @@ describe('renderPlan with a restart summary', () => {
       { kind: 'enable', profile: 'web', alias: 'teams', package: 'agent-teams', reason: 'enable', targetEnabled: true },
       { kind: 'update', profile: 'web', alias: 'shared', package: 'shared-plugin', reason: 'update', currentVersion: '1.0.0', targetVersion: '1.1.0' }
     ],
-    unmanaged: []
+    unmanaged: [],
+      unverified: []
   };
 
   it('annotates each operation', () => {

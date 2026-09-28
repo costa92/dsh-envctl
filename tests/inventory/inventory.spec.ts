@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { readEnvironmentInventory } from '../../src/inventory/profile-reader.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
+import { renderPatchBlock } from '../../src/patch/patch.js';
 
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -44,6 +45,18 @@ describe('readEnvironmentInventory', () => {
 
   afterEach(() => {
     fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('flags a patch file the old flow-array append left invalid as repairable', async () => {
+    const profileDir = writeProfile(tempHome, 'web', {});
+    const block = renderPatchBlock('web', 'demo', 'p1', { a: 1 });
+    fs.writeFileSync(path.join(profileDir, 'cordis.patch.yml'), `[{id: existing}]\n\n${block}\n`);
+    writeProfile(tempHome, 'api', {});
+    fs.writeFileSync(path.join(tempHome, 'profiles', 'api', 'cordis.patch.yml'), `- id: existing\n\n${block.replace('profile=web', 'profile=api').replace('profile=web', 'profile=api')}\n`);
+
+    const inventory = await readEnvironmentInventory(resolveEnvironmentPaths({ cliDshHome: tempHome }));
+    expect(inventory.profiles.web.patchFileRepairable).toBe(true);
+    expect(inventory.profiles.api.patchFileRepairable).toBeFalsy();
   });
 
   it('should read dsh.profile.bundles and dependencies from package.json, not profile.json', async () => {

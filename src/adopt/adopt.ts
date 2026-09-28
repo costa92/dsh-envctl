@@ -211,9 +211,26 @@ async function adoptUnderLock(
 
   options?.validateManifest?.(mergedManifest);
 
-  await writeAtomic(paths.manifestFile, serializeManifest(mergedManifest), 'overwrite');
-  await writeAtomic(paths.lockFile, lockSerialized, 'overwrite');
-  await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');
+  // Each write is atomic but the three together are not, so a failure puts back the files already written.
+  const writes: Array<[string, string]> = [
+    [paths.manifestFile, serializeManifest(mergedManifest)],
+    [paths.lockFile, lockSerialized],
+    [paths.stateFile, serializeState(nextState)]
+  ];
+  const originals = writes.map(([file]) => (fs.existsSync(file) ? fs.readFileSync(file) : null));
+  let written = 0;
+  try {
+    for (const [file, content] of writes) {
+      await writeAtomic(file, content, 'overwrite');
+      written++;
+    }
+  } catch (err) {
+    for (let index = written - 1; index >= 0; index--) {
+      const original = originals[index];
+      await (original ? writeAtomic(writes[index][0], original, 'overwrite') : fs.promises.rm(writes[index][0], { force: true })).catch(() => {});
+    }
+    throw err;
+  }
 
   return {
     adoptedCount: details.length,

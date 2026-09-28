@@ -457,9 +457,15 @@ describe('buildPlan', () => {
       expect(plan.hasChanges).toBe(false);
     });
 
-    it('should not guess drift when the installed spec carries no commit', () => {
-      const plan = buildPlan(manifest, lockAt(newCommit), installedFrom('github:example/demo#main'));
+    it('should treat a SHA-256 installed commit matching the lock as in sync', () => {
+      const sha256 = 'c'.repeat(64);
+      const plan = buildPlan(manifest, lockAt(sha256), installedFrom(`git+https://example.com/demo.git#${sha256}`));
       expect(plan.hasChanges).toBe(false);
+    });
+
+    it('should reinstall at the locked commit when the installed spec carries no commit', () => {
+      const plan = buildPlan(manifest, lockAt(newCommit), installedFrom('github:example/demo#main'));
+      expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: newCommit })]);
     });
 
     const manifestPinning = (commit: string): EnvironmentManifest => {
@@ -553,10 +559,68 @@ describe('buildPlan', () => {
       expect(plan.hasChanges).toBe(false);
     });
 
-    it('should not guess drift when the source digest cannot be read', () => {
-      const plan = buildPlan(manifestFor('local-file'), lockWith('local-file', 'old-digest'), inventory, null, {});
-      expect(plan.hasChanges).toBe(false);
+    it.each(['local-file', 'local-link'] as const)(
+      'should plan update when the %s path moved to an identical checkout',
+      (type) => {
+        const installedAtOld = inventoryFor(type);
+        installedAtOld.profiles.web.plugins['demo-plugin'].resolvedSource = '/old/demo';
+        const plan = buildPlan(manifestFor(type), lockWith(type, 'new-digest'), installedAtOld, null, current);
+        expect(plan.operations.map((op) => op.kind)).toEqual(['update']);
+
+        const lockAtOld = lockWith(type, 'new-digest');
+        const oldSource = lockAtOld.profiles.web.plugins.demo.source;
+        if (oldSource.type === type) oldSource.path = '/old/demo';
+        expect(buildPlan(manifestFor(type), lockAtOld, inventoryFor(type), null, current).operations.map((op) => op.kind)).toEqual(['update']);
+      }
+    );
+
+    it('should report an installed local plugin whose source cannot be read as unverified without blocking', () => {
+      const disabled = manifestFor('local-file');
+      disabled.profiles.web.plugins.demo.enabled = false;
+      const plan = buildPlan(disabled, lockWith('local-file', 'old-digest'), inventory, null, {});
+      expect(plan.operations.map((op) => op.kind)).toEqual(['disable']);
+      expect(plan.unverified).toEqual([
+        { profile: 'web', alias: 'demo', package: 'demo-plugin', reason: expect.stringContaining('/src/demo') }
+      ]);
+
+      const status = buildStatus(disabled, null, inventory, plan);
+      expect(status.status).toBe('degraded');
+      expect(status.plugins).toEqual([{ profile: 'web', package: 'demo-plugin', status: 'degraded' }]);
     });
+  });
+});
+
+describe('repairable patch file', () => {
+  it('plans a configure that rewrites a broken patch file even when every block matches', () => {
+    const manifest: EnvironmentManifest = {
+      apiVersion: 'dshenv/v1',
+      profiles: { web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'npm', version: '1.0.0' } } } } }
+    };
+    const lock: EnvironmentLock = {
+      apiVersion: 'dshenv-lock/v1',
+      profiles: { web: { plugins: { demo: { package: 'demo-plugin', source: { type: 'npm', resolvedVersion: '1.0.0' } } } } }
+    };
+    const inventory: EnvironmentInventory = {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            'demo-plugin': { name: 'demo-plugin', installed: true, version: '1.0.0', sourceType: 'npm', isSymlink: false, isExternalSymlink: false, enabled: true }
+          },
+          managedPatches: [],
+          patchFileRepairable: true
+        }
+      }
+    };
+
+    const plan = buildPlan(manifest, lock, inventory);
+    expect(plan.operations).toEqual([
+      expect.objectContaining({ kind: 'configure', alias: 'demo', reason: expect.stringContaining('not valid') })
+    ]);
+
+    inventory.profiles.web.patchFileRepairable = false;
+    expect(buildPlan(manifest, lock, inventory).hasChanges).toBe(false);
   });
 });
 
@@ -677,6 +741,22 @@ describe('lock versus effective manifest', () => {
   it('targets an exact manifest version that disagrees with the lock', () => {
     const plan = buildPlan(npmManifest('1.5.0'), npmLock('1.0.0'), installedAt('1.0.0'));
     expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: '1.5.0' })]);
+  });
+
+  it('disables again after updating a plugin that is and stays disabled, since DSH plugin add selects it', () => {
+    const manifest = npmManifest('1.5.0');
+    manifest.profiles.web.plugins.demo.enabled = false;
+    const inventory = installedAt('1.0.0');
+    inventory.profiles.web.plugins['demo-plugin'].enabled = false;
+    const plan = buildPlan(manifest, npmLock('1.0.0'), inventory);
+    expect(plan.operations.map((op) => op.kind)).toEqual(['update', 'disable']);
+  });
+
+  it('reinstalls when the installed npm package reports no version', () => {
+    const inventory = installedAt('1.0.0');
+    delete inventory.profiles.web.plugins['demo-plugin'].version;
+    const plan = buildPlan(npmManifest('1.0.0'), npmLock('1.0.0'), inventory);
+    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'update', targetVersion: '1.0.0', reason: expect.stringContaining('no version') })]);
   });
 
   it('keeps using the lock when it matches the exact manifest version', () => {

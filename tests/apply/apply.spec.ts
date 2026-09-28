@@ -112,6 +112,28 @@ profiles:
     expect(state.lastApplied).toBe('2026-01-01T00:00:00.000Z');
   });
 
+  it('takes ownership of a plugin it installed, so removing it from the manifest removes it', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.writeFileSync(
+      paths.stateFile,
+      JSON.stringify({ apiVersion: 'dshenv-state/v1', lastApplied: '2026-01-01T00:00:00.000Z', appliedLockHash: '', profiles: {} })
+    );
+    await applyEnvironment(paths, {
+      dryRun: false,
+      executor: async () => {
+        installDeclaredPlugin();
+        return { success: true };
+      }
+    });
+
+    const owned = loadState(fs.readFileSync(paths.stateFile, 'utf8')).ownership?.web?.['@nanmicoder/dsh-agent-teams'];
+    expect(owned).toMatchObject({ package: '@nanmicoder/dsh-agent-teams', alias: 'agent-teams', sourceType: 'npm', lockedVersion: '0.1.21' });
+
+    fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins: {}\n');
+    const res = await applyEnvironment(paths, { dryRun: true });
+    expect(res.plan.operations.map((op) => [op.kind, op.package])).toEqual([['remove', '@nanmicoder/dsh-agent-teams']]);
+  });
+
   it('should apply changes, create snapshot, journal and update state.json', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const res = await applyEnvironment(paths, {

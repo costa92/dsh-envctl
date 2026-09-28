@@ -1,4 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { findOnPath } from '../../src/dsh/command.js';
 import {
   resolveDshCommand,
   probeDsh,
@@ -94,5 +98,28 @@ describe('capabilitiesFor', () => {
     expect(caps.packageOperations.status).toBe('disabled');
     expect(caps.mutations).toBe(false);
     expect(caps.operationsExport).toBeNull();
+  });
+});
+
+describe('findOnPath', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-which-'));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('finds dsh.cmd on a Windows PATH split by semicolons', () => {
+    fs.writeFileSync(path.join(dir, 'dsh.CMD'), '');
+    const env = { PATH: `C:\\missing;${dir}`, PATHEXT: '.COM;.EXE;.CMD' };
+    expect(findOnPath('dsh', env, 'win32')).toBe(path.join(dir, 'dsh.CMD'));
+  });
+
+  it('finds a plain dsh on a POSIX PATH and skips a directory of that name', () => {
+    const other = path.join(dir, 'other');
+    fs.mkdirSync(path.join(other, 'dsh'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'dsh'), '');
+    expect(findOnPath('dsh', { PATH: `${other}:${dir}` }, 'linux')).toBe(path.join(dir, 'dsh'));
   });
 });
