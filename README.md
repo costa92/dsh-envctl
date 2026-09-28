@@ -389,7 +389,7 @@ dshenv pull --prefer dsh     # DSH 与清单都改过时，以 DSH 为准（--pr
 - 含本机绝对路径（如技能目录）的条目写进当前 overlay；没有选中 overlay 时新建并选中 `local`。带 `--no-overlay` 时遇到这类条目会拒绝。订阅了团队 remote 时基础清单只读，全部条目写进本机 overlay。
 - 自上次 `apply` 以来 DSH 与清单都改过时拒绝执行，需用 `--prefer` 指定以哪一边为准。
 - 写入前先建快照，`dshenv rollback <快照 id> --yes` 可撤销（id 见 `--json` 输出的 `snapshotId`）。
-- `$DSH_HOME/skills` 下的 loose skill 也一并处理：目录复制到 `envctl/skills/<名字>`，DSH 里删掉的技能从清单里删除。`apply` 反向复制，被覆盖或删除的 DSH 副本移进 `envctl/trash`（`gc` 清理）；`plan` 在 `Planned skill changes` 与 `Skills not in the manifest` 下列出技能。`envctl/skills` 可以放进团队配置仓库，随 `remote`/`sync` 同步；团队拥有的技能在 DSH 里改动后 `pull` 会拒绝。
+- `$DSH_HOME/skills` 下的 loose skill 也一并处理：目录复制到 `envctl/skills/<名字>`，DSH 里删掉的技能从清单里删除。`apply` 反向复制，被覆盖或删除的 DSH 副本移进 `envctl/trash`（`gc` 清理）；`plan` 在 `Planned skill changes` 与 `Skills not in the manifest` 下列出技能。`envctl/skills` 可以放进团队配置仓库，随 `remote`/`sync` 同步；团队拥有的技能在 DSH 里改动后 `pull` 会拒绝。Git 标记为可执行的文件同步后保持可执行；变化按内容判断，只改可执行位、内容不变的提交不会同步，需要连同内容一起改。
 - `--json` 输出 `{dryRun, changes: [{profile, from, added, changed, removed, base, overlay, overlayName?}], skills?: {added, changed, removed}, overlayCreated?, operationId?, snapshotId?}`。
 
 ---
