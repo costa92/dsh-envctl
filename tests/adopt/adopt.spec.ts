@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -91,6 +91,44 @@ describe('adoptEnvironment', () => {
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeDefined();
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].package).toBe('@nanmicoder/dsh-agent-teams');
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].lockedVersion).toBe('0.1.21');
+  });
+
+  it('puts the manifest and lock back when writing state.json fails', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.mkdirSync(path.dirname(paths.manifestFile), { recursive: true });
+    const manifestBefore = 'apiVersion: dshenv/v1\nprofiles: {}\n';
+    fs.writeFileSync(paths.manifestFile, manifestBefore);
+    const candidate: CaptureDocument = {
+      apiVersion: 'dshenv-capture/v1',
+      manifest: {
+        apiVersion: 'dshenv/v1',
+        profiles: {
+          web: {
+            plugins: {
+              'agent-teams': { package: '@nanmicoder/dsh-agent-teams', enabled: true, source: { type: 'npm', version: '0.1.21' } }
+            }
+          }
+        }
+      },
+      lock: { apiVersion: 'dshenv-lock/v1', profiles: {} },
+      warnings: []
+    };
+    const realRename = fs.promises.rename;
+    const spy = vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
+      if (String(to) === paths.stateFile) {
+        throw new Error('disk full');
+      }
+      return realRename(from, to);
+    });
+    try {
+      await expect(adoptEnvironment(paths, candidate)).rejects.toThrow(/disk full/);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(fs.readFileSync(paths.manifestFile, 'utf8')).toBe(manifestBefore);
+    expect(fs.existsSync(paths.lockFile)).toBe(false);
+    expect(fs.existsSync(paths.stateFile)).toBe(false);
   });
 
   it('keeps the declared patches of a plugin the manifest already has', async () => {
