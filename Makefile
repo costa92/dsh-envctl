@@ -7,7 +7,7 @@ HARNESS_SOURCE ?= $(DSH_WORKSPACE)/deepseek-harness
 
 # Default target
 help:
-	@echo "Available targets for dsh-envctl:"
+	@echo "Available targets for dshenv:"
 	@echo "  make install      - Install project dependencies using pnpm"
 	@echo "  make build        - Compile TypeScript codebase into lib/"
 	@echo "  make typecheck    - Run TypeScript type checks (tsc --noEmit)"

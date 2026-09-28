@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # DSH Web image whose plugin environment is applied from this repository's dshenv manifest.
-# Build: docker build --build-context dshenv=/path/to/dsh-envctl -t my-dsh .
+# Build: docker build --build-context dshenv=/path/to/dshenv -t my-dsh .
 # For reproducible builds, pin the base image by digest, e.g. node:22-slim@sha256:<digest>.
 ARG NODE_VERSION=22
 
@@ -8,7 +8,7 @@ FROM node:${NODE_VERSION}-slim AS dshenv-build
 ARG PNPM_VERSION=10.30.3
 RUN npm install -g "pnpm@${PNPM_VERSION}"
 WORKDIR /src
-# dshenv is built from a dsh-envctl checkout passed as a named build context, so unreleased changes can be used.
+# dshenv is built from a dshenv checkout passed as a named build context, so unreleased changes can be used.
 # Copy only build inputs: the checkout has no .dockerignore and may hold host node_modules.
 COPY --from=dshenv package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json tsdown.config.ts README.md ./
 COPY --from=dshenv bin ./bin
