@@ -1,0 +1,55 @@
+import * as fs from 'node:fs';
+import type { EnvironmentManifest, EnvironmentOverlay } from '../domain.js';
+import type { EnvironmentPaths } from '../environment/paths.js';
+import { ValidationError } from '../errors.js';
+import { writeAtomic } from '../io/atomic-file.js';
+import { withEnvironmentLock } from '../io/lock.js';
+import { loadManifest, serializeManifest } from '../manifest/files.js';
+import { readOverlay } from '../overlay/effective.js';
+import type { OverlaySelection } from '../overlay/selection.js';
+import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay } from '../overlay/write.js';
+import { assertNotRemoteOwned } from '../remote/ownership.js';
+import { resolveCliOverlay } from './context.js';
+
+// Resolves which layer a manifest write goes to; `overlay` is set only when writing the active overlay.
+export function resolveWrite(
+  opts: { overlay?: string | false },
+  paths: EnvironmentPaths,
+  layerOption: string | undefined,
+  missingHint = ''
+): { selection: OverlaySelection | null; overlay: OverlaySelection | null } {
+  if (!fs.existsSync(paths.manifestFile)) {
+    throw new ValidationError(`Manifest file not found: ${paths.manifestFile}${missingHint}`);
+  }
+  const selection = resolveCliOverlay(opts, paths);
+  return { selection, overlay: resolveWriteLayer(selection, layerOption) === 'overlay' ? selection : null };
+}
+
+export async function writeOverlay<T>(
+  paths: EnvironmentPaths,
+  overlay: OverlaySelection,
+  edit: (doc: EnvironmentOverlay, base: EnvironmentManifest) => T
+): Promise<T> {
+  return withEnvironmentLock(paths, async () => {
+    const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+    const doc = readOverlay(paths, overlay.name);
+    const result = edit(doc, base);
+    await saveOverlay(paths, overlay.name, base, doc);
+    return result;
+  });
+}
+
+export async function writeBase<T>(
+  paths: EnvironmentPaths,
+  selection: OverlaySelection | null,
+  edit: (manifest: EnvironmentManifest) => T
+): Promise<T> {
+  return withEnvironmentLock(paths, async () => {
+    assertNotRemoteOwned(paths, paths.manifestFile);
+    const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+    const result = edit(manifest);
+    assertBaseMergesWithOverlay(paths, selection, manifest);
+    await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
+    return result;
+  });
+}

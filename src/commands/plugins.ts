@@ -2,21 +2,22 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { getAtPath, parseConfigValue, readPluginConfig, upsertPluginPatch } from '../config/config.js';
-import { loadManifest, loadLock, loadState, serializeLock, serializeManifest } from '../manifest/files.js';
+import { loadLock, loadState, serializeLock } from '../manifest/files.js';
 import { buildPlan } from '../planner/plan.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError } from '../errors.js';
 import { ExactVersionRegex } from '../manifest/schema.js';
-import type { EnvironmentManifest, EnvironmentOverlay, PluginManifestEntry, PluginSource } from '../domain.js';
-import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
-import { assertBaseMergesWithOverlay, removeOverlayPlugin, resolveWriteLayer, saveOverlay, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
+import type { EnvironmentManifest, PluginManifestEntry, PluginSource } from '../domain.js';
+import { loadEffectiveManifest } from '../overlay/effective.js';
+import { removeOverlayPlugin, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
-import { assertLockEntryNotRemoteOwned, assertNotRemoteOwned } from '../remote/ownership.js';
+import { assertLockEntryNotRemoteOwned } from '../remote/ownership.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, aliasOption, type CommandContext } from './context.js';
 import { withEnvironmentLock } from '../io/lock.js';
+import { resolveWrite, writeBase, writeOverlay } from './manifest-write.js';
 import { readPackageJsonName } from '../source/local.js';
 
 export interface InstallPluginRequest {
@@ -112,20 +113,6 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     };
   }
 
-  // Resolves which layer a manifest write goes to; `overlay` is set only when writing the active overlay.
-  function resolveWrite(
-    opts: { overlay?: string | false },
-    paths: EnvironmentPaths,
-    layerOption: string | undefined,
-    missingHint = ''
-  ): { selection: OverlaySelection | null; overlay: OverlaySelection | null } {
-    if (!fs.existsSync(paths.manifestFile)) {
-      throw new ValidationError(`Manifest file not found: ${paths.manifestFile}${missingHint}`);
-    }
-    const selection = resolveCliOverlay(opts, paths);
-    return { selection, overlay: resolveWriteLayer(selection, layerOption) === 'overlay' ? selection : null };
-  }
-
   function requirePlugin(manifest: EnvironmentManifest, profile: string, alias: string): PluginManifestEntry {
     const plugin = manifest.profiles[profile]?.plugins[alias];
     if (!plugin) {
@@ -136,35 +123,6 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
 
   function effectivePlugin(paths: EnvironmentPaths, overlay: OverlaySelection, profile: string, alias: string): PluginManifestEntry {
     return requirePlugin(loadEffectiveManifest(paths, overlay).manifest, profile, alias);
-  }
-
-  async function writeOverlay<T>(
-    paths: EnvironmentPaths,
-    overlay: OverlaySelection,
-    edit: (doc: EnvironmentOverlay, base: EnvironmentManifest) => T
-  ): Promise<T> {
-    return withEnvironmentLock(paths, async () => {
-      const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
-      const doc = readOverlay(paths, overlay.name);
-      const result = edit(doc, base);
-      await saveOverlay(paths, overlay.name, base, doc);
-      return result;
-    });
-  }
-
-  async function writeBase<T>(
-    paths: EnvironmentPaths,
-    selection: OverlaySelection | null,
-    edit: (manifest: EnvironmentManifest) => T
-  ): Promise<T> {
-    return withEnvironmentLock(paths, async () => {
-      assertNotRemoteOwned(paths, paths.manifestFile);
-      const manifest = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
-      const result = edit(manifest);
-      assertBaseMergesWithOverlay(paths, selection, manifest);
-      await writeAtomic(paths.manifestFile, serializeManifest(manifest), 'overwrite');
-      return result;
-    });
   }
 
   function reportWrite(
