@@ -99,18 +99,22 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
   return lines.join('\n') + '\n';
 }
 
+function restartTarget(item: RestartItem): string {
+  return item.package === PROFILE_PATCHES_ALIAS ? 'profile patches' : item.package;
+}
+
 export function renderRestartSummary(restart: RestartSummary): string {
   const lines: string[] = [];
   if (restart.notRequired.length > 0) {
     lines.push('No restart needed:');
     for (const item of restart.notRequired) {
-      lines.push(`  [${item.profile}] ${item.kind} ${item.package}`);
+      lines.push(`  [${item.profile}] ${item.kind} ${restartTarget(item)}`);
     }
   }
   if (restart.required.length > 0) {
     lines.push('Restart DSH to load:');
     for (const item of restart.required) {
-      lines.push(`  [${item.profile}] ${item.kind} ${item.package} (${describeRestartReason(item)})`);
+      lines.push(`  [${item.profile}] ${item.kind} ${restartTarget(item)} (${describeRestartReason(item)})`);
     }
     lines.push('Then run: dshenv restarted');
   }

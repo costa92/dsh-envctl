@@ -28,6 +28,12 @@ describe('renderRestartSummary', () => {
     );
   });
 
+  it('names the profile patch block the way plan does', () => {
+    expect(renderRestartSummary({ notRequired: [{ profile: 'web', package: '@profile', kind: 'configure', reason: 'hmr-on' }], required: [] })).toBe(
+      'No restart needed:\n  [web] configure profile patches\n'
+    );
+  });
+
   it('omits the restart group and the Then run line when nothing needs a restart', () => {
     expect(renderRestartSummary({ notRequired: summary.notRequired, required: [] })).toBe(
       'No restart needed:\n  [web] enable agent-teams\n'
