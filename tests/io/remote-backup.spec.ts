@@ -42,6 +42,18 @@ describe('snapshots with a remote subscription', () => {
     expect(fs.readdirSync(path.join(snapshot.snapshotDir, 'overlays'))).toEqual(['team.yaml']);
   });
 
+  it('deletes an overlay the interrupted operation created before remote.json named it', async () => {
+    await writeRemoteOwnedFixture(home);
+    const snapshot = await createEnvironmentSnapshot(paths, 'op-crash', { overlayKeys: ['overlays/extra.yaml'] });
+    // Killed after writing the new overlay but before remote.json recorded it.
+    fs.writeFileSync(overlayFile('extra'), OWNED_OVERLAY);
+
+    await restoreEnvironmentSnapshot(snapshot, paths);
+
+    expect(fs.existsSync(overlayFile('extra'))).toBe(false);
+    expect(fs.existsSync(overlayFile('team'))).toBe(true);
+  });
+
   it('restores owned files, deletes overlays owned since, and leaves local overlays alone', async () => {
     await writeRemoteOwnedFixture(home);
     const remoteBefore = read(paths.remoteFile);
