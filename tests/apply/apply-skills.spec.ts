@@ -52,4 +52,14 @@ describe('apply skills', () => {
     expect(trashed.some((file) => fs.existsSync(file) && fs.readFileSync(file, 'utf8') === 'edited in DSH')).toBe(true);
     expect(fs.readFileSync(dshSkill('mine'), 'utf8')).toBe('hand-made');
   });
+
+  it('takes ownership of a declared skill DSH already has as declared, though apply copies nothing', async () => {
+    write(dshSkill('wiki'), 'declared');
+    fs.writeFileSync(paths.stateFile, JSON.stringify({ apiVersion: 'dshenv-state/v1', lastApplied: '2026-01-01T00:00:00.000Z', appliedLockHash: '', profiles: {} }));
+    expect((await applyEnvironment(paths)).applied).toBe(false);
+    expect(Object.keys(loadState(fs.readFileSync(paths.stateFile, 'utf8')).skills ?? {})).toEqual(['wiki']);
+
+    fs.rmSync(path.join(paths.skillsDir, 'wiki'), { recursive: true });
+    expect((await plan()).skillOperations).toMatchObject([{ kind: 'remove', name: 'wiki' }]);
+  });
 });

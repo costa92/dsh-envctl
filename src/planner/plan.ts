@@ -430,6 +430,12 @@ export function buildPlan(
         });
       }
     }
+
+    // A profile the manifest dropped, e.g. with a deselected overlay, gets its block emptied like dropped entries.
+    const profileOperation = profManifest ? null : planProfilePatches(profName, [], profInv, operations);
+    if (profileOperation) {
+      operations.push(profileOperation);
+    }
   }
 
   const unmanagedPatches: UnmanagedPatches[] = Object.entries(inventory.profiles)

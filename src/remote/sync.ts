@@ -258,6 +258,12 @@ export async function acceptSync(paths: EnvironmentPaths, preview: SyncPreview):
         created.push(file);
       }
       await writeAtomic(file, preview.snapshot.files[key], 'overwrite');
+      // writeAtomic keeps the mode of a file it replaces, so Git's executable bit is applied both ways.
+      const mode = (await fs.promises.stat(file)).mode & 0o777;
+      const next = preview.snapshot.executables.includes(key) ? mode | ((mode & 0o444) >> 2) : mode & ~0o111;
+      if (next !== mode) {
+        await fs.promises.chmod(file, next);
+      }
     }
     for (const key of preview.files.removed) {
       await fs.promises.rm(remoteFilePath(paths, key), { force: true });

@@ -79,6 +79,11 @@ describe('adoptEnvironment', () => {
       warnings: []
     };
 
+    fs.mkdirSync(paths.managerDir, { recursive: true });
+    fs.writeFileSync(
+      paths.stateFile,
+      JSON.stringify({ apiVersion: 'dshenv-state/v1', lastApplied: '2026-01-01T00:00:00.000Z', appliedLockHash: '', profiles: {}, skills: { wiki: 'd1' } })
+    );
     const summary = await adoptEnvironment(paths, candidate);
     expect(summary.adoptedCount).toBe(1);
 
@@ -91,6 +96,7 @@ describe('adoptEnvironment', () => {
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeDefined();
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].package).toBe('@nanmicoder/dsh-agent-teams');
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].lockedVersion).toBe('0.1.21');
+    expect(state.skills).toEqual({ wiki: 'd1' });
   });
 
   it('puts the manifest and lock back when writing state.json fails', async () => {

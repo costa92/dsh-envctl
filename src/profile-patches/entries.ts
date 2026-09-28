@@ -155,6 +155,27 @@ export function containsLocalPath(value: unknown): boolean {
   return false;
 }
 
+// Entries with machine-local paths, plus every later entry targeting an id one of them inserts: overlay entries merge
+// after the base ones, so a dependent left in the base would run before the entry it targets exists.
+export function localPatchEntries(entries: ProfilePatch[]): ProfilePatch[] {
+  const inserted = new Set<string>();
+  const collect = (value: unknown): void => {
+    for (const child of Array.isArray(value) ? value : []) {
+      if (child !== null && typeof child === 'object') {
+        if (typeof child.id === 'string') inserted.add(child.id);
+        if (child.group) collect(child.config);
+      }
+    }
+  };
+  return entries.filter((entry) => {
+    if (!containsLocalPath(entry) && !(typeof entry.id === 'string' && inserted.has(entry.id))) {
+      return false;
+    }
+    collect(entry.insert);
+    return true;
+  });
+}
+
 // Overlay entries replace a base entry with the same id in place, remove it, or are appended.
 export function mergeProfilePatches(base: ProfilePatch[], overlay: ProfilePatch[]): ProfilePatch[] {
   const result = [...base];

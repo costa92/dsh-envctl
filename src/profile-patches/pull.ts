@@ -20,10 +20,10 @@ import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { withEnvironmentLock } from '../io/lock.js';
 import {
-  containsLocalPath,
   describeProfilePatch,
   diffProfilePatches,
   digestProfilePatches,
+  localPatchEntries,
   mergeDshPatches,
   overrideKey,
   readProfilePatchState,
@@ -189,7 +189,7 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
   let overlayCreated: string | undefined;
   const counts = new Map<string, { base: number; overlay: number }>();
   for (const read of reads.filter((entry) => entry.from === 'dsh')) {
-    const local = read.desired.filter(containsLocalPath);
+    const local = localPatchEntries(read.desired);
     const baseEntries = baseOwnedByRemote
       ? (base.profiles[read.profile]?.patches ?? [])
       : read.desired.filter((entry) => !local.includes(entry));
@@ -238,6 +238,8 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     overlayKeys: overlayName ? [`overlays/${overlayName}.yaml`] : []
   });
   const selectionBefore = fs.existsSync(paths.overlaySelectionFile) ? fs.readFileSync(paths.overlaySelectionFile) : null;
+  // Snapshots hold only envctl files, so patch files already rewritten are put back from what was read.
+  const rewritten: { read: ProfileRead; written: string }[] = [];
   try {
     if (!isDeepStrictEqual(nextBase, base)) {
       await writeAtomic(paths.manifestFile, serializeManifest(nextBase), 'overwrite');
@@ -257,14 +259,21 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
       await writeAtomic(paths.stateFile, serializeState(Object.keys(skills.owned).length > 0 ? { ...rest, skills: skills.owned } : rest), 'overwrite');
     }
     for (const read of reads) {
+      let written = '';
       await rewriteProfilePatchFile(paths, read.profile, (current) => {
         if (current !== read.content) {
           throw new ValidationError(`cordis.patch.yml of profile '${read.profile}' changed during pull; run dshenv pull again`);
         }
-        return replaceProfileBlock(removeUnmanagedEntries(current), read.profile, merged.profiles[read.profile]?.patches ?? []);
+        written = replaceProfileBlock(removeUnmanagedEntries(current), read.profile, merged.profiles[read.profile]?.patches ?? []);
+        return written;
       });
+      rewritten.push({ read, written });
     }
   } catch (err) {
+    // DSH may have edited a rewritten file since; its edits win over the undo.
+    for (const { read, written } of rewritten) {
+      await rewriteProfilePatchFile(paths, read.profile, (current) => (current === written ? read.content : current)).catch(() => {});
+    }
     await restoreEnvironmentSnapshot(snapshot, paths).catch(() => {});
     await (selectionBefore ? writeAtomic(paths.overlaySelectionFile, selectionBefore, 'overwrite') : writeSelectionFile(paths, null)).catch(() => {});
     throw err;
