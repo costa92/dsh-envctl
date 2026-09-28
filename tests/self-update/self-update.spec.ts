@@ -62,6 +62,15 @@ describe('self-update', () => {
     expect(await detectInstallMethod(run, packageRoot())).toBe(method);
   });
 
+  it('does not treat a pnpm link --global checkout as a global install', async () => {
+    const checkout = path.join(home, 'code', 'dshenv');
+    fs.mkdirSync(checkout, { recursive: true });
+    fs.rmSync(path.join(pnpmRoot, '@costa92', 'dshenv'), { recursive: true });
+    fs.symlinkSync(checkout, path.join(pnpmRoot, '@costa92', 'dshenv'));
+    const { run } = fakeRunner(roots());
+    expect(await detectInstallMethod(run, fs.realpathSync(path.join(pnpmRoot, '@costa92', 'dshenv')))).toBeNull();
+  });
+
   it('does not treat a linked checkout as a global install', async () => {
     const checkout = path.join(home, 'code', 'dshenv');
     fs.mkdirSync(checkout, { recursive: true });
@@ -193,8 +202,8 @@ describe('self-update', () => {
     expect(calls.some((call) => call.startsWith('pnpm add'))).toBe(false);
   });
 
-  it('detects the real pnpm layout, where the package resolves into .pnpm', async () => {
-    const store = path.join(pnpmRoot, '.pnpm', '@costa92+dshenv@0.2.0', 'node_modules', '@costa92', 'dshenv');
+  it('detects the real pnpm 10 layout, where the package resolves into .pnpm beside node_modules', async () => {
+    const store = path.join(path.dirname(pnpmRoot), '.pnpm', '@costa92+dshenv@0.2.0', 'node_modules', '@costa92', 'dshenv');
     fs.mkdirSync(store, { recursive: true });
     fs.rmSync(path.join(pnpmRoot, '@costa92', 'dshenv'), { recursive: true });
     fs.symlinkSync(store, path.join(pnpmRoot, '@costa92', 'dshenv'));

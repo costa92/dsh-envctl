@@ -147,7 +147,9 @@ export async function detectInstallMethod(run: Runner, packageRoot: string): Pro
   for (const method of ['npm', 'pnpm'] as const) {
     const result = await run(method, ['root', '-g'], { timeoutMs: LOOKUP_TIMEOUT_MS }).catch(() => null);
     const globalRoot = result?.exitCode === 0 ? result.stdout.trim() : '';
-    if (!globalRoot || !isInside(realpathOrSelf(globalRoot), root)) {
+    // pnpm 10 keeps the package files in a .pnpm store beside its global node_modules, not inside it.
+    const installDir = method === 'pnpm' ? path.dirname(realpathOrSelf(globalRoot)) : realpathOrSelf(globalRoot);
+    if (!globalRoot || !isInside(installDir, root)) {
       continue;
     }
     const spec = method === 'pnpm' ? pnpmGlobalSpec(globalRoot) : undefined;
