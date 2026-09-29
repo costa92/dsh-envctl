@@ -5,7 +5,8 @@ import { createEnvironmentSnapshot, findEnvironmentSnapshot, readAbsentKeys, res
 import { appendJournalEntry } from '../io/journal.js';
 import { ValidationError } from '../errors.js';
 import { overlayFilePath, readSelectionFile, writeSelectionFile } from '../overlay/selection.js';
-import { loadState, serializeState } from '../manifest/files.js';
+import { loadLock, loadManifest, loadState, serializeState } from '../manifest/files.js';
+import * as path from 'node:path';
 import { writeAtomic } from '../io/atomic-file.js';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import type { EnvironmentState } from '../domain.js';
@@ -58,6 +59,27 @@ async function keepInstalledOwnership(paths: EnvironmentPaths, before: Environme
   }
 }
 
+// Restoring a file that does not parse would leave every later command failing on it.
+function assertSnapshotReadable(snapshotId: string, snapshotDir: string): void {
+  const loaders: Array<[string, (content: string) => unknown]> = [
+    ['manifest.yaml', loadManifest],
+    ['lock.json', loadLock],
+    ['state.json', loadState]
+  ];
+  for (const [file, load] of loaders) {
+    const saved = path.join(snapshotDir, file);
+    if (!fs.existsSync(saved)) {
+      continue;
+    }
+    try {
+      load(fs.readFileSync(saved, 'utf8'));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ValidationError(`Snapshot ${snapshotId} cannot be restored: its ${file} is invalid (${message})`);
+    }
+  }
+}
+
 export async function rollbackEnvironment(
   paths: EnvironmentPaths,
   options?: RollbackOptions
@@ -69,6 +91,7 @@ export async function rollbackEnvironment(
     const message = err instanceof Error ? err.message : String(err);
     throw new ValidationError(message);
   }
+  assertSnapshotReadable(snapshot.snapshotId, snapshot.snapshotDir);
 
   if (options?.dryRun) {
     return {

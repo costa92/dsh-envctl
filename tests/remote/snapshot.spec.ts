@@ -170,6 +170,28 @@ describe('loadRemoteSnapshot', () => {
       /^Remote file envctl\/lock\.json: Lock entry 'web\/mine' has a Git URL on this machine; a team lock cannot pin machine-local paths$/
     ],
     [
+      'manifest with a JavaScript expression in a profile patch',
+      {
+        'envctl/manifest.yaml': `${TEAM_MANIFEST}    patches:\n      - id: persona\n        disabled: { __jsExpr: "process.exit()" }\n`
+      },
+      /^Remote file envctl\/manifest\.yaml: Profile 'web' patch has a JavaScript expression \(__jsExpr\) that DSH would run; set it in a local overlay, not in a team configuration$/
+    ],
+    [
+      'manifest with a JavaScript expression in a plugin patch',
+      {
+        'envctl/manifest.yaml': `${TEAM_MANIFEST}        patches:\n          - id: shared\n            config: { nested: [{ when: { __jsExpr: "1" } }] }\n`
+      },
+      /^Remote file envctl\/manifest\.yaml: Plugin 'web\/shared' patch has a JavaScript expression \(__jsExpr\)/
+    ],
+    [
+      'overlay with a JavaScript expression in a profile patch',
+      {
+        'envctl/manifest.yaml': TEAM_MANIFEST,
+        'envctl/overlays/dev.yaml': 'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    patches:\n      - id: persona\n        disabled: { __jsExpr: "1" }\n'
+      },
+      /^Remote file envctl\/overlays\/dev\.yaml: Profile 'web' patch has a JavaScript expression \(__jsExpr\)/
+    ],
+    [
       'pair of overlays differing only by case',
       { 'envctl/manifest.yaml': TEAM_MANIFEST, 'envctl/overlays/Team.yaml': TEAM_OVERLAY, 'envctl/overlays/team.yaml': TEAM_OVERLAY },
       /^Remote overlays envctl\/overlays\/Team\.yaml and envctl\/overlays\/team\.yaml differ only by case$/

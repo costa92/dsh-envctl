@@ -17,6 +17,7 @@
 
 - Profile 名在清单、overlay、lock 与 `-p` 中统一校验：只能含字母、数字、`.`、`_`、`-`，不能以 `-` 开头，也不能是 `.` 或 `..`，否则报 `Invalid profile name`（退出码 3）。
 - 团队配置（remote 的 manifest 与 overlay）不能再设置 `environment.harness.sourceDir` / `environment.sourceRoot`，团队 manifest、overlay 与 lock 中的 Git 插件不能使用 `file://`、绝对或相对路径等本机地址，否则整个 commit 被拒绝；这两项请写进本机 overlay。
+- 团队配置（remote 的 manifest 与 overlay）的插件 patch 与 profile patch 不能含 JavaScript 表达式（`__jsExpr`），它会被写成 DSH 执行的 `!!js` 值；这类 patch 请写进本机 overlay。
 - 清单中 Git 来源的 URL 与 ref 不能以 `-` 开头，`commit` 必须是 7-64 位十六进制 commit id；`source clone` 把 URL 放在 `--` 之后传给 git，`source pull --ref` 拒绝以 `-` 开头的 ref。
 - `runtime --allow-remote` 连非本机地址时只接受 https，拒绝明文 http。
 - `self-update` 在用户主目录下运行 npm/pnpm，不再读取当前目录的 `.npmrc`。
@@ -37,6 +38,8 @@
 - `source clone --profile` 写 lock 失败时恢复清单（或 overlay）并删除克隆；`source pull --profile` 总是按清单中的 URL 写入完整的 lock 条目，不再显示 `Updated` 却没有锁定新 commit。
 - 从源码目录运行 DSH 时，`--version`（10 秒）与 `--dump-config`（15 秒）超时会结束整棵进程树并返回，不再被 pnpm 启动的子进程拖住；pnpm 的脚本横幅不再混进输出，`tools` 能解析、HMR 探测不再总是 unknown。
 - 结束进程树时等全部退出后才返回，强制结束只发给仍存活的进程，不会误杀之后复用了 pid 的进程。
+- `rollback` 先检查快照中的 `manifest.yaml`、`lock.json`、`state.json` 能否解析，不能时以退出码 3 拒绝且不改动任何文件，不再恢复出一份让之后所有命令都失败的文件。
+- `adopt` 已写入清单、接管 patch 条目时失败，错误信息说明插件已接管、修正后运行 `dshenv pull` 即可，不再看起来像 adopt 没有生效。
 - `remote sync` 预览复制技能目录时跳过软链接，不再顺着链接写入或删除外部文件。
 
 ## 0.3.0 - 2026-09-28

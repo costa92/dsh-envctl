@@ -74,6 +74,18 @@ describe('CLI pull', () => {
     expect(refused.stderr).toMatch(/machine-local paths/);
   });
 
+  it('says what adopt already recorded when taking over the patch entries then fails', async () => {
+    await run(['capture', '--output', path.join(tempHome, 'capture.yaml')]);
+    const adopted = await run(['adopt', '--from', path.join(tempHome, 'capture.yaml'), '--no-overlay']);
+    expect(adopted.code).toBe(3);
+    expect(adopted.stderr).toMatch(/^Adopted 1 plugin\(s\) across profile\(s\): web, but taking over their patch entries failed: .*machine-local paths.*; fix that and run dshenv pull/m);
+    // The adoption itself stands: running adopt again is not needed, only the pull.
+    expect(Object.keys(manifest().profiles.web.plugins)).toHaveLength(1);
+    expect(fs.existsSync(path.join(tempHome, 'envctl', 'state.json'))).toBe(true);
+    expect(fs.readFileSync(patchFile(), 'utf8')).toBe(PATCH_FILE);
+    expect((await run(['pull'])).code).toBe(0);
+  });
+
   it('takes the patch entries over when adopting a profile', async () => {
     const captured = await run(['capture', '--output', path.join(tempHome, 'capture.yaml')]);
     expect(captured.code).toBe(0);
