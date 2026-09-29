@@ -65,7 +65,8 @@ describe('CLI sync', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(root, { recursive: true, force: true });
+    // On Windows a git process that just exited can still hold the team clone for a moment.
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('reports up to date with exit 0', async () => {
