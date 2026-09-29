@@ -210,7 +210,7 @@ describe('restart hint', () => {
   // Loaded yet owed a restart: DSH may already have restarted, so the hint must not contradict the result.
   it('asks only to clear the flag when a plugin owed a restart is loaded', () => {
     expect(one(declared({ restartRequired: true }), [bundle()], [entry('active')]).hint).toBe(LOADED_RESTART_HINT);
-    expect(LOADED_RESTART_HINT).toBe('if DSH restarted after the last apply, run dshenv restarted to clear the restart flag');
+    expect(LOADED_RESTART_HINT).toBe('if DSH restarted after the last apply, run dshenv mark-restarted to clear the restart flag');
   });
 
   it('leaves out the hint for unloaded', () => {

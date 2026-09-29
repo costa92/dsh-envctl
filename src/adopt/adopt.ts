@@ -87,6 +87,8 @@ function freeAlias(plugins: Record<string, unknown>, alias: string): string {
 export interface AdoptOptions {
   // Runs before anything is written; lets callers reject a base that an active overlay cannot merge onto.
   validateManifest?: (manifest: EnvironmentManifest) => void;
+  // Works out what would be adopted and writes nothing.
+  dryRun?: boolean;
 }
 
 export async function adoptEnvironment(
@@ -220,6 +222,9 @@ async function adoptUnderLock(
   };
 
   options?.validateManifest?.(mergedManifest);
+  if (options?.dryRun) {
+    return { adoptedCount: details.length, profiles: Array.from(profilesSet), details, operationId };
+  }
 
   // Each write is atomic but the three together are not, so a failure puts back the files already written.
   const writes: Array<[string, string]> = [

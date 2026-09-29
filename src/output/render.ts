@@ -121,7 +121,7 @@ export function renderRestartSummary(restart: RestartSummary): string {
     for (const item of restart.required) {
       lines.push(`  [${item.profile}] ${item.kind} ${restartTarget(item)} (${describeRestartReason(item)})`);
     }
-    lines.push('Then run: dshenv restarted');
+    lines.push('Then run: dshenv mark-restarted');
   }
   return lines.length > 0 ? lines.join('\n') + '\n' : '';
 }
@@ -166,7 +166,38 @@ export function renderStatus(status: EnvironmentStatusSummary): string {
     lines.push(`Unmanaged plugins: ${status.unmanagedCount}`);
   }
 
-  return lines.join('\n') + '\n';
+  const table = status.plugins.length > 0
+    ? '\n' + renderTable(['PROFILE', 'PACKAGE', 'STATUS'], status.plugins.map((entry) => [entry.profile, entry.package, entry.status]))
+    : '';
+  return lines.join('\n') + '\n' + table;
+}
+
+// Columns padded to their widest cell, so the table lines up in a terminal and still splits on whitespace.
+export function renderTable(header: string[], rows: string[][]): string {
+  const widths = header.map((title, column) => Math.max(title.length, ...rows.map((row) => row[column].length)));
+  const line = (cells: string[]) => cells.map((cell, column) => (column === cells.length - 1 ? cell : cell.padEnd(widths[column]))).join('  ');
+  return [line(header), ...rows.map(line)].join('\n') + '\n';
+}
+
+export function renderPluginTable(rows: Array<Record<string, unknown>>, withOrigin: boolean): string {
+  if (rows.length === 0) {
+    return 'No plugins declared. Add one with: dshenv install <spec> -p <profile>\n';
+  }
+  const yesNo = (value: unknown) => (value === undefined ? '-' : value ? 'yes' : 'no');
+  const header = ['PROFILE', 'ALIAS', 'PACKAGE', 'VERSION', 'ENABLED', 'INSTALLED', ...(withOrigin ? ['ORIGIN'] : [])];
+  return renderTable(
+    header,
+    rows.map((row) => [
+      String(row.profile),
+      row.alias === null ? '(unmanaged)' : String(row.alias),
+      String(row.package),
+      // A non-npm source has no declared version; its type says where it comes from.
+      String(row.version ?? (row.source === 'unmanaged' ? (row.actualVersion ?? '-') : row.source)),
+      yesNo(row.enabled),
+      yesNo(row.installed),
+      ...(withOrigin ? [String(row.origin ?? '-')] : [])
+    ])
+  );
 }
 
 export function renderRuntimeReport(profile: string, endpoint: string, items: RuntimeCheckItem[]): string {

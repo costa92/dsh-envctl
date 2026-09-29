@@ -120,7 +120,7 @@ describe('CLI runtime', () => {
     await serve({ bundles: [agentTeamsBundle({ enabled: false })], plugins: [] });
     const out = await run(['runtime']);
     expect(out.code).toBe(5);
-    expect(out.stdout).toContain(`not-loaded  agent-teams  ${PKG} (restart DSH, then run dshenv restarted)`);
+    expect(out.stdout).toContain(`not-loaded  agent-teams  ${PKG} (restart DSH, then run dshenv mark-restarted)`);
   });
 
   it('exits 5 when a disabled plugin is still loaded', async () => {

@@ -47,8 +47,8 @@ export interface RuntimeCheckItem {
   hint?: string;
 }
 
-export const RESTART_HINT = 'restart DSH, then run dshenv restarted';
-export const LOADED_RESTART_HINT = 'if DSH restarted after the last apply, run dshenv restarted to clear the restart flag';
+export const RESTART_HINT = 'restart DSH, then run dshenv mark-restarted';
+export const LOADED_RESTART_HINT = 'if DSH restarted after the last apply, run dshenv mark-restarted to clear the restart flag';
 
 const BundleSchema = z.object({
   name: z.string(),

@@ -29,7 +29,7 @@
 - **结构化输出**：所有命令的成功结果均支持 `--json` 格式；带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr（命令行参数解析错误除外，仍为 commander 的纯文本）。
 - **DSH 配置双向同步**：你在 DSH 里改的设置（模型、语言、权限、技能目录等写进 `cordis.patch.yml` 的条目）由 `dshenv pull` 收进清单，含本机绝对路径的条目放进本机 overlay；`~/.dsh/skills` 下的 loose skill 收进 `envctl/skills`。`apply` 按清单写回，`plan` 能分辨改动来自 DSH 还是清单。
 - **组件脚手架**：`dshenv new` 从模板生成 skill/agent/tool/mcp 组件包，可选直接登记进清单。
-- **团队共享基线**：`dshenv remote add` 订阅团队 Git 配置仓库，`dshenv sync` 预览并显式接受固定 commit 的更新；远程文件与团队 lock 条目只读，本机定制写本地 overlay，其插件的 lock 条目照常由本机维护。
+- **团队共享基线**：`dshenv remote add` 订阅团队 Git 配置仓库，`dshenv remote sync` 预览并显式接受固定 commit 的更新；远程文件与团队 lock 条目只读，本机定制写本地 overlay，其插件的 lock 条目照常由本机维护。
 
 ---
 
@@ -120,7 +120,7 @@ DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容�
 `-p, --profile <name>` 是 DSH Profile 的名字，即 `profiles/<name>/` 的目录名和清单 `profiles:` 下的键。所有命令用同一套规则：
 
 - 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`runtime` 在清单只声明一个 Profile 时仍直接用它。
-- 按 Profile 过滤的命令（`list`、`pull`、`capture`、`overlay show`、`restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效。
+- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效。
 - `source`、`new` 的 `-p` 表示把克隆或新建的包登记到该 Profile，不写就不登记。
 
 - 写入命令（`install`、`new -p`、`source clone -p`）指定一个清单没声明、DSH 也没创建的 Profile 时，默认按拼写错误拒绝并给出相近的名字；确实要新建时加 `--new-profile`。
@@ -183,11 +183,11 @@ dshenv capture --output my-dsh-backup.yaml
 接管来自 `capture` 生成的候选清单，建立明确的插件所有权记录。
 
 ```bash
-# 校验候选事实一致性并接管所有权
-dshenv adopt --from my-candidate.yaml
+dshenv adopt --from my-candidate.yaml        # 预览会接管哪些插件，有待接管时退出码 2，不写文件
+dshenv adopt --from my-candidate.yaml --yes  # 校验候选事实一致性并接管所有权
 ```
 
-`adopt` 没有交互确认，会直接写入清单、锁文件和状态；`--yes` 为兼容保留，不改变行为。执行前请先审阅候选文件。
+不带 `--yes` 时 `adopt` 只列出将接管的插件；带 `--yes` 才写入清单、锁文件和状态。
 
 接管的 Profile 中写在 `cordis.patch.yml` 受管块之外的条目，`adopt` 会按 [`dshenv pull`](#22-dshenv-pull) 的规则一并收进清单。
 
@@ -196,18 +196,21 @@ dshenv adopt --from my-candidate.yaml
 
 ```bash
 dshenv plan
+dshenv plan -p web     # 只看一个 Profile
 ```
 
 ### 6. `dshenv apply`
 基于受管清单与锁文件，将期望状态安全收敛应用到 DSH 运行环境中（具备独占写锁、快照备份与操作日志审计）。
 
 ```bash
-# 模拟执行（不修改磁盘或获取排他锁）
+# 模拟执行（不修改磁盘或获取排他锁）；有变更时退出码 2
 dshenv apply --dry-run
 
 # 执行变更并提交状态
 dshenv apply --yes
 ```
+
+不带 `--yes` 的 `apply` 与 `--dry-run` 相同：展示计划、有变更时退出码 2，并在 stderr 提示加 `--yes` 重跑。`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 同样如此：不带 `--yes` 只预览，有待执行的内容时退出码 2，没有时退出码 0。
 
 当前执行计划中的 `install/update/enable/disable/remove/configure`。`configure` 只写入 Profile `cordis.patch.yml` 的受管块。没有所有权记录的实际插件只标为 `unmanaged`，不会卸载。
 
@@ -226,7 +229,7 @@ No restart needed:
 Restart DSH to load:
   [web] update shared-plugin (package updates are not hot-reloaded)
   [cli] install tool-x (hot reload is off for profile cli)
-Then run: dshenv restarted
+Then run: dshenv mark-restarted
 ```
 
 `--dry-run` 在每个计划操作后标注 `(no restart)` 或 `(restart required: <原因>)`。`--json` 结果新增 `restart: { notRequired, required }`，每项为 `{ profile, package, kind, reason, detail? }`，`reason` 取 `hmr-on`、`package-update`、`hmr-off`、`hmr-unknown`，`detail` 只在 `hmr-unknown` 时出现，为探测失败的原因。Profile 尚未创建时不运行探测（`--dump-config` 会创建 Profile），按无法判断处理。
@@ -236,7 +239,7 @@ dshenv 改写 Profile `package.json`（启用、停用、卸载前移出 bundle�
 几点说明：
 
 - 「无需重启」表示 DSH 会自动重新加载；dshenv 不确认插件是否真的加载成功（DSH 只在日志里记录重新加载失败）。
-- `configure` 会列在分组里，但不写入 state，所以只含 `configure` 的 apply 之后运行 `dshenv restarted` 可能显示清除了 0 个插件。
+- `configure` 会列在分组里，但不写入 state，所以只含 `configure` 的 apply 之后运行 `dshenv mark-restarted` 可能显示清除了 0 个插件。
 - 判定为无需重启的 `remove` 会连同该插件此前的 `restart-required` 条目一起删除（插件已经不在了）。
 - 等 Profile 锁超时后 apply 会回滚，但回滚本身写 bundle 与 `cordis.patch.yml` 时也可能要等这把锁；回滚未能完成时运行 `dshenv plan` 查看现状。DSH Web 安装插件时整个安装过程都持锁，可能超过 dshenv 的 30 秒等待，等安装结束后再重试。
 
@@ -267,7 +270,7 @@ dshenv purge agent-teams --profile web --yes
 ```
 
 ### 10. `dshenv list`
-列出清单中的插件，以及 plan 标出的 unmanaged 包。
+以表格列出清单中的插件（`PROFILE ALIAS PACKAGE VERSION ENABLED INSTALLED`，有生效 overlay 时加 `ORIGIN` 列），以及 plan 标出的 unmanaged 包（别名显示为 `(unmanaged)`）。非 npm 来源的 `VERSION` 列写来源类型；没有插件时提示如何添加。
 
 ```bash
 dshenv list
@@ -326,6 +329,7 @@ dshenv source pull -p web --as demo --ref v1.2.0
 按机器/环境在 base 清单（`envctl/manifest.yaml`）之上叠加 `envctl/overlays/<name>.yaml`。
 
 ```bash
+dshenv overlay create laptop   # 新建空 overlay：envctl/overlays/laptop.yaml
 dshenv overlay use laptop      # 本机持久选择
 dshenv overlay use --none      # 清除选择
 dshenv overlay list            # 列出 overlay，标出当前生效项
@@ -334,14 +338,35 @@ dshenv plan --overlay server   # 单次命令临时指定
 dshenv plan --no-overlay       # 单次命令只用 base
 ```
 
+overlay 文件格式与清单相同的 `profiles` 结构，只写需要覆盖的字段；`remove: true` 删除 base 中的同名插件或 patch：
+
+```yaml
+apiVersion: dshenv-overlay/v1
+profiles:
+  web:
+    plugins:
+      agent-teams:
+        enabled: false            # 覆盖 base 中的字段
+      local-tool:                 # 只在本机存在的插件
+        package: "@me/local-tool"
+        source: { type: local-link, path: /home/me/src/local-tool }
+      old-plugin:
+        remove: true              # 本机不装 base 中的这个插件
+```
+
 选择优先级：`--overlay` 或 `--no-overlay`（两者同时使用时报错，退出码 3）> `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable/disable/config`、`source clone --profile`、`new -p`、`adopt`）必须带 `--layer base` 或 `--layer overlay`；也可以设环境变量 `DSHENV_LAYER` 作为默认值，它只在有生效 overlay 时起作用，使用时会在 stderr 提示。`adopt` 只写 base。
 
-### 16. `dshenv restarted`
+### 16. `dshenv mark-restarted`
 `apply` 输出 `Restart DSH to load:` 分组时，其中插件的状态标为 `restart-required`（升级了已装插件，或该 Profile 的热加载关闭、无法判断）。热加载开启时的安装、启用、停用、配置与卸载当场生效，不需要本命令。重启 DSH 后运行本命令确认，清除该状态（已卸载插件的条目一并删除）。dshenv 无法自行判断 DSH 是否已重启。
 
 ```bash
-dshenv restarted
-dshenv restarted --profile web --json
+dshenv mark-restarted
+dshenv mark-restarted --profile web --json
+```
+
+旧名 `dshenv restarted` 仍可使用。
+
+```bash
 ```
 
 #### runtime：核对运行中的 DSH 是否已加载
@@ -384,7 +409,7 @@ dshenv new mcp docs-server              # MCP server 配置包
 
 `docs/examples/container/` 提供构建 DSH Web 容器镜像的 `Dockerfile`、`compose.yaml` 与 `cordis.patch.yml`，镜像构建期执行 `dshenv apply` 装好清单声明的插件。安全要点：容器内监听 `0.0.0.0` 只是为了让 Docker 转发端口，宿主机端口必须只发布到 `127.0.0.1`（不要用 `-P`），否则会把 DSH Web 的 shell 执行能力暴露到局域网；回环发布挡不住同一 Docker 网络内的其他容器，它们能直接访问容器 IP 并通过 Host 校验，只剩启动 token 一道防线，因此应放在独立的自定义网络上（compose 的项目网络即可，但同项目新增的服务也能访问）。完整用法、构建参数与数据卷说明见 `docs/examples/container/README.md`。
 
-### 20. `dshenv remote` 与 `dshenv sync`
+### 20. `dshenv remote`
 
 团队在一个 Git 配置仓库中维护 base 清单、lock 与团队 overlay（默认读取仓库内 `envctl/`），成员订阅后按固定 commit 显式接受更新：
 
@@ -392,11 +417,14 @@ dshenv new mcp docs-server              # MCP server 配置包
 dshenv remote add git@github.com:team/dsh-config.git          # 预览：文件变化与接受后的 plan，退出码 2，不写文件
 dshenv remote add git@github.com:team/dsh-config.git --yes    # 接受并固定到分支最新 commit
 dshenv remote show                                           # URL、分支、固定 commit、远程文件与 lock 条目及本地改动
-dshenv sync                                                  # 拉取并预览更新，退出码 2；已是最新时退出码 0
-dshenv sync --yes                                            # 接受更新（只接受 fast-forward），之后自行 plan / apply
-dshenv sync --ref v1.2.0 --yes                               # 移动到订阅分支上的某个 tag 或 commit
+dshenv remote sync                                           # 拉取并预览更新，退出码 2；已是最新时退出码 0
+dshenv remote sync --yes                                     # 接受更新（只接受 fast-forward），之后自行 plan / apply
+dshenv remote sync --ref v1.2.0 --yes                        # 移动到订阅分支上的某个 tag 或 commit
+dshenv remote remove                                         # 预览取消订阅，退出码 2
 dshenv remote remove --yes                                   # 取消订阅，文件保留为本地文件
 ```
+
+顶层的 `dshenv sync` 是 `remote sync` 的旧名，仍可使用。
 
 - 只采用 `<path>/manifest.yaml`（必需）、`<path>/lock.json`、`<path>/overlays/*.yaml`；`--path` 指定仓库内目录（`.` 为仓库根），`--branch` 指定分支（默认远程 HEAD 所指分支）。团队 manifest、团队 overlay 与团队 lock 都不能使用 `local-link` / `local-file` 源或指向本机的 Git 地址（`file://`、本地路径），团队 manifest 与团队 overlay 也不能设置 `environment.harness.sourceDir` / `environment.sourceRoot`（本机路径无法跨机器共享，且 dshenv 会执行该目录下的 DSH），团队 manifest 与团队 overlay 的插件 patch 与 profile patch 也不能含 JavaScript 表达式（`__jsExpr`，dshenv 会把它写成 DSH 执行的 `!!js` 值），否则整个 commit 被拒绝；这些请写在本机 overlay 里。
 - `manifest.yaml` 与团队 overlay 整文件归远程；`lock.json` 按 `profile/alias` 条目归属：团队 lock 中的条目归远程，其余条目（本地 overlay 插件的 Git commit、本地源摘要）归本机，同步时只替换团队条目。本地 overlay 把团队 lock 已固定的插件改为 `local-link` / `local-file` 源时，`apply` 以退出码 3 拒绝；应在本地 overlay 中对它写 `remove: true`，再以新 alias 加入本地源插件。
@@ -488,7 +516,7 @@ dshenv remove agent-teams -p web
 - npm 来源先用 `npm view` 核对包与版本：不存在时以退出码 3 报错并给出最新版本，npm 查询不了（离线等）时只警告。设 `DSHENV_NPM_CHECK=off` 跳过核对。
 - `enable`、`disable`、`remove`、`update`、`config` 也接受包名；别名写错时报错会给出相近的别名。
 - 输出统一为「改了清单 + 下一步」，如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`。
-- `remove` 从清单删除该条目；写 overlay 时，base 中已有的插件记为 `remove: true`。`apply` 只卸载有所有权记录的插件（dshenv 安装或 `adopt` 接管的），其他实际存在的插件标为 `unmanaged`，不会卸载。`--yes` 为兼容保留，不改变行为。
+- `remove` 从清单删除该条目；写 overlay 时，base 中已有的插件记为 `remove: true`。`apply` 只卸载有所有权记录的插件（dshenv 安装或 `adopt` 接管的），其他实际存在的插件标为 `unmanaged`，不会卸载。`remove` 只改清单，无需确认；旧脚本里的 `-y`/`--yes` 仍被接受。`uninstall` 是 `remove` 的别名。
 - 有生效 overlay 时这四个命令都须带 `--layer base|overlay`，或设环境变量 `DSHENV_LAYER=base|overlay` 作为默认（见第 15 节）。
 
 ---
@@ -498,9 +526,9 @@ dshenv remove agent-teams -p web
 | 退出码 | 含义 |
 | :--- | :--- |
 | `0` | 成功 / 环境与清单完全同步（Clean） |
-| `1` | 通用 CLI 错误 / 参数解析失败 |
-| `2` | 存在有效变更计划（Drifted，`plan`/`status`）；`sync`、`remote add` 预览有待接受的更新；`runtime` 有插件仍在加载；`self-update --check` 有可安装的版本；`pull --dry-run` 有可收进的变更 |
-| `3` | 输入或清单格式校验失败（ValidationError） |
+| `1` | 意外失败（如 Git、npm 或网络错误） |
+| `2` | 存在有效变更计划（Drifted，`plan`/`status`/`apply --dry-run`）；不带 `--yes` 的 `apply`、`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 预览有待执行的内容；`runtime` 有插件仍在加载；`self-update --check` 有可安装的版本；`pull --dry-run` 有可收进的变更 |
+| `3` | 用法错误（缺参数、未知选项或命令）或输入、清单格式校验失败（ValidationError）；`--json` 时以 `{"error": {...}}` 输出 |
 | `4` | DSH 运行时能力不支持或未找到（CapabilityError） |
 | `5` | 环境降级或运行时响应异常（DegradedError） |
 

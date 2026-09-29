@@ -259,9 +259,11 @@ describe('CLI remote', () => {
 
   it('removes the subscription only with --yes and leaves the files writable', async () => {
     await run(['remote', 'add', team.url, '--yes']);
-    const refused = await run(['remote', 'remove']);
-    expect(refused.code).toBe(3);
-    expect(refused.stderr).toContain('Refusing to remove the remote without --yes');
+    const preview = await run(['remote', 'remove']);
+    expect(preview.code).toBe(2);
+    expect(preview.stdout).toContain(`Would stop following ${team.url}`);
+    expect(preview.stderr).toContain('Re-run with --yes to remove the remote');
+    expect(fs.existsSync(paths.remoteFile)).toBe(true);
     expect((await run(['install', 'extra-plugin@1.0.0', '-p', 'web'])).code).toBe(3);
 
     expect((await run(['remote', 'remove', '--yes'])).code).toBe(0);

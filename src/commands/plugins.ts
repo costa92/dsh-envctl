@@ -34,6 +34,7 @@ import { resolveDshCommand } from '../dsh/command.js';
 import { dumpProfileConfig } from '../dsh/hmr.js';
 import { parseComposedProfile, pluginConfigKeys } from '../tools/catalog.js';
 import { withEnvironmentLock } from '../io/lock.js';
+import { renderPluginTable } from '../output/render.js';
 import { resolveWrite, writeBase, writeOverlay } from './manifest-write.js';
 import { readPackageJsonName } from '../source/local.js';
 
@@ -353,7 +354,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     .command('update <alias>')
     .description('Update the declared npm version for a plugin in the manifest')
     .addOption(targetProfile())
-    .requiredOption('--to <version>', 'exact version to declare; does not float to latest')
+    .requiredOption('--to <version>', '(required) exact version to declare; does not float to latest')
     .addOption(writeLayer())
     .action(async (name: string, cmdOpts) => {
       const opts = program.opts();
@@ -418,6 +419,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
             package: plugin.package,
             enabled: plugin.enabled ?? true,
             source: plugin.source.type,
+            version: plugin.source.type === 'npm' ? plugin.source.version : undefined,
             installed: Boolean(installed?.installed),
             actualVersion: installed?.version,
             origin: provenance[profileName]?.[alias]?.origin ?? null
@@ -444,10 +446,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         if (selection) {
           writeOut(overlayBanner(selection));
         }
-        for (const row of rows) {
-          const origin = selection ? ` origin=${String(row.origin ?? '-')}` : '';
-          writeOut(`${row.profile} ${row.alias ?? '-'} ${row.package} ${row.source} installed=${String(row.installed)}${origin}\n`);
-        }
+        writeOut(renderPluginTable(rows, Boolean(selection)));
       }
     });
 
@@ -623,9 +622,11 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
 
   program
     .command('remove <alias>')
-    .description('Remove a plugin from the manifest (apply uninstalls it)')
+    .alias('uninstall')
+    .description('Remove a plugin from the manifest (apply removes it from DSH)')
     .addOption(targetProfile())
-    .option('-y, --yes', 'skip confirmation')
+    // Removing only edits the manifest (apply does the rest), so there is nothing to confirm; kept for old scripts.
+    .addOption(new Option('-y, --yes').hideHelp())
     .addOption(writeLayer())
     .action(async (name: string, cmdOpts) => {
       const opts = program.opts();

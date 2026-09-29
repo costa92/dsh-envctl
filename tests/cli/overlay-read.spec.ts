@@ -106,10 +106,11 @@ describe('CLI overlay-aware reads', () => {
 
     const text = await run(['list', '--overlay', 'laptop']);
     expect(text.stdout).toContain('overlay: laptop (flag)');
-    expect(text.stdout).toContain('origin=overlay:laptop');
+    expect(text.stdout).toMatch(/^PROFILE .* ORIGIN$/m);
+    expect(text.stdout).toMatch(/ extra .* overlay:laptop$/m);
 
     const plain = await run(['list']);
-    expect(plain.stdout).not.toContain('origin=');
+    expect(plain.stdout).not.toContain('ORIGIN');
   });
 
   it('includes the overlay in status JSON', async () => {
