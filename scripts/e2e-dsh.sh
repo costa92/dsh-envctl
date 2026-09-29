@@ -51,7 +51,15 @@ stop_web() {
     web_pid=""
   fi
 }
-trap stop_web EXIT
+
+# web start leaves dsh web running on its own, so a run that ends before `web stop` stops it here.
+stop_all() {
+  stop_web
+  if [ -n "${run+x}" ]; then
+    DSH_HOME="$work/home" "${run[@]}" web stop --profile web >/dev/null 2>&1
+  fi
+}
+trap stop_all EXIT
 
 # Starts dsh web for the current DSH_HOME's web profile and sets url once it prints one.
 start_web() {
@@ -250,7 +258,7 @@ step "envctl/skills holds the loose skill" 0 test -f "$envctl/skills/e2e-loose/S
 step "plan clean after pull" 0 "${run[@]}" plan
 step "dsh composes the pulled settings" 0 bash -c '"$DSH_CLI" --profile web --dump-config | grep -q "$1"' _ "$work/skills"
 sed -i 's/preference: zh/preference: en/' "$patch_file"
-step "plan sees the edit made in DSH" 2 bash -c '"$@" plan | grep -q "edited in DSH"; exit "${PIPESTATUS[0]}"' _ "${run[@]}"
+step "plan sees the edit made in DSH" 2 bash -c 'out="$("$@" plan)"; code=$?; grep -q "edited in DSH" <<<"$out" || exit 99; exit "$code"' _ "${run[@]}"
 step "pull the DSH edit" 0 "${run[@]}" pull
 step "manifest follows the DSH edit" 0 grep -q "preference: en" "$envctl/manifest.yaml"
 step "plan clean after pulling the edit" 0 "${run[@]}" plan
@@ -311,10 +319,15 @@ step "sync refuses rewritten history" 3 "${run[@]}" sync
 export DSH_HOME="$work/ext-home"
 envctl="$DSH_HOME/envctl"
 ext_url="${E2E_EXT_PLUGIN_URL:-https://github.com/Tieboyh/dsh-session-search.git}"
+# A pinned commit keeps an upstream change from failing this run; the repository has no tags to clone instead.
+ext_commit="${E2E_EXT_PLUGIN_COMMIT:-82990a0e980418cddb9f6f026150cd6831c621ac}"
 ext_pkg="${E2E_EXT_PLUGIN:-@dsh-external/dsh-session-search}"
+ext_origin="$work/ext-origin"
+step "fetch the external plugin at its pinned commit" 0 bash -c 'git clone -q "$1" "$3" && git -C "$3" checkout -q -B main "$2"' _ "$ext_url" "$ext_commit" "$ext_origin"
 step "init a fresh home" 0 "${run[@]}" init
-step "source clone the external plugin" 0 "${run[@]}" source clone "$ext_url" --profile web
+step "source clone the external plugin" 0 "${run[@]}" source clone "file://$ext_origin" --profile web
 ext_alias="$(alias_of "$ext_pkg")"
+step "manifest declares an alias for $ext_pkg" 0 test -n "$ext_alias"
 step "apply installs and mounts it in one run" 0 "${run[@]}" apply --yes
 step "plan clean after the external install" 0 "${run[@]}" plan
 step "not in the bundle list" 0 json_true "$DSH_HOME/profiles/web/package.json" "!v.dsh.profile.bundles.includes('$ext_pkg')"

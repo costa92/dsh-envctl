@@ -28,7 +28,8 @@ describe('withProfilePackageLock', () => {
       return 42;
     });
     expect(result).toBe(42);
-    expect(seen).toEqual({ content: `${process.pid}\n`, mode: 0o600 });
+    // Windows has no POSIX permission bits; a new file there reads back as 0o666.
+    expect(seen).toEqual({ content: `${process.pid}\n`, mode: process.platform === 'win32' ? 0o666 : 0o600 });
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 

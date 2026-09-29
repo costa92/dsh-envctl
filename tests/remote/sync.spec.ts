@@ -213,7 +213,8 @@ describe('remote sync engine', () => {
     expect(read(path.join(outside, 'SKILL.md'))).toBe('v1');
   });
 
-  it('keeps a team skill script executable', async () => {
+  // Windows has no executable bit to keep.
+  it.skipIf(process.platform === 'win32')('keeps a team skill script executable', async () => {
     await subscribe();
     const script = path.join(team.work, 'envctl', 'skills', 'wiki', 'run.sh');
     fs.mkdirSync(path.dirname(script), { recursive: true });

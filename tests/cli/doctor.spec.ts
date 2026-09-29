@@ -19,7 +19,8 @@ function makeHarnessSource(parentDir: string): string {
   return sourceDir;
 }
 
-describe('CLI doctor', () => {
+// The fake DSH here is a set of shell scripts; doctor-remote.spec covers doctor with a Node fake on Windows too.
+describe.skipIf(process.platform === 'win32')('CLI doctor', () => {
   let tempHome: string;
   let fakeBinDir: string;
   let fakeDsh: string;

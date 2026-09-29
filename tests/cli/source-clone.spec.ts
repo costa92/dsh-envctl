@@ -166,7 +166,8 @@ describe('CLI source clone --profile', () => {
     const before = fs.readFileSync(manifestFile, 'utf8');
     const rename = fs.promises.rename.bind(fs.promises);
     vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
-      if (String(to) === lockFile) throw new Error('ENOSPC: no space left on device');
+      // Compared by name: macOS and Windows may spell the temp directory differently (/private/var, RUNNER~1).
+      if (path.basename(String(to)) === path.basename(lockFile)) throw new Error('ENOSPC: no space left on device');
       return rename(from, to);
     });
     try {

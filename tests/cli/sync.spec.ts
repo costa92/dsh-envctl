@@ -257,7 +257,7 @@ profiles:
         remove: true
       demo:
         package: demo-plugin
-        source: { type: local-file, path: "${sourceDir}" }
+        source: { type: local-file, path: ${JSON.stringify(sourceDir)} }
 `
     );
     // demo is already installed from its source, so apply only has to record the source digest.
@@ -292,7 +292,7 @@ profiles:
   web:
     plugins:
       shared:
-        source: { type: local-file, path: "${sourceDir}" }
+        source: { type: local-file, path: ${JSON.stringify(sourceDir)} }
 `
     );
     const lockBefore = read(paths.lockFile);

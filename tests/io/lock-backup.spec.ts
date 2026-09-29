@@ -63,7 +63,8 @@ describe('Lock, Backup and Journal IO', () => {
     expect(fs.readFileSync(lockFile, 'utf8')).toBe('');
   });
 
-  it('should not treat a lock held by another user\'s live process as stale', async () => {
+  // Simulates EPERM from process.kill, which only POSIX returns for another user's process.
+  it.skipIf(process.platform === 'win32')('should not treat a lock held by another user\'s live process as stale', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const lockFile = path.join(paths.managerDir, 'dshenv.lock');
     fs.mkdirSync(paths.managerDir, { recursive: true });

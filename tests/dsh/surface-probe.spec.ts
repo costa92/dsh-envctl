@@ -93,7 +93,8 @@ afterEach(async () => {
 })
 
 describe('probeOfficialSurfaces', () => {
-  it.each([
+  // Windows has no FIFOs.
+  it.skipIf(process.platform === 'win32').each([
     ['package.json', false, 'PACKAGE_MANIFEST_NOT_REGULAR'],
     ['operations.js', true, 'EXPORT_TARGET_MISSING'],
   ] as const)('rejects %s replaced by a FIFO immediately before open without blocking', async (file, declared, diagnostic) => {

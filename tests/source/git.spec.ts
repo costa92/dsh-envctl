@@ -39,7 +39,7 @@ describe('Managed Git Source Lifecycle', () => {
     const status = await inspectGitWorkingTree(repoDir);
     expect(status.isGitRepo).toBe(true);
     expect(status.isDirty).toBe(false);
-    expect(status.commit).toBeTruthy();
+    expect(status.commit).toBe((await execa('git', ['rev-parse', 'HEAD'], { cwd: repoDir })).stdout.trim());
   });
 
   it('should detect dirty git working tree and block operations', async () => {
@@ -107,12 +107,12 @@ describe('Managed Git Source Lifecycle', () => {
   it('should resolve managed plugin source path correctly', () => {
     const sourceRoot = '/custom/plugins';
     const resolved = resolvePluginSourcePath('agent-teams', sourceRoot);
-    expect(resolved).toBe('/custom/plugins/agent-teams');
+    expect(resolved).toBe(path.resolve('/custom/plugins/agent-teams'));
   });
 
   it('should place managed clones under envctl/sources', () => {
     const dir = managedGitSourceDir('/tmp/dsh/envctl', 'web', '@scope/my-plugin');
-    expect(dir).toBe('/tmp/dsh/envctl/sources/web/@scope_my-plugin');
+    expect(dir).toBe(path.resolve('/tmp/dsh/envctl/sources/web/@scope_my-plugin'));
     expect(packageNameFromGitUrl('https://github.com/ex/my-plugin.git')).toBe('my-plugin');
   });
 });

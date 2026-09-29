@@ -9,6 +9,8 @@ import type { HmrStatus } from '../../src/dsh/hmr.js';
 import { readMounts, writeMount } from '../../src/patch/mount.js';
 
 const PKG = '@nanmicoder/dsh-agent-teams';
+// A settle delay far past the test timeout: an apply that waits for it fails however slow the machine is.
+const SETTLE_NEVER_MS = 60_000;
 
 describe('applyEnvironment hot reload awareness', () => {
   let tempHome: string;
@@ -227,9 +229,9 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     own();
 
     const started = Date.now();
-    const result = await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'on' }), hmrSettleMs: 5000 });
+    const result = await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'on' }), hmrSettleMs: SETTLE_NEVER_MS });
 
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(Date.now() - started).toBeLessThan(SETTLE_NEVER_MS / 2);
     expect(result.restart?.notRequired).toEqual([{ profile: 'web', package: PKG, kind: 'remove', reason: 'hmr-on' }]);
     expect(JSON.parse(fs.readFileSync(profileJson(), 'utf8')).dsh.profile.bundles).toEqual([]);
   });
@@ -241,9 +243,9 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     configureFakeDsh();
 
     const started = Date.now();
-    const result = await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'on' }), hmrSettleMs: 3000 });
+    const result = await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'on' }), hmrSettleMs: SETTLE_NEVER_MS });
 
-    expect(Date.now() - started).toBeLessThan(2500);
+    expect(Date.now() - started).toBeLessThan(SETTLE_NEVER_MS / 2);
     expect(result.restart?.notRequired).toEqual([{ profile: 'web', package: PKG, kind: 'remove', reason: 'hmr-on' }]);
   });
 
@@ -254,9 +256,9 @@ fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg));
     configureFakeDsh();
 
     const started = Date.now();
-    const result = await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'off' }), hmrSettleMs: 5000 });
+    const result = await applyEnvironment(paths, { probeHmr: probeReturning({ state: 'off' }), hmrSettleMs: SETTLE_NEVER_MS });
 
-    expect(Date.now() - started).toBeLessThan(5000);
+    expect(Date.now() - started).toBeLessThan(SETTLE_NEVER_MS / 2);
     expect(result.restart?.required).toEqual([{ profile: 'web', package: PKG, kind: 'remove', reason: 'hmr-off' }]);
     expect(stateEntry()?.status).toBe('restart-required');
   });

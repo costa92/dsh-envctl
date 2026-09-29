@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as crypto from 'node:crypto';
 import { applyEnvironment } from '../../src/apply/apply.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
-import { loadState, loadLock } from '../../src/manifest/files.js';
+import { loadState, loadLock, serializeLock } from '../../src/manifest/files.js';
 
 describe('applyEnvironment', () => {
   let tempHome: string;
@@ -155,13 +156,15 @@ profiles:
     // Verify state updated
     const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
     expect(state.lastApplied).not.toBe('2026-01-01T00:00:00.000Z');
-    expect(state.appliedLockHash).toBeTruthy();
+    expect(Date.now() - Date.parse(state.lastApplied)).toBeLessThan(60_000);
+    // The hash identifies the lock that was applied, so a later lock edit shows up as unapplied.
+    expect(state.appliedLockHash).toBe(crypto.createHash('sha256').update(serializeLock(loadLock(fs.readFileSync(paths.lockFile, 'utf8')))).digest('hex'));
 
     // Verify journal appended
     const journalFile = path.join(paths.logsDir, 'journal.jsonl');
     expect(fs.existsSync(journalFile)).toBe(true);
-    const journalContent = fs.readFileSync(journalFile, 'utf8');
-    expect(journalContent).toContain('apply-completed');
+    const journal = fs.readFileSync(journalFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    expect(journal).toContainEqual(expect.objectContaining({ operationId: res.operationId, type: 'apply-completed' }));
   });
 
   it('should reject a successful executor when the environment remains drifted', async () => {
@@ -574,7 +577,7 @@ profiles:
         package: demo-plugin
         source:
           type: local-file
-          path: "${sourceDir}"
+          path: ${JSON.stringify(sourceDir)}
 `
     );
     fs.writeFileSync(path.join(tempHome, 'envctl', 'lock.json'), JSON.stringify({ apiVersion: 'dshenv-lock/v1', profiles: {} }));

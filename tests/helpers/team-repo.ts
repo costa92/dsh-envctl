@@ -82,6 +82,15 @@ export async function commitTeamFiles(
 ): Promise<string> {
   writeFiles(repo.work, files);
   await git(repo.work, ['add', '-A']);
+  // On a case-insensitive file system (macOS) paths differing only by case share one file, so they go into
+  // the index directly, each with its own content, as a team committing on Linux would have them.
+  const written = Object.entries(files).filter((entry): entry is [string, string] => entry[1] !== null);
+  for (const [rel, content] of written) {
+    if (written.some(([other]) => other !== rel && other.toLowerCase() === rel.toLowerCase())) {
+      const blob = (await execa('git', ['hash-object', '-w', '--stdin'], { cwd: repo.work, input: content })).stdout.trim();
+      await git(repo.work, ['update-index', '--add', '--cacheinfo', `100644,${blob},${rel}`]);
+    }
+  }
   await git(repo.work, ['commit', '--quiet', '--allow-empty', '-m', message]);
   await git(repo.work, ['push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`]);
   return git(repo.work, ['rev-parse', 'HEAD']);
