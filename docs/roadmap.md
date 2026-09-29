@@ -95,7 +95,7 @@
 ### 容器示例（已实现）
 - [x] `docs/examples/container/{Dockerfile,cordis.patch.yml,compose.yaml}`：镜像构建期把当前 dshenv 源码打包安装并 `COPY` 配置仓库的 `envctl/`，`dshenv apply --yes`、`dshenv plan` 校验无漂移后再 `dsh web`
 - [x] home 级 `cordis.patch.yml` 把 webserver 监听改为 `0.0.0.0`（供 Docker 转发），CLI 本身拒绝 `--host`；端口只发布到 `127.0.0.1:3080:3080`（挡住局域网），不 `EXPOSE`、不传 `--trusted-host`；同一 Docker 网络内的容器仍可经容器 IP 访问、只剩启动 token 防护，文档建议使用独立网络
-- [x] 命名构建上下文传入私有 dshenv 源码（未发布 npm）；DSH 版本固定 `0.1.7-rc.2`
+- [x] 命名构建上下文传入 dshenv 源码（当时尚未发布到 npm；现在只用已发布版本时检出对应 tag 即可）；DSH 版本固定 `0.1.7-rc.2`
 - [x] 会话日志挂载命名卷 `dsh-data:/home/dsh/.dsh/sessions`，`profiles/`、`envctl/` 仍来自镜像不进卷
 - [x] 真实 Docker 构建验证（2026-09-27）：scratch 配置仓库 apply/plan 通过，端口只回环可达、外部 Host 头访问 `/api` 被拒，容器重建后会话数据经卷保留、`storages/workspace.json` 按预期不保留
 - [x] 真实对话验证（2026-09-27）：运行时 `-e DEEPSEEK_API_KEY` 传入 key，经 DSH Web `/api` 发送消息得到模型回复；无 key 时以 `MISSING_CREDENTIAL` 结束；镜像历史与容器 `$DSH_HOME` 中无 key
@@ -138,7 +138,7 @@
 - [x] `prepare` 构建 `lib/`，支持从 Git 地址安装：`pnpm add -g --allow-build=@costa92/dshenv "git+https://github.com/costa92/dshenv.git#<ref>"`；隔离 `PNPM_HOME` 实测全局安装可运行。npm 从 Git 地址安装在准备阶段崩溃（npm 10.9 arborist），只支持 pnpm；推荐改用 npm 包（见「发布与分发」）
 - [x] `make smoke-dsh DSH_VERSION=<v>`：临时目录安装 npm 版 DSH，隔离 `DSH_HOME` 下跑 doctor、install/disable/remove 的 apply 与 plan；门禁拒绝时带 `--allow-untested-dsh` 继续。放宽门禁的步骤见 [`DSH版本升级.md`](DSH版本升级.md)
 - [x] 真实冒烟（2026-09-27）：`0.1.7-rc.2` 13 步全部通过；`0.1.6-alpha.2` 被门禁拒绝，带覆盖参数全部通过。npm 上尚无更新的版本
-- [x] 全量测试套件覆盖（当前 89 个测试文件，798 项测试全部通过）
+- [x] 全量测试套件覆盖（当时 89 个测试文件，798 项测试全部通过）
 
 ## 发布与分发（已实现）
 
@@ -146,16 +146,16 @@
 - [x] 版本号只取 `package.json`（`dshenv --version` 读取它）；变更记录见 [`CHANGELOG.md`](../CHANGELOG.md)
 - [x] 推送 `v*` tag 触发 `.github/workflows/release.yml`：核对 tag 与版本、从 CHANGELOG 取发布说明、跑与 CI 相同的检查、`pnpm pack` 后把同一份 `.tgz` 发布到 npm（带 provenance）并附在 GitHub Release 上。步骤见 [`发布流程.md`](发布流程.md)
 - [x] npm 包 [`@costa92/dshenv`](https://www.npmjs.com/package/@costa92/dshenv)：`npm install -g @costa92/dshenv`，命令名 `dshenv`。无作用域的 `dshenv` 被 npm 以与 dotenv、osenv 过于相似为由拒绝
-- [x] 已发布：0.1.0（首个公开版本，仅 GitHub Release）、0.1.1（首次发布到 npm）、0.1.2（容器端到端测试发现的修复）、0.1.3（仓库改名后的元数据）
+- [x] 已发布：0.1.0（首个公开版本，仅 GitHub Release）、0.1.1（首次发布到 npm）、0.1.2（容器端到端测试发现的修复）、0.1.3（仓库改名后的元数据）、0.2.0（审查修复与 schema 收紧）、0.2.1（`self-update`）、0.3.0（DSH 配置双向同步、`tools`、`install in-box:`），各版本内容见 CHANGELOG
 - [x] 改用 npm Trusted Publishing：0.3.0 起经 OIDC 发布（npm ≥ 11.5.1、自动 provenance），失败时才用备用的 `NPM_TOKEN`；手动运行 Release 工作流可在不发布的情况下检查两种方式，见 [`发布流程.md`](发布流程.md#npm-trusted-publishing)
 
 ## 容器端到端测试与修复（已实现）
 
-- [x] 干净容器（`node:22-slim`，非 root）从 npm 安装 dshenv 与 DSH `0.1.7-rc.2`，覆盖全部 24 个顶层命令（`rollback`、`purge` 只做 dry-run）共 107 项检查：npm 插件完整生命周期与配置、overlay、capture/adopt、四类脚手架与本地来源漂移、Git 来源 clone/pull、rollback/gc/purge、对运行中 `dsh web` 的 `runtime`、团队远程订阅与同步
+- [x] 干净容器（`node:22-slim`，非 root）从 npm 安装 dshenv 与 DSH `0.1.7-rc.2`，覆盖当时全部 24 个顶层命令（`rollback`、`purge` 只做 dry-run）共 107 项检查：npm 插件完整生命周期与配置、overlay、capture/adopt、四类脚手架与本地来源漂移、Git 来源 clone/pull、rollback/gc/purge、对运行中 `dsh web` 的 `runtime`、团队远程订阅与同步
 - [x] 首次运行（0.1.1）发现并修复：Git 来源缺少 `git+` 前缀导致 `file://` 等地址安装失败；DSH 插件命令失败时只剩退出码（改为显示 DSH 自己的 `dsh:` 诊断行，不显示 pnpm 原始输出）；`adopt` 替换已有插件时丢失已声明的 `patches`；`status <插件>` 不认别名；`source pull --ref <分支名>` 快进到本地分支自身而没有更新
 - [x] Codex 审查上述修复，指出 `source pull` 会把 `HEAD`、`HEAD~1` 等修订改写为上游引用；改为只对与上游分支完全同名的 ref 跟随 `origin/<ref>`，复审无问题
 - [x] 0.1.2、0.1.3 发布后以 npm 安装包重跑，107 项全部通过
-- [x] 主链端到端测试收进仓库：`scripts/e2e-dsh.sh`（`make e2e-dsh`，123 项：DSH 自装插件的 capture/adopt 与所有权、本地来源安装与源码变更更新、配置补丁、版本漂移修复、对 `dsh web` 的 `runtime`、rollback、受管卸载；skill/agent/mcp 脚手架与 loose skill；Git 来源 clone、pull 与锁定提交；overlay 独有插件的安装与随 overlay 移除；purge 与 gc；profile patches 与 loose skill 的 pull 与 apply 双向同步；独立 `DSH_HOME` 中的团队远程订阅、sync、拒绝本地改动与改写历史），由 `.github/workflows/e2e.yml` 在 PR 与 master 上对已验证的 DSH 运行，与 Vitest CI 分层、不作为合入门禁
+- [x] 主链端到端测试收进仓库：`scripts/e2e-dsh.sh`（`make e2e-dsh`，收进时 123 项，现为 148 项，新增 `runtime --start` 与 `web start/stop/status`：DSH 自装插件的 capture/adopt 与所有权、本地来源安装与源码变更更新、配置补丁、版本漂移修复、对 `dsh web` 的 `runtime`、rollback、受管卸载；skill/agent/mcp 脚手架与 loose skill；Git 来源 clone、pull 与锁定提交；overlay 独有插件的安装与随 overlay 移除；purge 与 gc；profile patches 与 loose skill 的 pull 与 apply 双向同步；独立 `DSH_HOME` 中的团队远程订阅、sync、拒绝本地改动与改写历史），由 `.github/workflows/e2e.yml` 在 PR 与 master 上对已验证的 DSH 运行，与 Vitest CI 分层、不作为合入门禁
 - [x] DSH 兼容性矩阵：`.github/workflows/compat.yml` 每天与 master 推送时对 DSH `0.1.7-rc.2`（必须通过）、`latest`、`next`（仅报告）运行 `scripts/smoke-dsh.sh`，可手动指定额外版本
 - [x] 容器检查中的 overlay、Git 来源、四类脚手架、gc/purge、团队远程同步已并入 `e2e-dsh.sh`；DSH 的 pnpm 卸载 `link:` 依赖后会在 `node_modules` 留下符号链接，脚本以 profile 的 `package.json` 判断是否已卸下
 
@@ -169,7 +169,23 @@
 - [x] DSH 0.1.7 的 `dsh.profile` 只有 `bundles`（`patchReload` 仅 0.1.5 有），不另行同步
 - [x] 真实端到端：`e2e-dsh.sh` 在 DSH `0.1.7-rc.2` 上覆盖 DSH 写入条目 → `pull` → `dump-config` 可见 → DSH 改块 → `pull` → `apply` 覆盖 DSH 改动
 - [x] `~/.dsh/skills` 下的 loose skill 同步：`envctl/skills/<名字>` 为声明，`state.skills` 记录两边最后一致时的摘要，据此分辨改动方向；`apply` 复制并把旧副本移进 trash，`pull` 反向；快照带标记保存 `envctl/skills`（旧快照不动该目录）；团队 remote 的文件键扩展到 `skills/<名字>/...`，团队技能不可由 pull 改写
-- [x] 真实端到端：`e2e-dsh.sh` 覆盖 loose skill 的 pull、清单改动后 apply、DSH 改动后 pull，以及团队仓库技能随 sync 与 apply 装进 DSH（共 123 项）
+- [x] 真实端到端：`e2e-dsh.sh` 覆盖 loose skill 的 pull、清单改动后 apply、DSH 改动后 pull，以及团队仓库技能随 sync 与 apply 装进 DSH（当时共 123 项）
+
+## 自我升级、内置工具与后台 dsh web（已实现）
+
+- [x] `dshenv self-update`：查询 npm 上的版本，用安装 dshenv 的包管理器（全局 npm 或 pnpm）升级或 `--to` 回退；本地链接、源码检出与 Git 安装不替换（0.2.1）
+- [x] `dshenv tools list|enable|disable|config`：按架构图分类读出 Profile 内置工具，开关与配置写进 profile patches；agent 预设内的工具整份固定预设，`plan` 列出（0.3.0）
+- [x] `dshenv runtime --start`：临时启动 `dsh --profile <p> --no-open --port 0` 核对后停止，Ctrl+C 时也停干净
+- [x] `dshenv web start|stop|status`：后台 dsh web，地址与 pid 记在 `envctl/run/<profile>.json`（0600），按主进程启动时间识别、不误停复用的 pid，区分 `leftover`/`unknown`，同一 Profile 串行；`runtime` 未设 `DSHENV_DSH_URL` 时自动使用
+
+## 全项目审查修复（2026-09-29）
+
+- [x] 进程：源码方式（`pnpm --silent --dir <src> dsh`）下 `--version`/`--dump-config` 超时会结束整棵进程树；强制结束只针对仍存活的进程
+- [x] apply：失败只恢复 `lock.json`/`state.json`；每装成功一个插件即记入所有权；rollback 保留仍安装插件的所有权；同一 Profile 先卸后装；只在 bundle 列表中的包按声明来源安装；尊重清单 `allowUntestedVersion`；不存在的 Profile 中的 in-box 操作在 plan 阶段 blocked
+- [x] adopt 的 alias 冲突改用新 alias；`gc --older-than` 只接受非负数；purge、`source clone`、`source pull` 的失败路径不再留下半写状态
+- [x] 安全：团队配置不能设置 `environment.harness.sourceDir`/`sourceRoot` 或引用本机 Git 地址；Profile 名、Git 地址、ref、commit 统一校验；`self-update` 在主目录运行；`remote sync` 预览不跟随软链接；`--allow-remote` 只接受 https
+- [x] CI：Release 拆成只读的 build 与只下载 tarball 的 publish，打包后先安装冒烟；action 固定 SHA、checkout 不保留凭据；CI 增加 Windows 与 macOS（`check-os`）
+- [x] 全量测试套件覆盖（当前 109 个测试文件，1068 项测试全部通过；e2e 148 项）
 
 ## 延后能力
 

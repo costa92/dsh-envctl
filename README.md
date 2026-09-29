@@ -47,7 +47,7 @@ DSH 运行时命令解析优先级：
 2. `--harness-source <path>` / 清单中的 `environment.harness.sourceDir`（转换为 `pnpm --dir <sourceDir> dsh`）
 3. 系统 `PATH` 中的 `dsh`
 
-跨机器同步 `manifest.yaml` 与 `overlays/`；`lock.json`、`state.json`、`overlay-selection.json` 只属于本机。
+跨机器同步 `manifest.yaml` 与 `overlays/`；`state.json`、`overlay-selection.json` 只属于本机。`lock.json` 由本机维护，但订阅团队 remote 后，团队 lock 中的条目归远程、随 `sync` 更新（见第 20 节）。
 
 ---
 
@@ -100,6 +100,8 @@ dshenv self-update --to 0.2.0  # 升级或回退（降级）到指定的精确�
 - 本地链接或源码检出安装的 dshenv，以及用 pnpm 从 Git 地址安装的 dshenv，不会被替换为 npm 版本，命令以退出码 3 给出升级方法（如 `git pull && pnpm build`）。`--check` 对这类安装仍会报告，`method` 为 `null`。
 - 失败时只显示错误码（如 `EACCES`、`ERR_PNPM_FETCH_401`），完整原因见上方包管理器自己的输出；`EACCES` 表示全局安装目录不可写。
 - Windows 上 npm 会在 `dshenv.cmd` 运行期间覆盖它，升级成功后命令行可能多出一行批处理报错，可以忽略，用 `dshenv --version` 确认版本。
+
+卸载：`npm uninstall -g @costa92/dshenv`（pnpm 安装的用 `pnpm remove -g @costa92/dshenv`）；`~/.dsh/envctl` 保留，不需要时手动删除。
 
 也可以手动升级：`npm install -g @costa92/dshenv@latest --prefer-online`。刚发布的版本在本机 npm 缓存过期前可能报 `notarget`，加 `--prefer-online` 即可。升级前先看 [CHANGELOG](CHANGELOG.md) 中的「变更」，例如 0.2.0 起清单不再接受 npm 来源的 `registry` 字段，lock 中的 git `commit` 必须是十六进制 commit id。
 
@@ -223,7 +225,7 @@ dshenv 改写 Profile `package.json`（启用、停用、卸载前移出 bundle�
 - 等 Profile 锁超时后 apply 会回滚，但回滚本身写 bundle 与 `cordis.patch.yml` 时也可能要等这把锁；回滚未能完成时运行 `dshenv plan` 查看现状。DSH Web 安装插件时整个安装过程都持锁，可能超过 dshenv 的 30 秒等待，等安装结束后再重试。
 
 ### 7. `dshenv rollback`
-从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照。只恢复 `manifest.yaml` / `lock.json` / `state.json`，不撤销已经发生的 DSH 包安装。恢复前会把当前三个文件另存为一份新快照（输出中给出其 id，可再 rollback 回去）；快照里没有的文件会被删除。
+从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照：`manifest.yaml` / `lock.json` / `state.json`、`envctl/skills`、`remote.json`，以及快照时保存的 overlay（团队 overlay、`pull`/`sync` 改写的本机 overlay）。不撤销已经发生的 DSH 包安装；由 `apply` 安装、仍装在 Profile 里的插件保留所有权记录，之后从清单删除时照常卸载。恢复前会把当前这些文件另存为一份新快照（输出中给出其 id，可再 rollback 回去）；快照里没有的文件会被删除。
 
 ```bash
 dshenv rollback --dry-run
@@ -286,7 +288,12 @@ dshenv status --json
 ```bash
 dshenv source clone https://github.com/ex/plugin.git --profile web --as demo
 dshenv source clone https://github.com/ex/plugin.git ./external-checkout
+dshenv source status -p web --as demo          # 受管 clone 的 Git 状态（是否有未提交改动、commit、分支）与源码摘要
+dshenv source pull -p web --as demo            # 快进受管 clone，并把新的 HEAD commit 写入 lock
+dshenv source pull -p web --as demo --ref v1.2.0
 ```
+
+`source status` / `source pull` 不带 `--profile` 时作用于给出的目录（默认当前目录），`pull` 只快进、不写 lock。带 `--profile` 时，Profile 里恰好有一个 Git 插件可省略 `--as`；`pull` 总是按清单中的 URL 写入完整的 lock 条目，之后 `apply --yes` 安装新 commit。
 
 不是 DSH bundle 的插件包（`package.json` 没有 `dsh.bundle`，例如 [dsh-session-search](https://github.com/Tieboyh/dsh-session-search)）不能放进 bundle 列表，DSH 会跳过它。dshenv 在安装后检查包类型，这类插件改为在 `cordis.patch.yml` 里写一个受管的 `insert` 行挂载（`# dshenv:begin ... plugin=@mount:<alias>`），`enable`/`disable` 切换这一行，`runtime` 按已加载的插件条目判断。
 
@@ -302,7 +309,7 @@ dshenv plan --overlay server   # 单次命令临时指定
 dshenv plan --no-overlay       # 单次命令只用 base
 ```
 
-选择优先级：`--overlay` > `--no-overlay` > `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`config set`、`source clone --profile`、`adopt`）必须带 `--layer base` 或 `--layer overlay`。
+选择优先级：`--overlay` 或 `--no-overlay`（两者同时使用时报错，退出码 3）> `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable/disable/config`、`source clone --profile`、`new -p`、`adopt`）必须带 `--layer base` 或 `--layer overlay`。
 
 ### 16. `dshenv restarted`
 `apply` 输出 `Restart DSH to load:` 分组时，其中插件的状态标为 `restart-required`（升级了已装插件，或该 Profile 的热加载关闭、无法判断）。热加载开启时的安装、启用、停用、配置与卸载当场生效，不需要本命令。重启 DSH 后运行本命令确认，清除该状态（已卸载插件的条目一并删除）。dshenv 无法自行判断 DSH 是否已重启。
@@ -434,6 +441,25 @@ dshenv web stop -p web             # 停止它以及它启动的子进程（如 
 - 记录里保存了 dsh web 的启动时间，`stop` 只停止 pid 与启动时间都对得上的进程，被系统复用的 pid 不会被误停；无法确认时（`status` 显示 `unknown`）`stop` 和 `start` 报错并保留记录，不做任何停止。SIGKILL 后仍未退出时 `stop` 以非零退出码报错并保留记录，可以再次执行。
 - 同一 Profile 的 `start`、`stop` 依次执行，两个 `start` 同时运行也只会启动一个；启动过程中按 Ctrl+C 会停止正在启动的 dsh web（`runtime --start` 在核对过程中被中断也一样），不会遗留进程。
 - Profile 必须已存在（DSH 会自动创建不存在的 Profile）；不带 web 应用的 Profile（headless、acp 等）会报 `did not start dsh web`，60 秒内没有打印地址也会停止并报错。
+- Windows 上 dsh web 不以 detached 方式启动，关闭启动它的控制台窗口时会一起退出；停止用 `taskkill /T /F` 结束整棵进程树。
+
+### 25. `dshenv install` / `enable` / `disable` / `remove`
+
+只改清单，随后用 `dshenv apply --yes` 真正安装、启停或卸载：
+
+```bash
+dshenv install @nanmicoder/dsh-agent-teams@0.1.21 -p web        # npm 包，必须是精确版本
+dshenv install git+https://github.com/ex/dsh-plugin-demo.git#<commit> -p web   # Git 来源；也接受 git@...、https://...、以 .git 结尾的地址
+dshenv install ./my-plugin -p web                               # 本地目录（./、../、绝对路径或 file:），登记为 local-link
+dshenv install in-box:@deepseek-ai/dsh-acp-app -p acp           # 随 DSH 发布的 bundle，不装依赖，只在 Profile 中选中
+dshenv disable agent-teams -p web                               # enable 反之
+dshenv remove agent-teams -p web
+```
+
+- 别名默认取包名（去掉作用域与 `dsh-plugin-`、`dsh-` 前缀），`--as` 指定。本地来源的包名默认读其 `package.json` 的 `name`（读不到时用目录名），Git 来源默认用仓库名，与实际包名不同时用 `--package` 指定（`source clone --profile` 会读仓库的 `package.json`）；`--package` 只对 Git 与本地来源有效。
+- 同一别名重新 `install` 同一个包只改来源，保留 `patches` 与启用状态。
+- `remove` 从清单删除该条目；写 overlay 时，base 中已有的插件记为 `remove: true`。`apply` 只卸载有所有权记录的插件（dshenv 安装或 `adopt` 接管的），其他实际存在的插件标为 `unmanaged`，不会卸载。`--yes` 为兼容保留，不改变行为。
+- 有生效 overlay 时这四个命令都须带 `--layer base|overlay`（见第 15 节）。
 
 ---
 
@@ -443,7 +469,7 @@ dshenv web stop -p web             # 停止它以及它启动的子进程（如 
 | :--- | :--- |
 | `0` | 成功 / 环境与清单完全同步（Clean） |
 | `1` | 通用 CLI 错误 / 参数解析失败 |
-| `2` | 存在有效变更计划（Drifted）；`self-update --check` 有可安装的版本；`pull --dry-run` 有可收进的变更 |
+| `2` | 存在有效变更计划（Drifted，`plan`/`status`）；`sync`、`remote add` 预览有待接受的更新；`runtime` 有插件仍在加载；`self-update --check` 有可安装的版本；`pull --dry-run` 有可收进的变更 |
 | `3` | 输入或清单格式校验失败（ValidationError） |
 | `4` | DSH 运行时能力不支持或未找到（CapabilityError） |
 | `5` | 环境降级或运行时响应异常（DegradedError） |
@@ -452,10 +478,10 @@ dshenv web stop -p web             # 停止它以及它启动的子进程（如 
 
 ## 安全边界与约束
 
-1. **路径约束**：清单中的本地链接和本地文件路径必须为绝对路径；仍应只使用可信源码目录和规范的 npm 包名。
+1. **路径约束**：清单中的本地链接和本地文件路径必须为绝对路径；仍应只使用可信源码目录和规范的 npm 包名。Profile 名（清单、overlay、lock 与 `-p`）只能含字母、数字、`.`、`_`、`-`，不能以 `-` 开头，也不能是 `.` 或 `..`；Git 地址与 ref 不能以 `-` 开头，清单中的 `commit` 必须是 7-64 位十六进制 commit id。
 2. **凭据使用约束**：不要把明文密钥写入清单、锁文件、patch 配置或源码 `package.json`。清单与 lock 中带账号密码或 token 的 git URL 会被 schema 拒绝，`capture` 会跳过这类依赖并告警。`doctor` 不回显 `DSH_CLI` 参数，但 `source status --json` 会输出源码包摘要，使用前应检查其中是否含敏感字段。
 3. **非受管保护**：实际 Profile 中未写入 `manifest.yaml` 的插件保持 `unmanaged`，不会被自动删除。
-4. **锁与管理文件快照**：所有写 `manifest`/overlay/`lock`/`state` 的命令都先获取环境锁（最多等 5 秒）。`apply` 执行前备份当时已经存在的 `manifest/lock/state`；失败时原子恢复这些快照文件，快照中不存在的文件会被删除，并逆序撤销本工具对 Profile `dsh.profile.bundles` 与 `cordis.patch.yml` 的改动；DSH CLI 已完成的包安装、更新或卸载不会撤销，已成功卸载的包也不会恢复其 bundle 与受管块。失败后应重新运行 `status` 与 `plan`。
+4. **锁与管理文件快照**：所有写 `manifest`/overlay/`lock`/`state` 的命令都先获取环境锁（最多等 5 秒）。`apply` 执行前备份当时已经存在的管理文件；失败时只原子恢复它自己会写的 `lock.json` 与 `state.json`（快照中不存在的会被删除），`manifest.yaml`、overlay 与 `envctl/skills` 保持原样，以免覆盖 apply 期间的手工修改；已成功安装的插件在恢复后仍记入所有权；恢复本身失败时错误信息会提示运行 `dshenv rollback <id> --yes`。apply 还会逆序撤销本工具对 Profile `dsh.profile.bundles` 与 `cordis.patch.yml` 的改动；DSH CLI 已完成的包安装、更新或卸载不会撤销，已成功卸载的包也不会恢复其 bundle 与受管块。失败后应重新运行 `status` 与 `plan`。
 
 ---
 

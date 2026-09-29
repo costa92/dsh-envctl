@@ -40,3 +40,4 @@ make smoke-dsh DSH_VERSION=<新版本>
 | --- | --- | --- | --- |
 | `0.1.7-rc.2` | 放行 | 13 步全部通过 | 2026-09-27 |
 | `0.1.6-alpha.2` | 拒绝 | 带 `--allow-untested-dsh` 全部通过；`dshenv new` 模板仍需要 0.1.7+ | 2026-09-27 |
+| `0.2.0-rc.1`（`next`） | 拒绝 | 带 `--allow-untested-dsh`：doctor、init、remove 通过；install 与 disable 失败，DSH 以 peerDependencies 不兼容拒绝安装 `@nanmicoder/dsh-agent-teams@0.1.21`（插件只声明到 0.1.7-rc.2），属插件侧，需插件发布兼容版本或 `dsh plugin allow-version` 豁免 | 2026-09-29 |
