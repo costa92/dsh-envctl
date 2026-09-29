@@ -15,6 +15,7 @@ import { ValidationError } from '../errors.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { acquireEnvironmentLock, withEnvironmentLock } from '../io/lock.js';
+import { retryWhileBusy } from '../io/windows-retry.js';
 import { hasEmbeddedCredentials } from '../manifest/schema.js';
 import { readPackageJsonName } from '../source/local.js';
 import { assertLockEntryNotRemoteOwned, assertNotRemoteOwned } from '../remote/ownership.js';
@@ -187,7 +188,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
               createdParents.unshift(path.dirname(managedDir));
             }
             await fs.promises.mkdir(path.dirname(managedDir), { recursive: true });
-            await fs.promises.rename(cloneDir, managedDir);
+            await retryWhileBusy(() => fs.promises.rename(cloneDir, managedDir));
             ownedClone = managedDir;
             resolvedTarget = managedDir;
           }

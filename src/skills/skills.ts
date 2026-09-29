@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { readRemoteConfig, skillPathFromKey } from '../remote/schema.js';
 import { calculateSourceDigest } from '../source/local.js';
+import { retryWhileBusy } from '../io/windows-retry.js';
 
 // name -> content digest of each skill directory
 export interface SkillInventory {
@@ -104,15 +105,15 @@ export async function replaceSkillDir(source: string | null, target: string, tra
     }
     if (hadTarget) {
       await fs.promises.mkdir(path.dirname(trash), { recursive: true });
-      await fs.promises.rename(target, trash);
+      await retryWhileBusy(() => fs.promises.rename(target, trash));
     }
     if (staging) {
       await fs.promises.mkdir(path.dirname(target), { recursive: true });
       try {
-        await fs.promises.rename(staging, target);
+        await retryWhileBusy(() => fs.promises.rename(staging, target));
       } catch (err) {
         if (hadTarget) {
-          await fs.promises.rename(trash, target);
+          await retryWhileBusy(() => fs.promises.rename(trash, target));
         }
         throw err;
       }
@@ -126,7 +127,7 @@ export async function replaceSkillDir(source: string | null, target: string, tra
   return async () => {
     await fs.promises.rm(target, { recursive: true, force: true });
     if (hadTarget) {
-      await fs.promises.rename(trash, target);
+      await retryWhileBusy(() => fs.promises.rename(trash, target));
     }
   };
 }
