@@ -47,7 +47,8 @@ jobs:
       - run: npm install -g npm@^11.5.1
       # No token: npm trusts this workflow (configured on npmjs.com) and adds provenance itself.
       # Without ./ npm reads dist/<file> as a GitHub owner/repo shorthand.
-      - run: npm publish ./dist/*.tgz --access public
+      # verbose logs why the OIDC token exchange failed before npm falls back to the placeholder token.
+      - run: npm publish ./dist/*.tgz --access public --loglevel verbose
       - run: gh release create "$GITHUB_REF_NAME" dist/*.tgz --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}

@@ -164,7 +164,7 @@ describe('release workflow', () => {
     const steps = allSteps(release);
     const setupNode = steps.find((step) => step.uses?.startsWith('actions/setup-node@'));
     expect(setupNode?.with?.['registry-url']).toBe('https://registry.npmjs.org');
-    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish ./dist/*.tgz --access public');
+    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish ./dist/*.tgz --access public --loglevel verbose');
     expect(publish).toBeGreaterThan(-1);
     expect(steps[publish].env).toBeUndefined();
     expect(JSON.stringify(release)).not.toContain('NPM_TOKEN');
