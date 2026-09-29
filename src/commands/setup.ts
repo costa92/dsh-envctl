@@ -101,9 +101,20 @@ export function registerSetupCommands(ctx: CommandContext): void {
         validateManifest: (manifest) => assertBaseMergesWithOverlay(paths, selection, manifest)
       });
       // Taking over a profile includes the settings DSH wrote into its patch file.
-      const patches = summary.profiles.length > 0
-        ? await pullProfilePatches(paths, { profiles: summary.profiles, selection, allowOverlayCreation: opts.overlay !== false })
-        : null;
+      let patches: Awaited<ReturnType<typeof pullProfilePatches>> | null = null;
+      try {
+        patches = summary.profiles.length > 0
+          ? await pullProfilePatches(paths, { profiles: summary.profiles, selection, allowOverlayCreation: opts.overlay !== false })
+          : null;
+      } catch (err) {
+        // The adoption is already written; only the pull remains, so say so rather than suggest adopt failed.
+        if (err instanceof Error) {
+          err.message =
+            `Adopted ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}, ` +
+            `but taking over their patch entries failed: ${err.message}; fix that and run dshenv pull`;
+        }
+        throw err;
+      }
 
       if (opts.json) {
         writeOut(JSON.stringify(patches ? { ...summary, patches } : summary, null, 2) + '\n');

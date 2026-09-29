@@ -134,6 +134,27 @@ describe('CLI source clone --profile', () => {
     expect(stderr).toContain('requires --as');
   });
 
+  it.each([
+    ['a repository that does not exist', () => ['source', 'clone', path.join(tempHome, 'upstream', 'missing'), '--profile', 'web', '--as', 'demo']],
+    ['a ref the repository does not have', () => ['source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--ref', 'no-such-branch']]
+  ])('leaves nothing behind when git cannot clone %s', async (_label, args) => {
+    const envctl = path.join(tempHome, 'envctl');
+    const snapshot = () =>
+      Object.fromEntries(fs.readdirSync(envctl).sort().map((name) => [name, fs.statSync(path.join(envctl, name)).isFile() ? fs.readFileSync(path.join(envctl, name), 'utf8') : 'dir']));
+    const before = snapshot();
+    let stderr = '';
+    const code = await runCli([...args(), '--dsh-home', tempHome], {
+      stdout: () => {},
+      stderr: (chunk) => {
+        stderr += chunk;
+      }
+    });
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/git clone/);
+    expect(fs.existsSync(path.join(envctl, 'sources'))).toBe(false);
+    expect(snapshot()).toEqual(before);
+  });
+
   it('keeps a concurrent clone when a second clone of the same package fails', async () => {
     const run = (args: string[]) => runCli([...args, '--dsh-home', tempHome], { stdout: () => {}, stderr: () => {} });
     const codes = await Promise.all([
