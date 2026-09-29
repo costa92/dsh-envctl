@@ -102,7 +102,7 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     };
 
     const code = await runCli(['apply', '--dry-run', '--dsh-home', tempHome], io);
-    expect(code).toBe(0);
+    expect(code).toBe(2);
     expect(stdout).toContain('[DRY-RUN]');
     expect(stdout).toContain('@nanmicoder/dsh-agent-teams');
   });
@@ -122,7 +122,7 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     expect(profile.dependencies).toEqual({ '@nanmicoder/dsh-agent-teams': '0.1.21' });
   });
 
-  it('should refuse a real apply without --yes', async () => {
+  it('only previews apply without --yes', async () => {
     configureFakeDsh();
     let stderr = '';
     const io = {
@@ -133,8 +133,8 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     };
 
     const code = await runCli(['apply', '--dsh-home', tempHome], io);
-    expect(code).toBe(3);
-    expect(stderr).toMatch(/--yes/);
+    expect(code).toBe(2);
+    expect(stderr).toMatch(/Re-run with --yes to apply/);
     expect(fs.existsSync(path.join(tempHome, 'profiles', 'web', 'package.json'))).toBe(false);
   });
 });

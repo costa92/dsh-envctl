@@ -17,6 +17,7 @@ import {
 } from '../remote/schema.js';
 import { acceptSync, prepareSync, type AcceptResult, type SyncPreview } from '../remote/sync.js';
 import { resolveCliOverlay, resolveCliPaths, type CommandContext } from './context.js';
+import { reportPreview } from './confirm.js';
 
 function shortCommit(commit: string): string {
   return commit.slice(0, 12);
@@ -185,12 +186,24 @@ export function registerRemoteCommands(ctx: CommandContext): void {
   remoteCmd
     .command('remove')
     .description('Stop following the remote; its files and lock entries stay in place as local ones')
-    .option('-y, --yes', 'confirm removing the subscription')
+    .option('-y, --yes', 'remove it; without it remote remove only previews')
     .action(async (cmdOpts: { yes?: boolean }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       if (!cmdOpts.yes) {
-        throw new ValidationError('Refusing to remove the remote without --yes; its files stay in place as local files');
+        const current = readRemoteConfig(paths);
+        if (!current) {
+          throw new ValidationError('No remote is configured');
+        }
+        const files = Object.keys(current.files).sort(compareRemoteKeys);
+        const lockEntries = ownedEntryIds(current);
+        if (opts.json) {
+          writeOut(JSON.stringify({ status: 'pending', url: current.url, files, lockEntries }, null, 2) + '\n');
+        } else {
+          writeOut(`Would stop following ${current.url}; ${files.length} file(s) and ${lockEntries.length} lock entry(ies) would stay in place as local ones.\n`);
+        }
+        reportPreview(ctx, { json: opts.json, pending: true, action: 'remove the remote' });
+        return;
       }
       const config = await withEnvironmentLock(paths, async () => {
         const current = readRemoteConfig(paths);
@@ -210,44 +223,46 @@ export function registerRemoteCommands(ctx: CommandContext): void {
       }
     });
 
-  program
-    .command('sync')
-    .description('Fetch the subscribed remote and preview or accept its newest commit')
-    .option('--ref <ref>', 'commit or tag on the subscribed branch to move to')
-    .option('--discard-local-changes', 'overwrite remote-owned files and lock entries that were changed locally')
-    .option('-y, --yes', 'accept and write the remote files')
-    .action(async (cmdOpts: { ref?: string; discardLocalChanges?: boolean; yes?: boolean }) => {
-      const opts = program.opts();
-      const paths = resolveCliPaths(opts);
-      const { url, preview, accepted } = await withEnvironmentLock(paths, async () => {
-        const config = readRemoteConfig(paths);
-        if (!config) {
-          throw new ValidationError('No remote is configured; run dshenv remote add <url> first');
-        }
-        const repoDir = remoteRepoDir(paths);
-        if (!fs.existsSync(repoDir)) {
-          throw new ValidationError(`Remote clone is missing at ${repoDir}; run dshenv remote remove --yes, then dshenv remote add ${config.url}`);
-        }
-        const tip = await fetchBranch(repoDir, config.branch);
-        let target = tip;
-        if (cmdOpts.ref !== undefined) {
-          target = await resolveTargetRef(repoDir, cmdOpts.ref);
-          if (!(await isAncestor(repoDir, target, tip))) {
-            throw new ValidationError(`Ref '${cmdOpts.ref}' (${target}) is not on branch '${config.branch}'`);
+  // remote sync, and the top-level sync it replaced, kept out of help for old scripts.
+  for (const syncCmd of [remoteCmd.command('sync'), program.command('sync', { hidden: true })]) {
+    syncCmd
+      .description('Fetch the subscribed remote and preview or accept its newest commit')
+      .option('--ref <ref>', 'commit or tag on the subscribed branch to move to')
+      .option('--discard-local-changes', 'overwrite remote-owned files and lock entries that were changed locally')
+      .option('-y, --yes', 'accept and write the remote files')
+      .action(async (cmdOpts: { ref?: string; discardLocalChanges?: boolean; yes?: boolean }) => {
+        const opts = program.opts();
+        const paths = resolveCliPaths(opts);
+        const { url, preview, accepted } = await withEnvironmentLock(paths, async () => {
+          const config = readRemoteConfig(paths);
+          if (!config) {
+            throw new ValidationError('No remote is configured; run dshenv remote add <url> first');
           }
-        }
-        const preview = await prepareSync({
-          paths,
-          repoDir,
-          subscription: config,
-          target,
-          previous: config,
-          discardLocalChanges: Boolean(cmdOpts.discardLocalChanges),
-          selection: resolveCliOverlay(opts, paths)
+          const repoDir = remoteRepoDir(paths);
+          if (!fs.existsSync(repoDir)) {
+            throw new ValidationError(`Remote clone is missing at ${repoDir}; run dshenv remote remove --yes, then dshenv remote add ${config.url}`);
+          }
+          const tip = await fetchBranch(repoDir, config.branch);
+          let target = tip;
+          if (cmdOpts.ref !== undefined) {
+            target = await resolveTargetRef(repoDir, cmdOpts.ref);
+            if (!(await isAncestor(repoDir, target, tip))) {
+              throw new ValidationError(`Ref '${cmdOpts.ref}' (${target}) is not on branch '${config.branch}'`);
+            }
+          }
+          const preview = await prepareSync({
+            paths,
+            repoDir,
+            subscription: config,
+            target,
+            previous: config,
+            discardLocalChanges: Boolean(cmdOpts.discardLocalChanges),
+            selection: resolveCliOverlay(opts, paths)
+          });
+          const accepted = preview.status === 'pending' && cmdOpts.yes ? await acceptSync(paths, preview) : null;
+          return { url: config.url, preview, accepted };
         });
-        const accepted = preview.status === 'pending' && cmdOpts.yes ? await acceptSync(paths, preview) : null;
-        return { url: config.url, preview, accepted };
+        reportSync(opts, url, preview, accepted);
       });
-      reportSync(opts, url, preview, accepted);
-    });
+  }
 }

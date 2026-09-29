@@ -13,7 +13,7 @@ const summary: RestartSummary = {
 };
 
 describe('renderRestartSummary', () => {
-  it('groups operations and asks to run dshenv restarted', () => {
+  it('groups operations and asks to run dshenv mark-restarted', () => {
     expect(renderRestartSummary(summary)).toBe(
       [
         'No restart needed:',
@@ -22,7 +22,7 @@ describe('renderRestartSummary', () => {
         '  [web] update shared-plugin (package updates are not hot-reloaded)',
         '  [cli] install tool-x (hot reload is off for profile cli)',
         '  [api] disable tool-y (hot reload state of profile api is unknown: DSH CLI was not found)',
-        'Then run: dshenv restarted',
+        'Then run: dshenv mark-restarted',
         ''
       ].join('\n')
     );

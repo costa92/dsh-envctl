@@ -1,8 +1,21 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { writeAtomic } from '../io/atomic-file.js';
+import { assertNotRemoteOwned } from '../remote/ownership.js';
 import { ValidationError } from '../errors.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
-import { isValidOverlayName, validateOverlayName, writeSelectionFile } from '../overlay/selection.js';
+import { isValidOverlayName, overlayFilePath, validateOverlayName, writeSelectionFile } from '../overlay/selection.js';
 import { overlayBanner, resolveCliOverlay, resolveCliPaths, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
+
+const OVERLAY_SKELETON = `apiVersion: dshenv-overlay/v1
+# Merged over envctl/manifest.yaml on this machine. For example:
+# profiles:
+#   web:
+#     plugins:
+#       agent-teams:
+#         enabled: false
+profiles: {}
+`;
 
 export function registerOverlayCommands(ctx: CommandContext): void {
   const { program, writeOut, writeErr } = ctx;
@@ -54,10 +67,34 @@ export function registerOverlayCommands(ctx: CommandContext): void {
         writeOut(JSON.stringify({ active, overlays }, null, 2) + '\n');
         return;
       }
+      if (overlays.length === 0) {
+        writeOut('No overlays. Create one with: dshenv overlay create <name>\n');
+        return;
+      }
       for (const entry of overlays) {
         const missing = entry.missing ? ' missing' : '';
         const invalid = entry.invalid ? ' (invalid name)' : '';
         writeOut(entry.active && active ? `* ${entry.name} (${active.via})${missing}\n` : `  ${entry.name}${invalid}\n`);
+      }
+    });
+
+  overlayCmd
+    .command('create <name>')
+    .description('Create an empty overlay under envctl/overlays to hold this machine\'s changes')
+    .action(async (name: string) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      const file = overlayFilePath(paths, name);
+      if (fs.existsSync(file)) {
+        throw new ValidationError(`Overlay '${name}' already exists: ${file}`);
+      }
+      assertNotRemoteOwned(paths, file);
+      await fs.promises.mkdir(path.dirname(file), { recursive: true });
+      await writeAtomic(file, OVERLAY_SKELETON, 'create');
+      if (opts.json) {
+        writeOut(JSON.stringify({ status: 'created', overlay: name, file }, null, 2) + '\n');
+      } else {
+        writeOut(`Created overlay '${name}' at ${file}\nNext: dshenv overlay use ${name}, then write to it with --layer overlay.\n`);
       }
     });
 

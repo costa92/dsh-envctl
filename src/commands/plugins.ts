@@ -18,6 +18,7 @@ import { assertLockEntryNotRemoteOwned } from '../remote/ownership.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, aliasOption, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 import { withEnvironmentLock } from '../io/lock.js';
+import { renderPluginTable } from '../output/render.js';
 import { resolveWrite, writeBase, writeOverlay } from './manifest-write.js';
 import { readPackageJsonName } from '../source/local.js';
 
@@ -251,7 +252,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     .command('update <alias>')
     .description('Update the declared npm version for a plugin in the manifest')
     .addOption(targetProfile())
-    .requiredOption('--to <version>', 'exact version to declare; does not float to latest')
+    .requiredOption('--to <version>', '(required) exact version to declare; does not float to latest')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
@@ -315,6 +316,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
             package: plugin.package,
             enabled: plugin.enabled ?? true,
             source: plugin.source.type,
+            version: plugin.source.type === 'npm' ? plugin.source.version : undefined,
             installed: Boolean(installed?.installed),
             actualVersion: installed?.version,
             origin: provenance[profileName]?.[alias]?.origin ?? null
@@ -341,16 +343,14 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         if (selection) {
           writeOut(overlayBanner(selection));
         }
-        for (const row of rows) {
-          const origin = selection ? ` origin=${String(row.origin ?? '-')}` : '';
-          writeOut(`${row.profile} ${row.alias ?? '-'} ${row.package} ${row.source} installed=${String(row.installed)}${origin}\n`);
-        }
+        writeOut(renderPluginTable(rows, Boolean(selection)));
       }
     });
 
   const configCmd = program.command('config').description('Read or update declared plugin configuration');
   configCmd
     .command('get <alias> [dottedPath]')
+    .description("Print a plugin's declared configuration, or one field of it")
     .addOption(targetProfile())
     // Superseded by the positional dottedPath, the spelling config set and tools config use.
     .addOption(new Option('--path <dottedPath>').hideHelp())
@@ -369,6 +369,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     });
   configCmd
     .command('validate <alias>')
+    .description("Check a plugin's configuration against the digest DSH recorded")
     .addOption(targetProfile())
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
@@ -387,6 +388,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     });
   configCmd
     .command('set <alias> <dottedPath> <value>')
+    .description('Declare one configuration field of a plugin in the manifest')
     .addOption(targetProfile())
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, dottedPath: string, value: string, cmdOpts) => {
@@ -445,9 +447,11 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
 
   program
     .command('remove <alias>')
+    .alias('uninstall')
     .description('Remove an installed plugin from a profile')
     .addOption(targetProfile())
-    .option('-y, --yes', 'skip confirmation')
+    // Removing only edits the manifest (apply does the rest), so there is nothing to confirm; kept for old scripts.
+    .addOption(new Option('-y, --yes').hideHelp())
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
