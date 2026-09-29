@@ -16,7 +16,7 @@ describe('CLI purge', () => {
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
-  it('should refuse purge without --yes', async () => {
+  it('previews purge without --yes, which still refuses a plugin dshenv does not own', async () => {
     let stderr = '';
     const code = await runCli(['purge', 'agent-teams', '--profile', 'web', '--dsh-home', tempHome], {
       stdout: () => {},
@@ -25,6 +25,6 @@ describe('CLI purge', () => {
       }
     });
     expect(code).toBe(3);
-    expect(stderr).toMatch(/--yes/);
+    expect(stderr).toMatch(/no ownership record/);
   });
 });

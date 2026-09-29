@@ -8,9 +8,17 @@ import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError, CapabilityError, START_HINT } from '../errors.js';
 import type { EnvironmentLock, EnvironmentManifest, EnvironmentState } from '../domain.js';
 import { loadEffectiveManifest, overlaySwitchWarning, readOverlay } from '../overlay/effective.js';
-import { resolveCliPaths, resolveCliOverlay, overlayBanner, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { findLocalDrift, findRemoteLockDrift } from '../remote/ownership.js';
+
+// -p narrows the report to one profile by reading only that profile; skills live home-wide, so they stay in.
+function onlyProfile<T extends { profiles: Record<string, unknown> }>(value: T, profile: string | undefined): T {
+  if (profile === undefined) {
+    return value;
+  }
+  return { ...value, profiles: Object.hasOwn(value.profiles, profile) ? { [profile]: value.profiles[profile] } : {} };
+}
 
 export function registerInspectCommands(ctx: CommandContext): void {
   const { program, writeOut, writeErr, setExitCode } = ctx;
@@ -18,12 +26,13 @@ export function registerInspectCommands(ctx: CommandContext): void {
   program
     .command('plan')
     .description('Plan drift between target manifest and actual DSH environment')
-    .action(async () => {
+    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .action(async (cmdOpts: { profile?: string }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
 
       const selection = resolveCliOverlay(opts, paths);
-      const manifest = loadEffectiveManifest(paths, selection).manifest;
+      const manifest = onlyProfile(loadEffectiveManifest(paths, selection).manifest, cmdOpts.profile);
       let lock: EnvironmentLock | null = null;
 
       if (fs.existsSync(paths.lockFile)) {
@@ -36,7 +45,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
         planState = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
       }
 
-      const inventory = await readEnvironmentInventory(paths);
+      const inventory = onlyProfile(await readEnvironmentInventory(paths), cmdOpts.profile);
       const plan = buildPlan(manifest, lock, inventory, planState, await readLocalSourceDigests(manifest));
 
       const warning = overlaySwitchWarning(planState, selection);
@@ -60,7 +69,8 @@ export function registerInspectCommands(ctx: CommandContext): void {
     .command('status')
     .argument('[alias]', 'show only this plugin (alias or package name)')
     .description('Display status summary of DSH environment and manifests')
-    .action(async (plugin?: string) => {
+    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .action(async (plugin: string | undefined, cmdOpts: { profile?: string }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const selection = resolveCliOverlay(opts, paths);
@@ -70,7 +80,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
       let state: EnvironmentState | null = null;
 
       if (fs.existsSync(paths.manifestFile)) {
-        manifest = loadEffectiveManifest(paths, selection).manifest;
+        manifest = onlyProfile(loadEffectiveManifest(paths, selection).manifest, cmdOpts.profile);
       } else {
         writeErr(`No manifest at ${paths.manifestFile}; ${START_HINT}\n`);
       }
@@ -83,7 +93,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
         state = loadState(content);
       }
 
-      const inventory = await readEnvironmentInventory(paths);
+      const inventory = onlyProfile(await readEnvironmentInventory(paths), cmdOpts.profile);
       const plan = buildPlan(manifest, lock, inventory, state, await readLocalSourceDigests(manifest));
       const summary = buildStatus(manifest, state, inventory, plan);
       if (plugin) {

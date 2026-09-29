@@ -599,7 +599,8 @@ export function buildStatus(
     hasChanges: plan.hasChanges,
     operationCounts,
     unmanagedCount: plan.unmanaged.length,
-    profilesCount: Object.keys(inventory.profiles).length,
+    // A declared profile DSH has not created yet is still one this environment manages.
+    profilesCount: new Set([...Object.keys(inventory.profiles), ...Object.keys(manifest?.profiles ?? {})]).size,
     plugins
   };
 }

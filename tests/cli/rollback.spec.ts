@@ -16,7 +16,7 @@ describe('CLI rollback and gc', () => {
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
-  it('should refuse rollback without --yes', async () => {
+  it('previews rollback without --yes, which still needs a snapshot', async () => {
     let stderr = '';
     const code = await runCli(['rollback', '--dsh-home', tempHome], {
       stdout: () => {},
@@ -25,7 +25,7 @@ describe('CLI rollback and gc', () => {
       }
     });
     expect(code).toBe(3);
-    expect(stderr).toMatch(/--yes/);
+    expect(stderr).toMatch(/snapshot/i);
   });
 
   describe('when there is nothing it can restore', () => {
@@ -87,16 +87,16 @@ describe('CLI rollback and gc', () => {
     });
   });
 
-  it('should refuse gc without --yes', async () => {
-    let stderr = '';
+  it('previews gc without --yes, exiting 0 when there is nothing to delete', async () => {
+    let stdout = '';
     const code = await runCli(['gc', '--dsh-home', tempHome], {
-      stdout: () => {},
-      stderr: (chunk) => {
-        stderr += chunk;
-      }
+      stdout: (chunk) => {
+        stdout += chunk;
+      },
+      stderr: () => {}
     });
-    expect(code).toBe(3);
-    expect(stderr).toMatch(/--yes/);
+    expect(code).toBe(0);
+    expect(stdout).toMatch(/Would delete 0/);
   });
 
   it('should dry-run gc with empty trash', async () => {

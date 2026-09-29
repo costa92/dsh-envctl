@@ -83,16 +83,16 @@ demo-capture: build demo-prepare
 	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js capture
 
 demo-apply: build demo-prepare
-	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js apply --dry-run
+	-DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js apply --dry-run
 
 demo-list: build demo-prepare
 	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js list
 
 demo-rollback: build demo-prepare
-	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js rollback --dry-run
+	-DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js rollback --dry-run
 
 demo-gc: build demo-prepare
-	DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js gc --dry-run
+	-DSH_HOME="$(DEMO_HOME)" node bin/dshenv.js gc --dry-run
 
 smoke-dsh: build
 	@if [ -z "$(DSH_VERSION)" ]; then \

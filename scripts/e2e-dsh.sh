@@ -106,7 +106,8 @@ step "dsh installs $pkg@$pkg_version outside dshenv" 0 "$DSH_CLI" plugin --profi
 step "init" 0 "${run[@]}" init
 step "plan leaves the unmanaged plugin alone" 0 "${run[@]}" plan
 step "capture the profile" 0 "${run[@]}" capture --profile web --output "$work/capture.yaml"
-step "adopt the capture" 0 "${run[@]}" adopt --from "$work/capture.yaml"
+step "adopt previews without --yes" 2 "${run[@]}" adopt --from "$work/capture.yaml"
+step "adopt the capture" 0 "${run[@]}" adopt --from "$work/capture.yaml" --yes
 step "adopt records ownership" 0 json_true "$envctl/state.json" "v.ownership?.web?.['$pkg']?.lockedVersion === '$pkg_version'"
 step "plan clean after adopt" 0 "${run[@]}" plan
 alias="$(alias_of "$pkg")"
@@ -158,7 +159,7 @@ step "web stop stops it" 0 "${run[@]}" web stop --profile web
 step "web stop leaves no dsh web running" 0 bash -c "! pgrep -f -- '[-]-profile web --no-open --port 0' >/dev/null"
 
 # 6. Rollback restores the manifest files; apply converges again.
-step "rollback dry-run" 0 "${run[@]}" rollback --dry-run
+step "rollback dry-run" 2 "${run[@]}" rollback --dry-run
 step "rollback" 0 "${run[@]}" rollback --yes
 step "apply after rollback" 0 "${run[@]}" apply --yes
 step "plan clean after rollback" 0 "${run[@]}" plan
@@ -223,13 +224,13 @@ step "plan clean without the overlay" 0 "${run[@]}" plan
 step "profile no longer declares the overlay plugin" 0 json_true "$DSH_HOME/profiles/web/package.json" "!v.dependencies?.['e2e-overlay'] && !v.dsh.profile.bundles.includes('e2e-overlay')"
 
 # 11. Purge moves an owned plugin's clone into trash; gc empties expired trash.
-step "purge dry-run" 0 "${run[@]}" purge "$git_alias" --profile web --dry-run
+step "purge dry-run" 2 "${run[@]}" purge "$git_alias" --profile web --dry-run
 step "purge" 0 "${run[@]}" purge "$git_alias" --profile web --yes
 step "clone moved out of envctl/sources" 1 test -e "$envctl/sources/web/$git_pkg"
 step "declare remove of the purged plugin" 0 "${run[@]}" remove "$git_alias" --profile web
 step "apply remove of the purged plugin" 0 "${run[@]}" apply --yes
 step "plan clean after purge" 0 "${run[@]}" plan
-step "gc dry-run" 0 "${run[@]}" gc --older-than 0 --dry-run
+step "gc dry-run" 2 "${run[@]}" gc --older-than 0 --dry-run
 step "gc" 0 "${run[@]}" gc --older-than 0 --yes
 step "trash emptied" 0 test -z "$(ls -A "$envctl/trash" 2>/dev/null)"
 
@@ -301,8 +302,8 @@ step "DSH has the team skill" 0 test -f "$DSH_HOME/skills/team-skill/SKILL.md"
 team_manifest '        enabled: false\n'
 commit_all "$team" "disable teams"
 git -C "$team" push -q "file://$team.git" HEAD:refs/heads/main
-step "sync previews the team change" 2 "${run[@]}" sync
-step "sync --yes" 0 "${run[@]}" sync --yes
+step "remote sync previews the team change" 2 "${run[@]}" remote sync
+step "remote sync --yes" 0 "${run[@]}" remote sync --yes
 step "plan shows the disable" 2 "${run[@]}" plan
 step "apply team change" 0 "${run[@]}" apply --yes
 step "plan clean after sync" 0 "${run[@]}" plan

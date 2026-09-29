@@ -105,7 +105,7 @@ profiles:
         `  [web] enable ${PKG}`,
         'Restart DSH to load:',
         '  [web] update other-plugin (package updates are not hot-reloaded)',
-        'Then run: dshenv restarted',
+        'Then run: dshenv mark-restarted',
         ''
       ].join('\n')
     );
@@ -119,7 +119,7 @@ profiles:
 
     expect(stdout).not.toContain('No restart needed:');
     expect(stdout).toContain(`  [web] enable ${PKG} (hot reload is off for profile web)\n`);
-    expect(stdout).toContain('Then run: dshenv restarted\n');
+    expect(stdout).toContain('Then run: dshenv mark-restarted\n');
   });
 
   it('adds the restart field to --json output', async () => {
@@ -142,7 +142,7 @@ profiles:
 
     const { code, stdout } = await run(['apply', '--dry-run']);
 
-    expect(code).toBe(0);
+    expect(code).toBe(2);
     expect(stdout).toContain(`[web] ${PKG} (agent-teams) enabled: true (no restart)\n`);
     expect(stdout).toContain('[web] other-plugin (other) 1.0.0 -> 2.0.0 (restart required: package updates are not hot-reloaded)\n');
     expect(stdout).not.toContain('Then run:');

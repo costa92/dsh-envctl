@@ -8,14 +8,32 @@
 
 - `-p, --profile` 的统一规则：作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）不写 `-p` 时使用环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报 `Missing -p, --profile <name>: choose one of …, or set DSHENV_PROFILE`，列出清单声明的与 DSH 已创建的 Profile（此前是 commander 的 `required option ... not specified`，退出码 1）。`DSHENV_PROFILE` 不合法时报错并注明来源。
 - `web status -p <name>` 只列出一个 Profile；`capture` 支持 `-p` 简写。
+- `plan -p <name>`、`status -p <name>` 只看一个 Profile；`status` 文本输出列出每个插件的状态，`status <alias>` 只列出该插件（此前只有 `--json` 生效），`Profiles monitored` 计入清单声明但尚未创建的 Profile。
+- `dshenv remote sync`：即原来的顶层 `sync`。
+- `dshenv overlay create <name>`：新建只含 `apiVersion` 的空 overlay，文件已存在时退出码 3。README 补上 overlay 文件格式示例。
+- 顶层帮助按用途分组（Getting started、Everyday、Plugins、Tools & runtime、Sources & team、Maintenance），附常用示例、数据流向与环境变量说明；子命令帮助列出全局选项；`dshenv` 不带参数时显示帮助并退出码 0。
 
 ### 变更
 
-- 按 Profile 过滤的命令（`list`、`pull`、`capture`、`overlay show`、`restarted`、`web status`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
+- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
 - `runtime` 在清单声明多个 Profile 又没指定时，报错改为同一格式并列出可选的 Profile。
 - `config get <alias> [dottedPath]` 用位置参数读取嵌套字段，与 `config set`、`tools config` 一致；`--path` 仍然可用，但不再出现在帮助里。
 - `source pull` 的 ref 只在帮助里保留 `--ref`（与 `source clone` 一致）；第二个位置参数仍然可用。
 - `purge`、`status` 的参数在帮助里改名为 `<alias>`（接受别名或包名，行为不变）。
+- **退出码**：改状态的命令不带 `--yes` 时一律只预览，有待执行的内容时退出码 2（与 `plan` 相同），没有时退出码 0；`--dry-run` 同样有变更时退出码 2。
+
+  | 命令 | 之前 | 现在 |
+  | --- | --- | --- |
+  | `apply`（不带 `--yes`） | 拒绝，退出码 3 | 预览，有变更 2 / 无变更 0 |
+  | `apply --dry-run` | 0 | 有变更 2 / 无变更 0（有 blocked 时 5，与 `plan` 相同） |
+  | `rollback`（不带 `--yes`）、`rollback --dry-run` | 拒绝 3 / 0 | 预览，找到快照时 2 |
+  | `gc`、`purge`（不带 `--yes`）及其 `--dry-run` | 拒绝 3 / 0 | 预览，有可删除或移动的内容时 2，否则 0 |
+  | `adopt`（不带 `--yes`） | 直接写入，0 | 只列出将接管的插件，有插件时 2，不写文件 |
+  | `remote remove`（不带 `--yes`） | 拒绝，3 | 预览，2 |
+  | 用法错误：缺参数、未知选项或命令、缺必填选项 | 1，`--json` 时仍是纯文本 | 3，`--json` 时输出 `{"error": {"type": "ValidationError", ...}}` |
+- `restarted` 改名为 `mark-restarted`，`apply` 与 `runtime` 的提示改为 `dshenv mark-restarted`；旧名仍可用，只是不再列在帮助里。顶层 `sync` 同样保留为 `remote sync` 的隐藏旧名；`uninstall` 是 `remove` 的隐藏别名。
+- `list` 的文本输出改为带表头的表格（`PROFILE ALIAS PACKAGE VERSION ENABLED INSTALLED`，有生效 overlay 时加 `ORIGIN`），显示启用状态；`--json` 的每行多了 `version`。没有插件时 `list`、`overlay list` 提示如何添加。
+- `remove` 的 `-y` 不再出现在帮助里（它只改清单，没有需要确认的内容），旧脚本仍可传；`update --to`、`adopt -f` 在帮助里标明必填；`config get/set/validate` 补上说明。
 - 不带 id 的 `rollback` 跳过失败的 `apply` 留下的快照（它们已经自己恢复过，恢复它们什么也不会改变），恢复到最近一次真正改动过文件的操作之前，输出写明恢复的是哪次操作之前的状态、跳过了哪些。
 - `apply` 的快照包含当时生效的 overlay 文件，回滚到它会连同用 `--layer overlay` 改过的 overlay 一起恢复。
 - `apply` 某一步失败时，错误信息写明失败的步骤（`[web] install cc (cc), step 2 of 2`）、本次 operation id、仍留在 Profile 里的已装插件，以及回到上一次成功 apply 所用清单的命令 `dshenv rollback <id> --yes`。
@@ -23,7 +41,7 @@
 - DSH 创建 Profile 时自带的 bundle（`@deepseek-ai/dsh-base`、`dsh-web-app`、`dsh-headless`、`dsh-acp-app`、`dsh-sdk-app`）没有写进清单时不再算作 `unmanaged`，新环境不会一上来就显示 `Environment Status: unmanaged`。
 - 缺少清单时，所有需要清单的命令都提示 `run dshenv init to start one, or dshenv capture … then dshenv adopt …`；`status` 在 stderr 给出同样的提示。`init` 成功后给出下一步，重复 `init` 报 `dshenv is already initialized`；`adopt` 没有可接管的插件时说 `Nothing to adopt`，并以 `Next: dshenv plan` 结尾。
 - `apply --dry-run` 不再重复打印 `Planned operations:` 标题；`apply --yes` 成功后标题改为 `Applied operations:`。
-- `runtime` 对已加载但仍记为需要重启的插件，提示改为 `if DSH restarted after the last apply, run dshenv restarted to clear the restart flag`，不再同时显示 loaded 与“重启 DSH”。
+- `runtime` 对已加载但仍记为需要重启的插件，提示改为 `if DSH restarted after the last apply, run dshenv mark-restarted to clear the restart flag`，不再同时显示 loaded 与“重启 DSH”。
 
 ## 0.3.1 - 2026-09-29
 

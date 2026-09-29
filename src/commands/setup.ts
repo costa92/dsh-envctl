@@ -13,6 +13,7 @@ import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write
 import { resolveCliPaths, resolveCliOverlay, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 import { pullProfilePatches } from '../profile-patches/pull.js';
 import { renderPullResult } from './pull.js';
+import { reportPreview } from './confirm.js';
 
 export function registerSetupCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -71,8 +72,8 @@ export function registerSetupCommands(ctx: CommandContext): void {
   program
     .command('adopt')
     .description('Adopt a candidate capture manifest into active environment management')
-    .requiredOption('-f, --from <file>', 'path to candidate capture manifest')
-    .option('-y, --yes', 'skip confirmation')
+    .requiredOption('-f, --from <file>', '(required) path to candidate capture manifest')
+    .option('-y, --yes', 'adopt; without it adopt only previews what it would take over')
     .option('--layer <layer>', 'layer to write when an overlay is active; adopt only supports base')
     .action(async (cmdOpts) => {
       const opts = program.opts();
@@ -102,8 +103,21 @@ export function registerSetupCommands(ctx: CommandContext): void {
       }
 
       const summary = await adoptEnvironment(paths, parsed.data as CaptureDocument, {
-        validateManifest: (manifest) => assertBaseMergesWithOverlay(paths, selection, manifest)
+        validateManifest: (manifest) => assertBaseMergesWithOverlay(paths, selection, manifest),
+        dryRun: !cmdOpts.yes
       });
+      if (!cmdOpts.yes) {
+        if (opts.json) {
+          writeOut(JSON.stringify({ ...summary, dryRun: true }, null, 2) + '\n');
+        } else {
+          writeOut(`Would adopt ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}\n`);
+          for (const d of summary.details) {
+            writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]\n`);
+          }
+        }
+        reportPreview(ctx, { json: opts.json, pending: summary.adoptedCount > 0, action: 'adopt' });
+        return;
+      }
       // Taking over a profile includes the settings DSH wrote into its patch file.
       let patches: Awaited<ReturnType<typeof pullProfilePatches>> | null = null;
       try {

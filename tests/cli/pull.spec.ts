@@ -76,7 +76,7 @@ describe('CLI pull', () => {
 
   it('says what adopt already recorded when taking over the patch entries then fails', async () => {
     await run(['capture', '--output', path.join(tempHome, 'capture.yaml')]);
-    const adopted = await run(['adopt', '--from', path.join(tempHome, 'capture.yaml'), '--no-overlay']);
+    const adopted = await run(['adopt', '--from', path.join(tempHome, 'capture.yaml'), '--no-overlay', '--yes']);
     expect(adopted.code).toBe(3);
     expect(adopted.stderr).toMatch(/^Adopted 1 plugin\(s\) across profile\(s\): web, but taking over their patch entries failed: .*machine-local paths.*; fix that and run dshenv pull/m);
     // The adoption itself stands: running adopt again is not needed, only the pull.
@@ -91,7 +91,7 @@ describe('CLI pull', () => {
     expect(captured.code).toBe(0);
     expect(fs.readFileSync(path.join(tempHome, 'capture.yaml'), 'utf8')).toContain('2 patch entries outside the manifest');
 
-    const adopted = await run(['adopt', '--from', path.join(tempHome, 'capture.yaml')]);
+    const adopted = await run(['adopt', '--from', path.join(tempHome, 'capture.yaml'), '--yes']);
     expect(adopted.code).toBe(0);
     expect(adopted.stdout).toContain('[web] from DSH: + locale, + skill-filesystem');
     expect(manifest().profiles.web.patches?.map((entry) => entry.id)).toEqual(['locale']);
