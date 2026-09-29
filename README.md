@@ -430,7 +430,8 @@ dshenv web stop -p web             # 停止它以及它启动的子进程（如 
 
 - 启动命令为 `dsh --profile <P> --no-open --port <端口>`，DSH CLI 的选择与其他命令相同（`DSH_CLI`、`--harness-source`、`environment.harness.sourceDir`、`PATH`）。dsh web 在独立的进程组中运行，dshenv 退出或关闭终端后继续运行。
 - 地址（含登录 token）与 pid 记在 `envctl/run/<profile>.json`，输出写到 `envctl/run/<profile>.log`，两者权限均为 `0600`；不在快照、同步与团队仓库范围内。`start` 打印一次地址，`status` 从不打印 token。
-- 已在运行时 `start` 只报告现有的那个；它自己退出后，`status` 显示 `not running`，再次 `start` 会启动新的。`stop` 只停止 pid 与命令行都对得上的进程，被系统复用的 pid 不会被误停。
+- 已在运行时 `start` 只报告现有的那个；它自己退出后，`status` 显示 `not running`，再次 `start` 会启动新的。dsh web 自己退出但它启动的子进程还在时，`status` 显示 `not running (leftover processes)`，`start` 先停掉这些子进程再启动，`stop` 也会停掉它们。
+- 记录里保存了 dsh web 的启动时间，`stop` 只停止 pid 与启动时间都对得上的进程，被系统复用的 pid 不会被误停；无法确认时（`status` 显示 `unknown`）`stop` 和 `start` 报错并保留记录，不做任何停止。SIGKILL 后仍未退出时 `stop` 以非零退出码报错并保留记录，可以再次执行。
 - 同一 Profile 的 `start`、`stop` 依次执行，两个 `start` 同时运行也只会启动一个；启动过程中按 Ctrl+C 会停止正在启动的 dsh web（`runtime --start` 在核对过程中被中断也一样），不会遗留进程。
 - Profile 必须已存在（DSH 会自动创建不存在的 Profile）；不带 web 应用的 Profile（headless、acp 等）会报 `did not start dsh web`，60 秒内没有打印地址也会停止并报错。
 

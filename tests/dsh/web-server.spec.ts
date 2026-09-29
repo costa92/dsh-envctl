@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { dshWebRunning, launchDshWeb, startDshWeb, stopProcessGroup } from '../../src/dsh/web-server.js';
+import { dshWebState, launchDshWeb, startDshWeb, stopProcessGroup } from '../../src/dsh/web-server.js';
 import { execa } from 'execa';
 
 const alive = (pid: number): boolean => {
@@ -38,14 +38,17 @@ setTimeout(() => console.log('dsh web: http://127.0.0.1:4567/?token=abc-DEF_1'),
 setInterval(() => {}, 1000);
 `);
     const web = await startDshWeb('web', { command, dshHome: '/tmp/some-home', timeoutMs: 10_000 });
-    expect(web.url).toBe('http://127.0.0.1:4567/?token=abc-DEF_1');
-    expect(JSON.parse(fs.readFileSync(path.join(dir, 'call.json'), 'utf8'))).toEqual({
-      args: ['--profile', 'web', '--no-open', '--port', '0'],
-      home: '/tmp/some-home'
-    });
     const pid = Number(fs.readFileSync(path.join(dir, 'pid'), 'utf8'));
-    expect(alive(pid)).toBe(true);
-    await web.stop();
+    try {
+      expect(web.url).toBe('http://127.0.0.1:4567/?token=abc-DEF_1');
+      expect(JSON.parse(fs.readFileSync(path.join(dir, 'call.json'), 'utf8'))).toEqual({
+        args: ['--profile', 'web', '--no-open', '--port', '0'],
+        home: '/tmp/some-home'
+      });
+      expect(alive(pid)).toBe(true);
+    } finally {
+      await web.stop();
+    }
     expect(alive(pid)).toBe(false);
   });
 
@@ -66,8 +69,11 @@ setInterval(() => {}, 1000);
 `);
     const web = await startDshWeb('web', { command, dshHome: dir, timeoutMs: 10_000 });
     const grandchild = Number(fs.readFileSync(childPid, 'utf8'));
-    expect(alive(grandchild)).toBe(true);
-    await web.stop();
+    try {
+      expect(alive(grandchild)).toBe(true);
+    } finally {
+      await web.stop();
+    }
     expect(alive(grandchild)).toBe(false);
   });
 
@@ -87,6 +93,12 @@ process.exit(1);
 `);
     const failure = startDshWeb('headless', { command, dshHome: dir, timeoutMs: 10_000 });
     await expect(failure).rejects.toThrow(/did not start dsh web: error: unknown option '--no-open'$/);
+  });
+
+  it('never quotes a login token DSH printed before it failed', async () => {
+    const command = fakeDsh(`console.error('dsh web: http://localhost:4567/?token=SECRET-1 is unreachable'); process.exit(1);`);
+    const failure = startDshWeb('web', { command, dshHome: dir, timeoutMs: 10_000 });
+    await expect(failure).rejects.toThrow(/did not start dsh web: dsh web: http:\/\/localhost:4567\/\?token=<redacted> is unreachable$/);
   });
 
   it('gives up and stops DSH when no URL appears in time', async () => {
@@ -116,17 +128,21 @@ describe('launchDshWeb', () => {
     fs.writeFileSync(script, `console.log('ready'); console.log('dsh web: http://127.0.0.1:4567/?token=abc'); setInterval(() => {}, 1000);`);
     const logFile = path.join(dir, 'run', 'web.log');
     const web = await launchDshWeb('web', { command: { file: process.execPath, args: [script] }, dshHome: dir, logFile, port: 3090 });
-    expect(web.url).toBe('http://127.0.0.1:4567/?token=abc');
-    expect(fs.readFileSync(logFile, 'utf8')).toContain('ready');
-    expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
-    // Its own process group and session: it does not stop with the terminal or process that launched it.
-    expect(Number((await execa('ps', ['-o', 'pgid=', '-p', String(web.pid)])).stdout.trim())).toBe(web.pid);
-    expect((await execa('ps', ['-o', 'args=', '-p', String(web.pid)])).stdout).toContain('--profile web --no-open --port 3090');
+    try {
+      expect(web.url).toBe('http://127.0.0.1:4567/?token=abc');
+      expect(fs.readFileSync(logFile, 'utf8')).toContain('ready');
+      expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
+      // Its own process group and session: it does not stop with the terminal or process that launched it.
+      expect(Number((await execa('ps', ['-o', 'pgid=', '-p', String(web.pid)])).stdout.trim())).toBe(web.pid);
+      expect((await execa('ps', ['-o', 'args=', '-p', String(web.pid)])).stdout).toContain('--profile web --no-open --port 3090');
 
-    expect(await dshWebRunning(web.pid, 'web')).toBe(true);
-    expect(await dshWebRunning(web.pid, 'other')).toBe(false);
-    await stopProcessGroup(web.pid);
-    expect(await dshWebRunning(web.pid, 'web')).toBe(false);
+      expect(await dshWebState(web.pid, web.leaderStart)).toBe('running');
+      // A process that got the pid later started at another time.
+      expect(await dshWebState(web.pid, 'another start')).toBe('stopped');
+    } finally {
+      expect(await stopProcessGroup(web.pid)).toBe(true);
+    }
+    expect(await dshWebState(web.pid, web.leaderStart)).toBe('stopped');
   });
 });
 
@@ -161,16 +177,28 @@ setInterval(() => {}, 1000);`);
     if (waitFor === 'started') {
       await new Promise<void>((resolve) => dshenv.stdout?.once('data', () => resolve()));
     } else {
-      while (!fs.existsSync(pidFile)) await new Promise((resolve) => setTimeout(resolve, 50));
+      const startDeadline = Date.now() + 10_000;
+      while (!fs.existsSync(pidFile) && Date.now() < startDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
     }
     const dsh = Number(fs.readFileSync(pidFile, 'utf8'));
-    expect(alive(dsh)).toBe(true);
-    dshenv.kill('SIGINT');
-    const result = await dshenv;
-    expect(result.signal).toBe('SIGINT');
-    const stopDeadline = Date.now() + 10_000;
-    while (alive(dsh) && Date.now() < stopDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(alive(dsh)).toBe(false);
+    try {
+      expect(alive(dsh)).toBe(true);
+      dshenv.kill('SIGINT');
+      const result = await dshenv;
+      expect(result.signal).toBe('SIGINT');
+      const stopDeadline = Date.now() + 10_000;
+      while (alive(dsh) && Date.now() < stopDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(alive(dsh)).toBe(false);
+    } finally {
+      // A failed check must not leave the fake dsh web or dshenv behind.
+      for (const pid of [-dsh, dshenv.pid ?? 0]) {
+        try {
+          if (pid) process.kill(pid, 'SIGKILL');
+        } catch {
+          // Already stopped.
+        }
+      }
+    }
     // Its log, which can hold the login URL, goes too.
     expect(fs.readdirSync(tmp).filter((name) => name.startsWith('dshenv-web-'))).toEqual([]);
   };
