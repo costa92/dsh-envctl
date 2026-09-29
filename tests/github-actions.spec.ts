@@ -93,6 +93,25 @@ describe('repository CI workflow', () => {
     }
   });
 
+  // The first major of each action that runs on Node 24; older ones make every job warn that Node 20 is deprecated.
+  const node24Majors: Record<string, number> = {
+    'actions/checkout': 5,
+    'actions/setup-node': 5,
+    'actions/upload-artifact': 6,
+    'actions/download-artifact': 7,
+    'pnpm/action-setup': 4
+  };
+
+  it.each(['ci', 'release', 'e2e', 'compat'])('%s uses only action versions that run on Node 24', (name) => {
+    const text = fs.readFileSync(path.join(projectDir, '.github', 'workflows', `${name}.yml`), 'utf8');
+    const pins = [...text.matchAll(/uses:\s*([\w-]+\/[\w-]+)@[0-9a-f]{40}\s*#\s*v(\d+)\./g)];
+    expect(pins.length).toBe((text.match(/uses:/g) ?? []).length);
+    for (const [, action, major] of pins) {
+      expect(node24Majors[action], action).toBeDefined();
+      expect(Number(major), action).toBeGreaterThanOrEqual(node24Majors[action]);
+    }
+  });
+
   it.each(Object.entries(repositoryWorkflows))('%s never splices a workflow input into a shell script', (_name, workflow) => {
     for (const step of allSteps(workflow)) {
       expect(step.run ?? '').not.toMatch(/\$\{\{\s*(inputs|github\.event)\./);
