@@ -22,7 +22,7 @@ import {
   type ToolTarget
 } from '../tools/catalog.js';
 import { resolveWrite, writeBase, writeOverlay } from './manifest-write.js';
-import { profileOption, resolveCliOverlay, resolveCliPaths, type CommandContext } from './context.js';
+import { resolveCliOverlay, resolveCliPaths, targetProfile, type CommandContext } from './context.js';
 
 const CATEGORY_TITLES: Record<ToolCategory, string> = {
   terminal: 'Terminal',
@@ -114,7 +114,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
   tools
     .command('list')
     .description("List a profile's tools by category, as an agent of the chosen preset gets them")
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .addOption(targetProfile())
     .option('--preset <name>', 'agent preset to show (default: the profile default)')
     .option('--all', 'every tool row: profile-wide and in each preset')
     .action(async (cmdOpts) => {
@@ -194,7 +194,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
     tools
       .command(`${toggle.name} <tool>`)
       .description(`${toggle.verb.replace(/d$/, '')} a tool row by its id (see tools list)`)
-      .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+      .addOption(targetProfile())
       .option('--preset <name>', 'agent preset holding the tool (default: the profile default)')
       .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
       .action((tool: string, cmdOpts) => change(tool, cmdOpts, { kind: toggle.kind }, toggle.verb, toggle.status));
@@ -203,7 +203,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
   tools
     .command('config <tool> [dottedPath] [value]')
     .description("Show a tool's config, one key of it, or set that key (the patch restates the whole config)")
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .addOption(targetProfile())
     .option('--preset <name>', 'agent preset holding the tool (default: the profile default)')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (tool: string, dottedPath: string | undefined, value: string | undefined, cmdOpts) => {

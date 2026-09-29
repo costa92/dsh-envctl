@@ -42,6 +42,19 @@ describe('CLI capture --profile', () => {
     expect(stdout).not.toMatch(/^\s+tui:/m);
   });
 
+  it('takes -p like every other command', async () => {
+    let stdout = '';
+    const code = await runCli(['capture', '-p', 'web', '--dsh-home', tempHome], {
+      stdout: (chunk: string) => {
+        stdout += chunk;
+      },
+      stderr: () => {}
+    });
+    expect(code).toBe(0);
+    expect(stdout).toContain('web:');
+    expect(stdout).not.toMatch(/^\s+tui:/m);
+  });
+
   it('should fail when the named profile does not exist', async () => {
     let stderr = '';
     const io = {

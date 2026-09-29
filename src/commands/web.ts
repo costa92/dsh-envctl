@@ -9,7 +9,7 @@ import { listWebRecords, readWebRecord, removeWebRecord, webLogFile, writeWebRec
 import { parseDshWebUrl } from '../dsh/web-client.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import { assertProfileName } from '../manifest/schema.js';
-import { resolveCliOverlay, resolveCliPaths, type CommandContext } from './context.js';
+import { profileOption, resolveCliOverlay, resolveCliPaths, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 
 interface CliOpts {
   dshHome?: string;
@@ -87,7 +87,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('start')
     .description('Start dsh web for a profile in the background and print its URL')
-    .requiredOption('-p, --profile <name>', 'profile to serve', assertProfileName)
+    .addOption(targetProfile())
     .option('--port <port>', 'port to listen on; 0 picks a free one', '0')
     .action(async (cmdOpts: { profile: string; port: string }) => {
       const opts = program.opts<CliOpts>();
@@ -135,7 +135,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('stop')
     .description('Stop the dsh web that dshenv web start left running for a profile, with everything it started')
-    .requiredOption('-p, --profile <name>', 'profile whose dsh web to stop', assertProfileName)
+    .addOption(targetProfile())
     .action(async (cmdOpts: { profile: string }) => {
       const opts = program.opts<CliOpts>();
       const paths = resolveCliPaths(opts);
@@ -159,11 +159,13 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('status')
     .description('List the dsh web servers dshenv web start left running (never their token)')
-    .action(async () => {
+    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .action(async (cmdOpts: { profile?: string }) => {
       const opts = program.opts<CliOpts>();
       const paths = resolveCliPaths(opts);
+      const records = listWebRecords(paths).filter((record) => cmdOpts.profile === undefined || record.profile === cmdOpts.profile);
       const webs = await Promise.all(
-        listWebRecords(paths).map(async (record) => {
+        records.map(async (record) => {
           const state = await dshWebState(record.pid, record.leaderStart);
           return {
             profile: record.profile,
@@ -181,7 +183,7 @@ export function registerWebCommands(ctx: CommandContext): void {
         return;
       }
       if (webs.length === 0) {
-        writeOut('No dsh web started by dshenv.\n');
+        writeOut(cmdOpts.profile === undefined ? 'No dsh web started by dshenv.\n' : `No dsh web started by dshenv for profile ${cmdOpts.profile}.\n`);
         return;
       }
       for (const entry of webs) {

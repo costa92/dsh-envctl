@@ -243,6 +243,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
   sourceCmd
     .command('pull [targetDir] [targetRef]')
     .description('Fast-forward a Git checkout; with --profile, also update the lock commit')
+    // A second positional ref still works; --ref is the one spelling shown, as in source clone.
+    .usage('[options] [targetDir]')
     .option('-p, --profile <name>', 'managed profile whose envctl/sources clone should be updated', profileOption)
     .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
     .option('--ref <ref>', 'commit or ref to fast-forward to')
@@ -251,7 +253,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
       const paths = resolveCliPaths(opts);
       const ref = cmdOpts.ref || targetRef;
       if (!ref) {
-        throw new ValidationError('source pull requires a ref (--ref or positional targetRef)');
+        throw new ValidationError('source pull requires --ref <ref>');
       }
 
       let resolvedTarget: string;

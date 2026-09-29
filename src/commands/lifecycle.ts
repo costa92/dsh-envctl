@@ -8,7 +8,7 @@ import { renderPlan, renderRestartSummary } from '../output/render.js';
 import { ValidationError } from '../errors.js';
 import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
 import { loadState } from '../manifest/files.js';
-import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 
 export function registerLifecycleCommands(ctx: CommandContext): void {
   const { program, writeOut, writeErr } = ctx;
@@ -84,9 +84,10 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
     });
 
   program
-    .command('purge <plugin>')
+    .command('purge')
+    .argument('<alias>', 'plugin alias or package name')
     .description('Move owned managed patch (and envctl/sources clone) into trash')
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .addOption(targetProfile())
     .option('--dry-run', 'list resources that would be moved')
     .option('-y, --yes', 'confirm moving owned resources into trash')
     .action(async (plugin: string, cmdOpts) => {
@@ -145,7 +146,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
   program
     .command('restarted')
     .description('Record that DSH was restarted, clearing restart-required')
-    .option('-p, --profile <name>', 'only clear this profile', profileOption)
+    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const result = await markRestarted(resolveCliPaths(opts), cmdOpts.profile);

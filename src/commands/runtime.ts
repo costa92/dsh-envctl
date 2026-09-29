@@ -18,22 +18,22 @@ import {
   type DeclaredPlugin,
   type RuntimeBundle
 } from '../runtime/compare.js';
-import { resolveCliPaths, resolveCliOverlay, profileOption, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, profileOption, profileFromEnv, missingProfileError, TARGET_PROFILE_HELP, type CommandContext } from './context.js';
 
-function selectProfile(manifest: EnvironmentManifest, requested: string | undefined): string {
+// -p, else DSHENV_PROFILE, else the only declared profile.
+function selectProfile(paths: EnvironmentPaths, opts: { overlay?: string | false }, manifest: EnvironmentManifest, requested: string | undefined): string {
   const names = Object.keys(manifest.profiles);
-  if (requested !== undefined) {
-    if (!names.includes(requested)) {
-      throw new ValidationError(`Profile '${requested}' is not declared in the manifest`);
+  const named = requested ?? profileFromEnv();
+  if (named !== undefined) {
+    if (!names.includes(named)) {
+      throw new ValidationError(`Profile '${named}' is not declared in the manifest`);
     }
-    return requested;
+    return named;
   }
   if (names.length === 1) {
     return names[0];
   }
-  throw new ValidationError(
-    names.length === 0 ? 'The manifest declares no profiles' : `The manifest declares several profiles (${names.join(', ')}); pass --profile`
-  );
+  throw missingProfileError(paths, opts);
 }
 
 // DSH does not say which profile it runs; listBundles reads that profile's package.json, so the packages must agree.
@@ -73,14 +73,14 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
   program
     .command('runtime')
     .description(`Ask a running dsh web (${DSH_URL_ENV}) whether the declared plugins are loaded`)
-    .option('-p, --profile <name>', 'profile to check', profileOption)
+    .option('-p, --profile <name>', TARGET_PROFILE_HELP, profileOption)
     .option('--allow-remote', 'allow sending the dsh web token to a non-loopback https host')
     .option('--start', `start dsh web for the profile, check it and stop it again, instead of using ${DSH_URL_ENV}`)
     .action(async (cmdOpts: { profile?: string; allowRemote?: boolean; start?: boolean }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
-      const profile = selectProfile(manifest, cmdOpts.profile);
+      const profile = selectProfile(paths, opts, manifest, cmdOpts.profile);
       if (!cmdOpts.start) {
         const url = process.env[DSH_URL_ENV]?.trim() ? process.env[DSH_URL_ENV] : (await runningWebRecord(paths, profile))?.url;
         if (url === undefined) {

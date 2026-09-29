@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { Option } from 'commander';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { getAtPath, parseConfigValue, readPluginConfig, upsertPluginPatch } from '../config/config.js';
 import { loadLock, loadState, serializeLock } from '../manifest/files.js';
@@ -15,7 +16,7 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { assertLockEntryNotRemoteOwned } from '../remote/ownership.js';
 import { readRemoteConfig } from '../remote/schema.js';
-import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, aliasOption, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, aliasOption, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 import { withEnvironmentLock } from '../io/lock.js';
 import { resolveWrite, writeBase, writeOverlay } from './manifest-write.js';
 import { readPackageJsonName } from '../source/local.js';
@@ -224,7 +225,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   program
     .command('install <spec>')
     .description('Install a plugin into the manifest for a profile')
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .addOption(targetProfile())
     .option('--as <alias>', 'custom alias name for the plugin', aliasOption)
     .option('--package <name>', 'package name for a git or local source; defaults to its package.json name')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
@@ -249,7 +250,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   program
     .command('update <alias>')
     .description('Update the declared npm version for a plugin in the manifest')
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .addOption(targetProfile())
     .requiredOption('--to <version>', 'exact version to declare; does not float to latest')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {
@@ -292,7 +293,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   program
     .command('list')
     .description('List declared and unmanaged plugins')
-    .option('-p, --profile <name>', 'limit to one profile', profileOption)
+    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -349,15 +350,17 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
 
   const configCmd = program.command('config').description('Read or update declared plugin configuration');
   configCmd
-    .command('get <alias>')
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
-    .option('--path <dottedPath>', 'return a nested field')
-    .action(async (alias: string, cmdOpts) => {
+    .command('get <alias> [dottedPath]')
+    .addOption(targetProfile())
+    // Superseded by the positional dottedPath, the spelling config set and tools config use.
+    .addOption(new Option('--path <dottedPath>').hideHelp())
+    .action(async (alias: string, dottedPath: string | undefined, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
       const config = await readPluginConfig(paths, manifest, cmdOpts.profile, alias);
-      const value = cmdOpts.path ? getAtPath(config.config, cmdOpts.path) : config;
+      const field = dottedPath ?? cmdOpts.path;
+      const value = field ? getAtPath(config.config, field) : config;
       if (opts.json) {
         writeOut(JSON.stringify(value, null, 2) + '\n');
       } else {
@@ -366,7 +369,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     });
   configCmd
     .command('validate <alias>')
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .addOption(targetProfile())
     .action(async (alias: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -384,7 +387,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     });
   configCmd
     .command('set <alias> <dottedPath> <value>')
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .addOption(targetProfile())
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, dottedPath: string, value: string, cmdOpts) => {
       const opts = program.opts();
@@ -418,7 +421,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     program
       .command(`${toggle.name} <alias>`)
       .description(toggle.description)
-      .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+      .addOption(targetProfile())
       .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
       .action(async (alias: string, cmdOpts) => {
         const opts = program.opts();
@@ -443,7 +446,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   program
     .command('remove <alias>')
     .description('Remove an installed plugin from a profile')
-    .requiredOption('-p, --profile <name>', 'target profile', profileOption)
+    .addOption(targetProfile())
     .option('-y, --yes', 'skip confirmation')
     .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
     .action(async (alias: string, cmdOpts) => {

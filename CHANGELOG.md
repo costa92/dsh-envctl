@@ -2,6 +2,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。发布流程见 [docs/发布流程.md](docs/发布流程.md)。
 
+## 未发布
+
+### 新增
+
+- `-p, --profile` 的统一规则：作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）不写 `-p` 时使用环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报 `Missing -p, --profile <name>: choose one of …, or set DSHENV_PROFILE`，列出清单声明的与 DSH 已创建的 Profile（此前是 commander 的 `required option ... not specified`，退出码 1）。`DSHENV_PROFILE` 不合法时报错并注明来源。
+- `web status -p <name>` 只列出一个 Profile；`capture` 支持 `-p` 简写。
+
+### 变更
+
+- 按 Profile 过滤的命令（`list`、`pull`、`capture`、`overlay show`、`restarted`、`web status`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
+- `runtime` 在清单声明多个 Profile 又没指定时，报错改为同一格式并列出可选的 Profile。
+- `config get <alias> [dottedPath]` 用位置参数读取嵌套字段，与 `config set`、`tools config` 一致；`--path` 仍然可用，但不再出现在帮助里。
+- `source pull` 的 ref 只在帮助里保留 `--ref`（与 `source clone` 一致）；第二个位置参数仍然可用。
+- `purge`、`status` 的参数在帮助里改名为 `<alias>`（接受别名或包名，行为不变）。
+
 ## 0.3.1 - 2026-09-29
 
 ### 新增

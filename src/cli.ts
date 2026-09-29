@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { DshError, ValidationError } from './errors.js';
-import type { CommandContext } from './commands/context.js';
+import { defaultTargetProfile, type CommandContext } from './commands/context.js';
 import { registerSetupCommands } from './commands/setup.js';
 import { registerLifecycleCommands } from './commands/lifecycle.js';
 import { registerInspectCommands } from './commands/inspect.js';
@@ -51,6 +51,8 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       writeErr: (str) => writeErr(str)
     })
     .exitOverride();
+
+  defaultTargetProfile(program);
 
   const ctx: CommandContext = {
     program,

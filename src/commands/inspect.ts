@@ -57,7 +57,8 @@ export function registerInspectCommands(ctx: CommandContext): void {
     });
 
   program
-    .command('status [plugin]')
+    .command('status')
+    .argument('[alias]', 'show only this plugin (alias or package name)')
     .description('Display status summary of DSH environment and manifests')
     .action(async (plugin?: string) => {
       const opts = program.opts();
