@@ -84,6 +84,33 @@ function assertNoLocalEnvironment(environment: EnvironmentManifest['environment'
   }
 }
 
+function hasJsExpression(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(hasJsExpression);
+  }
+  return typeof value === 'object' && value !== null && Object.entries(value).some(([key, inner]) => key === '__jsExpr' || hasJsExpression(inner));
+}
+
+// dshenv writes { __jsExpr } as a cordis `!!js` value, which DSH evaluates; a team must not ship code onto every machine.
+function assertNoJsExpressions(
+  profiles: Record<string, { plugins?: Record<string, { patches?: unknown[] }>; patches?: unknown[] }> | undefined
+): void {
+  const refuse = (owner: string) =>
+    new ValidationError(
+      `${owner} patch has a JavaScript expression (__jsExpr) that DSH would run; set it in a local overlay, not in a team configuration`
+    );
+  for (const [profile, { plugins, patches }] of Object.entries(profiles ?? {})) {
+    if (hasJsExpression(patches)) {
+      throw refuse(`Profile '${profile}'`);
+    }
+    for (const [alias, plugin] of Object.entries(plugins ?? {})) {
+      if (hasJsExpression(plugin.patches)) {
+        throw refuse(`Plugin '${lockEntryId(profile, alias)}'`);
+      }
+    }
+  }
+}
+
 function withFile<T>(file: string, fn: () => T): T {
   try {
     return fn();
@@ -135,6 +162,7 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
     const parsed = loadManifest(files['manifest.yaml'].toString('utf8'));
     assertNoLocalEnvironment(parsed.environment);
     assertNoLocalPluginSources(parsed.profiles);
+    assertNoJsExpressions(parsed.profiles);
     return parsed;
   });
   const lockText = lockData?.toString('utf8') ?? null;
@@ -166,6 +194,7 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
       const overlay = parseOverlay(files[key].toString('utf8'), where(key));
       assertNoLocalEnvironment(overlay.environment);
       assertNoLocalPluginSources(overlay.profiles);
+      assertNoJsExpressions(overlay.profiles);
       mergeManifest(manifest, overlay, name);
     });
   }

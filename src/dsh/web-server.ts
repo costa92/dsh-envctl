@@ -140,13 +140,15 @@ function spawnDshWeb(profile: string, command: CommandSpec, options: LaunchDshWe
   const log = fs.openSync(options.logFile, 'w', 0o600) as 3;
   try {
     // execa runs Windows command shims such as the dsh.cmd npm installs; cleanup: false lets dsh web outlive dshenv.
+    // detached gives it its own process group (POSIX) or keeps it off dshenv's console (Windows), so closing the terminal
+    // that ran dshenv does not stop it.
     return execa(command.file, [...command.args, '--profile', profile, '--no-open', '--port', String(options.port ?? 0)], {
       cwd: command.cwd,
       env: { ...process.env, DSH_HOME: options.dshHome },
       stdin: 'ignore',
       stdout: log,
       stderr: log,
-      detached: POSIX,
+      detached: true,
       cleanup: false,
       reject: false,
       windowsHide: true

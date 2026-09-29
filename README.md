@@ -373,7 +373,7 @@ dshenv sync --ref v1.2.0 --yes                               # 移动到订阅�
 dshenv remote remove --yes                                   # 取消订阅，文件保留为本地文件
 ```
 
-- 只采用 `<path>/manifest.yaml`（必需）、`<path>/lock.json`、`<path>/overlays/*.yaml`；`--path` 指定仓库内目录（`.` 为仓库根），`--branch` 指定分支（默认远程 HEAD 所指分支）。团队 manifest、团队 overlay 与团队 lock 都不能使用 `local-link` / `local-file` 源或指向本机的 Git 地址（`file://`、本地路径），团队 manifest 与团队 overlay 也不能设置 `environment.harness.sourceDir` / `environment.sourceRoot`（本机路径无法跨机器共享，且 dshenv 会执行该目录下的 DSH），否则整个 commit 被拒绝；这两项请写在本机 overlay 里。
+- 只采用 `<path>/manifest.yaml`（必需）、`<path>/lock.json`、`<path>/overlays/*.yaml`；`--path` 指定仓库内目录（`.` 为仓库根），`--branch` 指定分支（默认远程 HEAD 所指分支）。团队 manifest、团队 overlay 与团队 lock 都不能使用 `local-link` / `local-file` 源或指向本机的 Git 地址（`file://`、本地路径），团队 manifest 与团队 overlay 也不能设置 `environment.harness.sourceDir` / `environment.sourceRoot`（本机路径无法跨机器共享，且 dshenv 会执行该目录下的 DSH），团队 manifest 与团队 overlay 的插件 patch 与 profile patch 也不能含 JavaScript 表达式（`__jsExpr`，dshenv 会把它写成 DSH 执行的 `!!js` 值），否则整个 commit 被拒绝；这些请写在本机 overlay 里。
 - `manifest.yaml` 与团队 overlay 整文件归远程；`lock.json` 按 `profile/alias` 条目归属：团队 lock 中的条目归远程，其余条目（本地 overlay 插件的 Git commit、本地源摘要）归本机，同步时只替换团队条目。本地 overlay 把团队 lock 已固定的插件改为 `local-link` / `local-file` 源时，`apply` 以退出码 3 拒绝；应在本地 overlay 中对它写 `remove: true`，再以新 alias 加入本地源插件。
 - 远程内容只读：写 base、写远程 overlay、改写团队 lock 条目的命令都以退出码 3 拒绝；本机定制写本地 overlay（`--layer overlay`），`source clone --profile` 等写本机条目的命令照常可用。
 - 本地已有 `manifest.yaml`、同名 overlay，或本地 lock 已有团队 lock 同名条目时，`remote add` 需要 `--replace`（先快照再覆盖）；本地改过远程文件或团队条目时 `sync` 拒绝，`--discard-local-changes` 可覆盖。
@@ -441,7 +441,7 @@ dshenv web stop -p web             # 停止它以及它启动的子进程（如 
 - 记录里保存了 dsh web 的启动时间，`stop` 只停止 pid 与启动时间都对得上的进程，被系统复用的 pid 不会被误停；无法确认时（`status` 显示 `unknown`）`stop` 和 `start` 报错并保留记录，不做任何停止。SIGKILL 后仍未退出时 `stop` 以非零退出码报错并保留记录，可以再次执行。
 - 同一 Profile 的 `start`、`stop` 依次执行，两个 `start` 同时运行也只会启动一个；启动过程中按 Ctrl+C 会停止正在启动的 dsh web（`runtime --start` 在核对过程中被中断也一样），不会遗留进程。
 - Profile 必须已存在（DSH 会自动创建不存在的 Profile）；不带 web 应用的 Profile（headless、acp 等）会报 `did not start dsh web`，60 秒内没有打印地址也会停止并报错。
-- Windows 上 dsh web 不以 detached 方式启动，关闭启动它的控制台窗口时会一起退出；停止用 `taskkill /T /F` 结束整棵进程树。
+- Windows 上 dsh web 以 detached 方式启动，不附着在启动它的控制台上，关闭启动它的控制台窗口后继续运行；停止用 `taskkill /T /F` 结束整棵进程树。
 
 ### 25. `dshenv install` / `enable` / `disable` / `remove`
 
