@@ -238,7 +238,7 @@ dshenv 改写 Profile `package.json`（启用、停用、卸载前移出 bundle�
 - 等 Profile 锁超时后 apply 会回滚，但回滚本身写 bundle 与 `cordis.patch.yml` 时也可能要等这把锁；回滚未能完成时运行 `dshenv plan` 查看现状。DSH Web 安装插件时整个安装过程都持锁，可能超过 dshenv 的 30 秒等待，等安装结束后再重试。
 
 ### 7. `dshenv rollback`
-从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照：`manifest.yaml` / `lock.json` / `state.json`、`envctl/skills`、`remote.json`，以及快照时保存的 overlay（团队 overlay、`pull`/`sync` 改写的本机 overlay）。不撤销已经发生的 DSH 包安装；由 `apply` 安装、仍装在 Profile 里的插件保留所有权记录，之后从清单删除时照常卸载。恢复前会把当前这些文件另存为一份新快照（输出中给出其 id，可再 rollback 回去）；快照里没有的文件会被删除。
+从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照：`manifest.yaml` / `lock.json` / `state.json`、`envctl/skills`、`remote.json`，以及快照时保存的 overlay（团队 overlay、`pull`/`sync` 改写的本机 overlay、`apply` 时生效的 overlay）。不带 id 时跳过失败的 `apply` 留下的快照（它们已经自己恢复了 `lock.json` 与 `state.json`，恢复它们等于什么都不做），输出会写明跳过了哪些；`apply` 的快照保存的正是它所应用的清单与 overlay，所以回到某次成功的 apply 就是回到它应用的清单。不撤销已经发生的 DSH 包安装；由 `apply` 安装、仍装在 Profile 里的插件保留所有权记录，之后从清单删除时照常卸载。恢复前会把当前这些文件另存为一份新快照（输出中给出其 id，可再 rollback 回去）；快照里没有的文件会被删除。
 
 ```bash
 dshenv rollback --dry-run
@@ -494,8 +494,8 @@ dshenv remove agent-teams -p web
 
 1. **路径约束**：清单中的本地链接和本地文件路径必须为绝对路径；仍应只使用可信源码目录和规范的 npm 包名。Profile 名（清单、overlay、lock 与 `-p`）只能含字母、数字、`.`、`_`、`-`，不能以 `-` 开头，也不能是 `.` 或 `..`；Git 地址与 ref 不能以 `-` 开头，清单中的 `commit` 必须是 7-64 位十六进制 commit id。
 2. **凭据使用约束**：不要把明文密钥写入清单、锁文件、patch 配置或源码 `package.json`。清单与 lock 中带账号密码或 token 的 git URL 会被 schema 拒绝，`capture` 会跳过这类依赖并告警。`doctor` 不回显 `DSH_CLI` 参数，但 `source status --json` 会输出源码包摘要，使用前应检查其中是否含敏感字段。
-3. **非受管保护**：实际 Profile 中未写入 `manifest.yaml` 的插件保持 `unmanaged`，不会被自动删除。
-4. **锁与管理文件快照**：所有写 `manifest`/overlay/`lock`/`state` 的命令都先获取环境锁（最多等 5 秒）。`apply` 执行前备份当时已经存在的管理文件；失败时只原子恢复它自己会写的 `lock.json` 与 `state.json`（快照中不存在的会被删除），`manifest.yaml`、overlay 与 `envctl/skills` 保持原样，以免覆盖 apply 期间的手工修改；已成功安装的插件在恢复后仍记入所有权；恢复本身失败时错误信息会提示运行 `dshenv rollback <id> --yes`。apply 还会逆序撤销本工具对 Profile `dsh.profile.bundles` 与 `cordis.patch.yml` 的改动；DSH CLI 已完成的包安装、更新或卸载不会撤销，已成功卸载的包也不会恢复其 bundle 与受管块。失败后应重新运行 `status` 与 `plan`。
+3. **非受管保护**：实际 Profile 中未写入 `manifest.yaml` 的插件保持 `unmanaged`，不会被自动删除（DSH 创建 Profile 时自带的 base/app bundle 不算 `unmanaged`）。
+4. **锁与管理文件快照**：所有写 `manifest`/overlay/`lock`/`state` 的命令都先获取环境锁（最多等 5 秒）。`apply` 执行前备份当时已经存在的管理文件；失败时只原子恢复它自己会写的 `lock.json` 与 `state.json`（快照中不存在的会被删除），`manifest.yaml`、overlay 与 `envctl/skills` 保持原样，以免覆盖 apply 期间的手工修改；已成功安装的插件在恢复后仍记入所有权；恢复本身失败时错误信息会提示运行 `dshenv rollback <id> --yes`。某一步失败时，错误信息写明失败的步骤（如 `[web] install cc (cc), step 2 of 2`）、本次的 operation id、仍然留在 Profile 里的已装插件，以及回到上一次成功 apply 所用清单的命令 `dshenv rollback <上次的 id> --yes`。apply 还会逆序撤销本工具对 Profile `dsh.profile.bundles` 与 `cordis.patch.yml` 的改动；DSH CLI 已完成的包安装、更新或卸载不会撤销，已成功卸载的包也不会恢复其 bundle 与受管块。失败后应重新运行 `status` 与 `plan`。
 
 ---
 

@@ -19,12 +19,14 @@ import { acquireEnvironmentLock } from '../io/lock.js';
 import { stopOnInterrupt } from '../io/interrupt.js';
 import { createEnvironmentSnapshot, restoreSnapshotFiles, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
+import { lastSuccessfulApply } from '../rollback/rollback.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { awaitWithTreeTimeout } from '../io/process-tree.js';
 import { releaseProfileLockOfStopped } from '../io/profile-lock.js';
 import { readLocalSourceDigests } from '../source/local.js';
-import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
+import { DshError, ValidationError, DegradedError, CapabilityError, missingManifestError } from '../errors.js';
 import { probeDsh, resolveDshCommand, type CommandSpec } from '../dsh/command.js';
+import { unsupportedDshVersionMessage } from '../dsh/version.js';
 import { capabilitiesFor } from '../dsh/capabilities.js';
 import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
@@ -138,6 +140,48 @@ function packageSpec(
   }
 }
 
+function planNeedsDshCli(plan: EnvironmentPlan, inventory: EnvironmentInventory): boolean {
+  return plan.operations.some((operation) => {
+    if (operation.kind === 'install' || operation.kind === 'update') {
+      return true;
+    }
+    if (operation.kind !== 'remove') {
+      return false;
+    }
+    return inventory.profiles[operation.profile]?.plugins[operation.package]?.sourceType !== 'in-box';
+  });
+}
+
+function dshCommandFor(manifest: EnvironmentManifest, options?: ApplyOptions): CommandSpec | null {
+  return resolveDshCommand({
+    cliHarnessSource: options?.harnessSource,
+    manifestHarnessSource: manifest.environment?.harness?.sourceDir
+  });
+}
+
+async function assertSupportedDsh(
+  command: CommandSpec,
+  manifest: EnvironmentManifest,
+  options?: ApplyOptions,
+  { tolerateProbeFailure = false } = {}
+): Promise<void> {
+  let probe: Awaited<ReturnType<typeof probeDsh>>;
+  try {
+    probe = await probeDsh(command);
+  } catch (err) {
+    if (tolerateProbeFailure) {
+      return;
+    }
+    throw err;
+  }
+  const caps = capabilitiesFor(probe.version, {
+    allowUntested: options?.allowUntested || manifest.environment?.harness?.allowUntestedVersion
+  });
+  if (caps.discovery.status !== 'available') {
+    throw new CapabilityError(unsupportedDshVersionMessage(probe.version));
+  }
+}
+
 async function executeWithDsh(
   plan: EnvironmentPlan,
   paths: EnvironmentPaths,
@@ -149,35 +193,16 @@ async function executeWithDsh(
   onInstalled: (operation: PlanOperation) => Promise<void>,
   signal: AbortSignal | undefined,
   options?: ApplyOptions
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; failedAt?: string }> {
   assertSupportedPlan(plan);
 
-  const needsCli = plan.operations.some((operation) => {
-    if (operation.kind === 'install' || operation.kind === 'update') {
-      return true;
-    }
-    if (operation.kind !== 'remove') {
-      return false;
-    }
-    return inventory.profiles[operation.profile]?.plugins[operation.package]?.sourceType !== 'in-box';
-  });
-  const command = needsCli
-    ? resolveDshCommand({
-        cliHarnessSource: options?.harnessSource,
-        manifestHarnessSource: manifest.environment?.harness?.sourceDir
-      })
-    : null;
+  const needsCli = planNeedsDshCli(plan, inventory);
+  const command = needsCli ? dshCommandFor(manifest, options) : null;
   if (needsCli && !command) {
     throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
   }
-  if (needsCli && command) {
-    const probe = await probeDsh(command);
-    const caps = capabilitiesFor(probe.version, {
-      allowUntested: options?.allowUntested || manifest.environment?.harness?.allowUntestedVersion
-    });
-    if (caps.discovery.status !== 'available') {
-      throw new CapabilityError('Unsupported DSH version');
-    }
+  if (command) {
+    await assertSupportedDsh(command, manifest, options);
   }
 
   const commandTimeoutMs = options?.dshCommandTimeoutMs ?? DSH_COMMAND_TIMEOUT_MS;
@@ -189,8 +214,9 @@ async function executeWithDsh(
       await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
     });
   };
-  for (const operation of plan.operations) {
+  for (const [index, operation] of plan.operations.entries()) {
     assertNotInterrupted(signal);
+    const failedAt = `[${operation.profile}] ${operation.kind} ${operation.alias} (${operation.package}), step ${index + 1} of ${plan.operations.length}`;
     if ((operation.kind === 'enable' || operation.kind === 'disable') && inventory.profiles[operation.profile]?.plugins[operation.package]?.bundle === false) {
       await setPlainPluginEnabled(operation, operation.kind === 'enable');
       continue;
@@ -257,7 +283,7 @@ async function executeWithDsh(
       );
       if (removeResult.exitCode !== 0) {
         assertNotInterrupted(signal);
-        return { success: false, error: dshFailure(removeResult, commandTimeoutMs) };
+        return { success: false, error: dshFailure(removeResult, commandTimeoutMs), failedAt };
       }
       // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
       rollback.undo.length = undoStart;
@@ -285,7 +311,7 @@ async function executeWithDsh(
     if (result.exitCode !== 0) {
       // Killed because of the interrupt: report that, not the exit code it caused.
       assertNotInterrupted(signal);
-      return { success: false, error: dshFailure(result, commandTimeoutMs) };
+      return { success: false, error: dshFailure(result, commandTimeoutMs), failedAt };
     }
     if (operation.kind === 'install') {
       await onInstalled(operation);
@@ -504,12 +530,25 @@ function assertSupportedPlan(plan: EnvironmentPlan): void {
   }
 }
 
+// What a failed step left behind and the way back, since the manifest keeps declaring the change that failed.
+async function recoveryHint(paths: EnvironmentPaths, operationId: string, installed: PlanOperation[]): Promise<string> {
+  const kept = installed.length > 0 ? `; plugins it installed before failing stay installed: ${installed.map((op) => op.alias).join(', ')}` : '';
+  const lines = [`Apply ${operationId} put lock.json and state.json back${kept}.`];
+  const previous = await lastSuccessfulApply(paths);
+  lines.push(
+    previous
+      ? `The manifest still declares what failed: fix it and apply again, or go back to the manifest apply ${previous} applied with: dshenv rollback ${previous} --yes`
+      : 'The manifest still declares what failed: fix it and apply again.'
+  );
+  return `\n${lines.join('\n')}`;
+}
+
 export async function applyEnvironment(
   paths: EnvironmentPaths,
   options?: ApplyOptions
 ): Promise<ApplyResult> {
   if (!fs.existsSync(paths.manifestFile)) {
-    throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+    throw missingManifestError(paths.manifestFile);
   }
 
   if (options?.dryRun) {
@@ -551,7 +590,7 @@ async function planAndApply(
   signal?: AbortSignal
 ): Promise<ApplyResult> {
   if (!fs.existsSync(paths.manifestFile)) {
-    throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+    throw missingManifestError(paths.manifestFile);
   }
 
   // Loaded after the environment lock is held (see applyEnvironment), so the overlay cannot change mid-apply.
@@ -607,6 +646,11 @@ async function planAndApply(
   const restart = buildRestartSummary(plan, hmrByProfile);
 
   if (options?.dryRun) {
+    // A preview refuses an unsupported DSH like the real apply would; a DSH it cannot ask still gets the plan shown.
+    const command = planNeedsDshCli(plan, inventory) && !options.executor ? dshCommandFor(manifest, options) : null;
+    if (command) {
+      await assertSupportedDsh(command, manifest, options, { tolerateProbeFailure: true });
+    }
     return {
       applied: false,
       dryRun: true,
@@ -620,6 +664,8 @@ async function planAndApply(
   const now = new Date().toISOString();
 
   let snapshot: EnvironmentSnapshot | null = null;
+  // Set when a plan step failed, as opposed to a check before or after the steps.
+  let failedStep = false;
   const rollback: ProfileRollback = { undo: [], keep: [] };
   // DSH cannot take an install back, so each one is owned as soon as it succeeds, even if apply then fails or is killed.
   const installed: PlanOperation[] = [];
@@ -635,7 +681,10 @@ async function planAndApply(
 
   try {
     // 1. Create snapshot before any modifications
-    snapshot = await createEnvironmentSnapshot(paths, operationId);
+    // The active overlay is part of what this apply applies, so rolling back to this snapshot must restore it too.
+    snapshot = await createEnvironmentSnapshot(paths, operationId, {
+      overlayKeys: options?.overlay ? [`overlays/${options.overlay.name}.yaml`] : []
+    });
 
     // 2. Log operation start
     await appendJournalEntry(paths, {
@@ -654,7 +703,9 @@ async function planAndApply(
       ? await options.executor(plan, paths)
       : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, hmrByProfile, onInstalled, signal, options);
     if (!execRes.success) {
-      throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
+      failedStep = true;
+      const at = 'failedAt' in execRes && execRes.failedAt ? ` at ${execRes.failedAt}` : '';
+      throw new DegradedError(`Apply execution failed${at}: ${execRes.error ?? 'Unknown executor error'}`);
     }
     // Replaced and removed skills go to trash rather than away, since DSH may hold edits nobody pulled.
     assertNotInterrupted(signal);
@@ -720,7 +771,7 @@ async function planAndApply(
     }
 
     // Apply writes only lock.json and state.json; the manifest and envctl/skills may hold edits made meanwhile.
-    let restoreFailure = '';
+    let failureNote = '';
     if (snapshot) {
       try {
         await restoreSnapshotFiles(snapshot, [paths.lockFile, paths.stateFile]);
@@ -735,19 +786,22 @@ async function planAndApply(
             reason: err instanceof Error ? err.message : String(err)
           }
         });
+        if (failedStep) {
+          failureNote = await recoveryHint(paths, operationId, installed);
+        }
       } catch (restoreErr) {
         const reason = restoreErr instanceof Error ? restoreErr.message : String(restoreErr);
-        restoreFailure =
+        failureNote =
           `; restoring lock.json and state.json from snapshot ${snapshot.snapshotId} also failed (${reason}), ` +
           `run dshenv rollback ${operationId} --yes`;
       }
     }
 
     if (err instanceof DshError) {
-      err.message += restoreFailure;
+      err.message += failureNote;
       throw err;
     }
     const message = err instanceof Error ? err.message : String(err);
-    throw new DegradedError(`Apply failed: ${message}${restoreFailure}`);
+    throw new DegradedError(`Apply failed: ${message}${failureNote}`);
   }
 }

@@ -11,7 +11,7 @@ import {
   packageNameFromGitUrl
 } from '../source/git.js';
 import { inspectLocalSource } from '../source/local.js';
-import { ValidationError } from '../errors.js';
+import { ValidationError, missingManifestError } from '../errors.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { acquireEnvironmentLock, withEnvironmentLock } from '../io/lock.js';
@@ -132,7 +132,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
       let restoreManifest: (() => Promise<void>) | null = null;
       try {
         if (cmdOpts.profile && !fs.existsSync(paths.manifestFile)) {
-          throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+          throw missingManifestError(paths.manifestFile);
         }
         if (cmdOpts.profile) {
           // Refuse before cloning: this command writes the alias's lock entry, and the base unless it targets the overlay.

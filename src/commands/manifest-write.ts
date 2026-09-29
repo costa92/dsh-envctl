@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import type { EnvironmentManifest, EnvironmentOverlay } from '../domain.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
-import { ValidationError } from '../errors.js';
+import { missingManifestError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { withEnvironmentLock } from '../io/lock.js';
 import { loadManifest, serializeManifest } from '../manifest/files.js';
@@ -15,11 +15,10 @@ import { resolveCliOverlay } from './context.js';
 export function resolveWrite(
   opts: { overlay?: string | false },
   paths: EnvironmentPaths,
-  layerOption: string | undefined,
-  missingHint = ''
+  layerOption: string | undefined
 ): { selection: OverlaySelection | null; overlay: OverlaySelection | null } {
   if (!fs.existsSync(paths.manifestFile)) {
-    throw new ValidationError(`Manifest file not found: ${paths.manifestFile}${missingHint}`);
+    throw missingManifestError(paths.manifestFile);
   }
   const selection = resolveCliOverlay(opts, paths);
   return { selection, overlay: resolveWriteLayer(selection, layerOption) === 'overlay' ? selection : null };

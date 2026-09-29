@@ -90,6 +90,32 @@ describe('buildPlan', () => {
     });
   });
 
+  it("does not count the bundles DSH gives every profile as unmanaged, but still counts a user's undeclared in-box bundle", () => {
+    const inBox = (name: string) => ({ name, installed: true, sourceType: 'in-box' as const, isSymlink: false, isExternalSymlink: false, bundle: true, enabled: true });
+    const inventory: EnvironmentInventory = {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            '@deepseek-ai/dsh-base': inBox('@deepseek-ai/dsh-base'),
+            '@deepseek-ai/dsh-web-app': inBox('@deepseek-ai/dsh-web-app'),
+            '@deepseek-ai/dsh-memory': inBox('@deepseek-ai/dsh-memory')
+          }
+        },
+        headless: {
+          name: 'headless',
+          path: '/dummy',
+          plugins: { '@deepseek-ai/dsh-base': inBox('@deepseek-ai/dsh-base'), '@deepseek-ai/dsh-headless': inBox('@deepseek-ai/dsh-headless') }
+        }
+      }
+    };
+    const manifest: EnvironmentManifest = { apiVersion: 'dshenv/v1', profiles: { web: { plugins: {} }, headless: { plugins: {} } } };
+    const plan = buildPlan(manifest, null, inventory);
+    expect(plan.unmanaged).toEqual([{ profile: 'web', package: '@deepseek-ai/dsh-memory' }]);
+    expect(buildStatus(manifest, null, inventory, plan).plugins).toContainEqual({ profile: 'web', package: '@deepseek-ai/dsh-web-app', status: 'healthy' });
+  });
+
   it('should plan remove only for owned plugins missing from the manifest', () => {
     const manifest: EnvironmentManifest = {
       apiVersion: 'dshenv/v1',

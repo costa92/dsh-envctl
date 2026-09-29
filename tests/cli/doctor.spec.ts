@@ -94,7 +94,9 @@ exit 0
       const code = await runCli(['doctor', '--dsh-home', tempHome], io);
       expect(code).toBe(4);
       expect(stdout).toBe('');
-      expect(stderr).toBe('Unsupported DSH version\n');
+      expect(stderr).toBe(
+        'Unsupported DSH version 0.0.1: dshenv supports DSH 0.1.7 (e.g. 0.1.7-rc.2). Point DSH_CLI at a supported DSH, or pass --allow-untested-dsh to use this one anyway.\n'
+      );
     } finally {
       if (oldDshCli) process.env.DSH_CLI = oldDshCli;
       else delete process.env.DSH_CLI;
@@ -317,7 +319,10 @@ exit 0
         });
         expect(code).toBe(exitCode);
         expect(stdout).toBe('');
-        const message = exitCode === 4 ? 'Unsupported DSH version' : 'Unable to parse DSH runtime version';
+        // Only the numeric part of an unsupported version is shown; its prerelease tag could echo a secret.
+        const message = exitCode === 4
+          ? 'Unsupported DSH version 0.1.70-*: dshenv supports DSH 0.1.7 (e.g. 0.1.7-rc.2). Point DSH_CLI at a supported DSH, or pass --allow-untested-dsh to use this one anyway.'
+          : 'Unable to parse DSH runtime version';
         expect(jsonArgs.length ? JSON.parse(stderr).error.message : stderr).toBe(jsonArgs.length ? message : `${message}\n`);
         expect(stderr).not.toContain('doctor-secret');
         expect(stderr).not.toContain('Authorization');
