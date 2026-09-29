@@ -62,7 +62,10 @@ async function reclaimStaleLock(lockFilePath: string, guardPath: string): Promis
   try {
     await fs.promises.mkdir(guardPath);
   } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+    const code = (err as NodeJS.ErrnoException).code;
+    // On Windows a guard another waiter has just removed stays "delete pending" (EPERM) until its handle closes:
+    // someone else is reclaiming, exactly as with EEXIST.
+    if (code === 'EEXIST' || (process.platform === 'win32' && code === 'EPERM')) {
       return;
     }
     throw err;
@@ -72,7 +75,7 @@ async function reclaimStaleLock(lockFilePath: string, guardPath: string): Promis
       await retryWhileBusy(() => fs.promises.rm(lockFilePath, { force: true }));
     }
   } finally {
-    await fs.promises.rmdir(guardPath);
+    await retryWhileBusy(() => fs.promises.rmdir(guardPath));
   }
 }
 
