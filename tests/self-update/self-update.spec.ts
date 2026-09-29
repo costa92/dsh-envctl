@@ -2,7 +2,23 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { compareVersions, detectInstallMethod, resolveTargetVersion, selfUpdate, type RunResult, type Runner } from '../../src/self-update/self-update.js';
+import {
+  compareVersions,
+  defaultRunner,
+  detectInstallMethod,
+  resolveTargetVersion,
+  selfUpdate,
+  type RunResult,
+  type Runner
+} from '../../src/self-update/self-update.js';
+
+// A project's .npmrc in the directory dshenv was started from could point the global install at another registry.
+describe('defaultRunner', () => {
+  it('runs the package manager from the home directory, not the current one', async () => {
+    const result = await defaultRunner(process.execPath, ['-e', 'process.stdout.write(process.cwd())'], {});
+    expect(result.stdout).toBe(os.homedir());
+  });
+});
 
 const ok = (stdout: string): RunResult => ({ exitCode: 0, stdout, stderr: '' });
 

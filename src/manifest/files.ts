@@ -1,4 +1,5 @@
 import * as YAML from 'yaml';
+import type { z } from 'zod';
 import { ValidationError } from '../errors.js';
 import {
   ManifestSchema,
@@ -51,14 +52,18 @@ export function parseYamlStrict(content: string): unknown {
   return raw;
 }
 
+// Record key failures only say "Invalid key in record"; the reason lives in the nested issues.
+function describeIssues(error: z.ZodError): string {
+  return error.issues
+    .map((i) => `${i.path.join('.')}: ${i.code === 'invalid_key' ? i.issues.map((nested) => nested.message).join(', ') : i.message}`)
+    .join(', ');
+}
+
 export function loadManifest(content: string): EnvironmentManifest {
   const raw = parseYamlStrict(content);
   const res = ManifestSchema.safeParse(raw);
   if (!res.success) {
-    // Record key failures only say "Invalid key in record"; the reason lives in the nested issues.
-    const issues = res.error.issues
-      .map((i) => `${i.path.join('.')}: ${i.code === 'invalid_key' ? i.issues.map((nested) => nested.message).join(', ') : i.message}`)
-      .join(', ');
+    const issues = describeIssues(res.error);
     throw new ValidationError(`Invalid manifest schema: ${issues}`);
   }
   return res.data as EnvironmentManifest;
@@ -73,7 +78,7 @@ export function loadLock(content: string): EnvironmentLock {
   }
   const res = LockSchema.safeParse(raw);
   if (!res.success) {
-    const issues = res.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+    const issues = describeIssues(res.error);
     throw new ValidationError(`Invalid lock schema: ${issues}`);
   }
   return res.data as EnvironmentLock;
@@ -98,7 +103,7 @@ export function parseOverlay(content: string, file: string): EnvironmentOverlay 
   const raw = parseYamlStrict(content);
   const res = OverlaySchema.safeParse(raw);
   if (!res.success) {
-    const issues = res.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+    const issues = describeIssues(res.error);
     throw new ValidationError(`Invalid overlay schema in ${file}: ${issues}`);
   }
   return res.data as EnvironmentOverlay;

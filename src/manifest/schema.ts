@@ -27,16 +27,23 @@ export function hasEmbeddedCredentials(url: string): boolean {
   return scheme === 'http' || scheme === 'https' ? match[2].length > 0 : match[2].includes(':');
 }
 
-const gitUrlSchema = z.string().min(1).refine((url) => !hasEmbeddedCredentials(url), {
-  message: 'Git URL must not embed credentials; use SSH or a git credential helper'
-});
+// The URL and commit end up as arguments to git and pnpm, where a leading '-' would read as an option.
+const gitUrlSchema = z
+  .string()
+  .min(1)
+  .refine((url) => !hasEmbeddedCredentials(url), {
+    message: 'Git URL must not embed credentials; use SSH or a git credential helper'
+  })
+  .refine((url) => !url.startsWith('-'), { message: 'Git URL must not start with -' });
+
+const GitCommitRegex = /^[0-9a-f]{7,64}$/i;
 
 export const GitSourceSchema = z
   .object({
     type: z.literal('git'),
     url: gitUrlSchema,
-    ref: z.string().optional(),
-    commit: z.string().optional()
+    ref: z.string().refine((ref) => !ref.startsWith('-'), { message: 'Git ref must not start with -' }).optional(),
+    commit: z.string().regex(GitCommitRegex, { message: 'git commit must be a 7-64 character hexadecimal commit id' }).optional()
   })
   .strict();
 
@@ -83,7 +90,25 @@ export function assertNotReservedKey(kind: string, name: string): string {
 }
 
 const notReserved = (name: string) => !ReservedKeys.has(name);
-const ProfileNameKeySchema = z.string().refine(notReserved, { message: 'Profile name is reserved' });
+
+// A profile name becomes a directory under profiles/ and a file name under envctl/, and DSH takes it as an option value.
+const ProfileNameRegex = /^[A-Za-z0-9._][-A-Za-z0-9._]*$/;
+
+export function isValidProfileName(name: string): boolean {
+  return ProfileNameRegex.test(name) && name !== '.' && name !== '..';
+}
+
+export function assertProfileName(name: string): string {
+  if (!isValidProfileName(name)) {
+    throw new ValidationError(`Invalid profile name: ${name}`);
+  }
+  return name;
+}
+
+export const ProfileNameKeySchema = z
+  .string()
+  .refine(notReserved, { message: 'Profile name is reserved' })
+  .refine(isValidProfileName, { message: "Invalid profile name (allowed: letters, digits, '.', '_', '-'; not '.' or '..')" });
 
 // Aliases appear in single-line patch markers, so whitespace would break or inject into them.
 export const PluginAliasSchema = z
@@ -172,7 +197,7 @@ export const GitLockSourceSchema = z
     type: z.literal('git'),
     url: gitUrlSchema,
     // A branch or tag would let the same lock install different code later.
-    commit: z.string().regex(/^[0-9a-f]{7,64}$/i, { message: 'git commit must be a 7-64 character hexadecimal commit id' })
+    commit: z.string().regex(GitCommitRegex, { message: 'git commit must be a 7-64 character hexadecimal commit id' })
   })
   .strict();
 
@@ -222,7 +247,7 @@ export const ProfileLockEntrySchema = z
 export const LockSchema = z
   .object({
     apiVersion: z.literal('dshenv-lock/v1'),
-    profiles: z.record(z.string(), ProfileLockEntrySchema).default({})
+    profiles: z.record(ProfileNameKeySchema, ProfileLockEntrySchema).default({})
   })
   .strict();
 

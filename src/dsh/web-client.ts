@@ -40,8 +40,13 @@ export function parseDshWebUrl(value: string | undefined, options: { allowRemote
   if (tokens.length !== 1 || tokens[0] === '') {
     throw new ValidationError(`${DSH_URL_ENV} must carry exactly one token query parameter, as dsh web prints it`);
   }
-  if (!LOOPBACK_HOSTS.has(url.hostname) && !options.allowRemote) {
-    throw new ValidationError(`Refusing to send the dsh web token to ${url.host}; pass --allow-remote to allow a non-loopback host`);
+  if (!LOOPBACK_HOSTS.has(url.hostname)) {
+    if (!options.allowRemote) {
+      throw new ValidationError(`Refusing to send the dsh web token to ${url.host}; pass --allow-remote to allow a non-loopback host`);
+    }
+    if (url.protocol !== 'https:') {
+      throw new ValidationError(`Refusing to send the dsh web token to ${url.host} over plain http; use https for a non-loopback host`);
+    }
   }
   return { origin: url.origin, endpoint: url.host, token: tokens[0] };
 }

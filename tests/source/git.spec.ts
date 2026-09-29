@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execa } from 'execa';
 import {
+  cloneManagedGit,
   inspectGitWorkingTree,
   resolvePluginSourcePath,
   safeFastForwardManagedGit,
@@ -87,6 +88,20 @@ describe('Managed Git Source Lifecycle', () => {
     const result = await safeFastForwardManagedGit(cloneDir, ref);
 
     expect(result.newCommit).toBe(checkout);
+  });
+
+  it('refuses a URL or ref that git would read as an option', async () => {
+    const marker = path.join(tempDir, 'marker');
+    await expect(cloneManagedGit(`--upload-pack=touch ${marker}`, path.join(tempDir, 'c1'))).rejects.toThrow(/must not start with -/);
+    await expect(cloneManagedGit(repoDir, path.join(tempDir, 'c2'), '--config=core.x=y')).rejects.toThrow(/must not start with -/);
+    await expect(safeFastForwardManagedGit(repoDir, '--no-verify')).rejects.toThrow(/must not start with -/);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('clones the ref it is given', async () => {
+    await execa('git', ['branch', 'feature'], { cwd: repoDir });
+    const result = await cloneManagedGit(repoDir, path.join(tempDir, 'c3'), 'feature');
+    expect(result.commit).toBe((await execa('git', ['rev-parse', 'feature'], { cwd: repoDir })).stdout.trim());
   });
 
   it('should resolve managed plugin source path correctly', () => {

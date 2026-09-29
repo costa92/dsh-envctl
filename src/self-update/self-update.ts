@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { execa } from 'execa';
 import { DshError, ValidationError } from '../errors.js';
@@ -28,6 +29,8 @@ export const defaultRunner: Runner = async (file, args, options) => {
   const result = await execa(file, args, {
     reject: false,
     shell: false,
+    // A project .npmrc in the current directory could point the global install at another registry.
+    cwd: os.homedir(),
     ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}),
     // stdout goes to stderr too, so `--json` output on stdout stays parseable.
     ...(options.showOutput ? { stdin: 'inherit' as const, stdout: 2, stderr: 'inherit' as const } : {})

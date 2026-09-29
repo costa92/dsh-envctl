@@ -51,8 +51,19 @@ describe('parseDshWebUrl', () => {
     expect((caught as Error).message).not.toContain(SECRET);
   });
 
-  it('allows a non-loopback host with allowRemote', () => {
-    expect(parseDshWebUrl(`http://10.0.0.5:3080/?token=${SECRET}`, { allowRemote: true }).endpoint).toBe('10.0.0.5:3080');
+  it('allows a non-loopback https host with allowRemote', () => {
+    expect(parseDshWebUrl(`https://10.0.0.5:3080/?token=${SECRET}`, { allowRemote: true }).endpoint).toBe('10.0.0.5:3080');
+  });
+
+  it('refuses to send the token to a non-loopback host over plain http, even with allowRemote', () => {
+    let caught: unknown;
+    try {
+      parseDshWebUrl(`http://10.0.0.5:3080/?token=${SECRET}`, { allowRemote: true });
+    } catch (error) {
+      caught = error;
+    }
+    expect((caught as Error).message).toMatch(/Refusing to send the dsh web token to 10\.0\.0\.5:3080 over plain http; use https for a non-loopback host/);
+    expect((caught as Error).message).not.toContain(SECRET);
   });
 });
 

@@ -127,6 +127,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
       const createdParents = explicitTarget || fs.existsSync(sourcesDir) ? [] : [sourcesDir];
       let res: Awaited<ReturnType<typeof cloneManagedGit>>;
       let resolvedTarget = cloneDir;
+      // Set once the manifest (or overlay) is written, to put it back if the lock write then fails.
+      let restoreManifest: (() => Promise<void>) | null = null;
       try {
         if (cmdOpts.profile && !fs.existsSync(paths.manifestFile)) {
           throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
@@ -147,6 +149,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
           const packageName: string = cmdOpts.package ?? readPackageJsonName(cloneDir) ?? packageNameFromGitUrl(url);
           let writeManifest: () => Promise<void>;
           const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+          const manifestTarget = layer === 'overlay' && selection ? overlayFilePath(paths, selection.name) : paths.manifestFile;
+          const original = fs.existsSync(manifestTarget) ? fs.readFileSync(manifestTarget) : null;
           if (layer === 'overlay' && selection) {
             const overlayDoc = readOverlay(paths, selection.name);
             const baseEntry = base.profiles[profile]?.plugins[alias];
@@ -193,6 +197,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
             ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
             : { apiVersion: 'dshenv-lock/v1' as const, profiles: {} };
           await writeManifest();
+          restoreManifest = () =>
+            original ? writeAtomic(manifestTarget, original, 'overwrite') : fs.promises.rm(manifestTarget, { force: true });
 
           if (!lock.profiles[profile]) {
             lock.profiles[profile] = { plugins: {} };
@@ -204,7 +210,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
           await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
         }
       } catch (err) {
-        // Leave nothing behind that this command created: the clone, and parent directories only while empty.
+        // Leave nothing behind that this command created: the manifest edit, the clone, and parent directories only while empty.
+        await restoreManifest?.().catch(() => {});
         if (ownedClone) {
           await fs.promises.rm(ownedClone, { recursive: true, force: true }).catch(() => {});
         }
@@ -249,6 +256,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
       let resolvedTarget: string;
       let alias: string | undefined;
       let packageName: string | undefined;
+      let gitUrl: string | undefined;
       if (cmdOpts.profile) {
         const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
         alias = cmdOpts.as;
@@ -267,6 +275,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
           throw new ValidationError(`Git plugin '${alias}' not found in profile '${cmdOpts.profile}'`);
         }
         packageName = plugin.package;
+        gitUrl = plugin.source.url;
         resolvedTarget = targetDir
           ? path.resolve(process.cwd(), targetDir)
           : managedGitSourceDir(paths.managerDir, cmdOpts.profile, packageName);
@@ -283,19 +292,17 @@ export function registerSourceCommands(ctx: CommandContext): void {
 
       const res = await safeFastForwardManagedGit(resolvedTarget, ref);
 
-      if (cmdOpts.profile && alias) {
+      if (cmdOpts.profile && alias && packageName && gitUrl) {
         const profile: string = cmdOpts.profile;
         const pluginAlias = alias;
+        const lockedPlugin = { package: packageName, source: { type: 'git' as const, url: gitUrl, commit: res.newCommit } };
+        // Written whole: a missing lock or an entry for another source would otherwise leave the new commit unlocked.
         await withEnvironmentLock(paths, async () => {
-          if (!fs.existsSync(paths.lockFile)) {
-            return;
-          }
-          const lock = loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
-          const lockPlugin = lock.profiles[profile]?.plugins[pluginAlias];
-          if (lockPlugin?.source.type === 'git') {
-            lockPlugin.source = { ...lockPlugin.source, commit: res.newCommit };
-            await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
-          }
+          const lock = fs.existsSync(paths.lockFile)
+            ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
+            : { apiVersion: 'dshenv-lock/v1' as const, profiles: {} };
+          (lock.profiles[profile] ??= { plugins: {} }).plugins[pluginAlias] = lockedPlugin;
+          await writeAtomic(paths.lockFile, serializeLock(lock), 'overwrite');
         });
       }
 

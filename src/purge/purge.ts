@@ -114,18 +114,32 @@ export async function purgePlugin(
       details: { profile: profileName, package: owned.packageName }
     });
 
-    if (fs.existsSync(patchFile)) {
+    // Both are checked before either changes, so a refusal leaves everything as it was.
+    const hasPatchFile = fs.existsSync(patchFile);
+    const hasClone = fs.existsSync(cloneDir);
+    if (hasPatchFile) {
       await assertSafeManagedPath(patchFile, paths.profilesDir);
+    }
+    if (hasClone) {
+      await assertSafeManagedPath(cloneDir, paths.managerDir);
+    }
+
+    let restorePatches: (() => Promise<void>) | null = null;
+    if (hasPatchFile) {
       const dest = path.join(trashRoot, 'cordis.patch.yml');
       await fs.promises.copyFile(patchFile, dest);
       moved.push(dest);
-      await clearManagedPatches(paths, profileName, owned.alias);
+      restorePatches = await clearManagedPatches(paths, profileName, owned.alias);
     }
 
-    if (fs.existsSync(cloneDir)) {
-      await assertSafeManagedPath(cloneDir, paths.managerDir);
+    if (hasClone) {
       const dest = path.join(trashRoot, 'source');
-      await fs.promises.rename(cloneDir, dest);
+      try {
+        await fs.promises.rename(cloneDir, dest);
+      } catch (err) {
+        await restorePatches?.();
+        throw err;
+      }
       moved.push(dest);
     }
 

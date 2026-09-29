@@ -4,9 +4,8 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import { ValidationError } from '../errors.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { withProfilePackageLock } from '../io/profile-lock.js';
-import { PackageNameRegex } from '../manifest/schema.js';
+import { PackageNameRegex, isValidProfileName } from '../manifest/schema.js';
 
-const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
 
 function isPathInside(root: string, candidate: string): boolean {
   const resolvedRoot = path.resolve(root);
@@ -26,7 +25,7 @@ export async function setProfileBundleEnabled(
   enabled: boolean,
   insertAt?: number
 ): Promise<number> {
-  if (!ProfileNameRegex.test(profileName)) {
+  if (!isValidProfileName(profileName)) {
     throw new ValidationError(`Invalid profile name: ${profileName}`);
   }
   if (!PackageNameRegex.test(packageName)) {

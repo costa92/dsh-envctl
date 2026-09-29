@@ -215,4 +215,54 @@ profiles:
 
     await expect(adoptEnvironment(paths, candidate)).rejects.toThrow(/stale|mismatch/i);
   });
+
+  it('adopts a package under a free alias when its captured alias names another declared package', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const webProfile = path.join(tempHome, 'profiles', 'web');
+    fs.mkdirSync(path.join(webProfile, 'node_modules', '@acme', 'agent-teams'), { recursive: true });
+    fs.writeFileSync(path.join(webProfile, 'node_modules', '@acme', 'agent-teams', 'package.json'), JSON.stringify({ name: '@acme/agent-teams', version: '2.0.0' }));
+    const profilePackage = JSON.parse(fs.readFileSync(path.join(webProfile, 'package.json'), 'utf8')) as { dependencies: Record<string, string> };
+    profilePackage.dependencies['@acme/agent-teams'] = '2.0.0';
+    fs.writeFileSync(path.join(webProfile, 'package.json'), JSON.stringify(profilePackage));
+    fs.mkdirSync(paths.managerDir, { recursive: true });
+    fs.writeFileSync(
+      paths.manifestFile,
+      `apiVersion: dshenv/v1
+profiles:
+  web:
+    plugins:
+      agent-teams:
+        package: "@nanmicoder/dsh-agent-teams"
+        source: { type: npm, version: "0.1.21" }
+        patches:
+          - id: agent-teams
+            config: { important: true }
+`
+    );
+    const candidate: CaptureDocument = {
+      apiVersion: 'dshenv-capture/v1',
+      manifest: {
+        apiVersion: 'dshenv/v1',
+        profiles: {
+          web: {
+            plugins: {
+              'agent-teams': { package: '@acme/agent-teams', enabled: true, source: { type: 'npm', version: '2.0.0' } }
+            }
+          }
+        }
+      },
+      lock: { apiVersion: 'dshenv-lock/v1', profiles: {} },
+      warnings: []
+    };
+
+    const summary = await adoptEnvironment(paths, candidate);
+
+    const plugins = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8')).profiles.web.plugins;
+    expect(plugins['agent-teams']).toEqual(expect.objectContaining({ package: '@nanmicoder/dsh-agent-teams', patches: [expect.objectContaining({ id: 'agent-teams' })] }));
+    expect(plugins['agent-teams-1']).toEqual(expect.objectContaining({ package: '@acme/agent-teams' }));
+    expect(summary.details).toEqual([expect.objectContaining({ alias: 'agent-teams-1', package: '@acme/agent-teams' })]);
+    const ownership = loadState(fs.readFileSync(paths.stateFile, 'utf8')).ownership?.web ?? {};
+    expect(Object.keys(ownership)).toEqual(['@acme/agent-teams']);
+    expect(ownership['@acme/agent-teams'].alias).toBe('agent-teams-1');
+  });
 });
