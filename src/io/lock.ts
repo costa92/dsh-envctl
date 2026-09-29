@@ -10,7 +10,9 @@ export interface LockHandle {
   release: () => Promise<void>;
 }
 
-const LOCK_RETRY_MS = 100;
+const LOCK_RETRY_MIN_MS = 5;
+const LOCK_RETRY_MAX_MS = 40;
+const WANTED_FRESH_MS = 3 * LOCK_RETRY_MAX_MS;
 const LOCK_WRITE_GRACE_MS = 5000;
 
 async function createLockFile(lockFilePath: string, lockContent: string): Promise<boolean> {
@@ -82,6 +84,20 @@ async function tryCreateLock(lockFilePath: string, guardPath: string, lockConten
   return createLockFile(lockFilePath, lockContent);
 }
 
+// Waiters touch the marker on every retry, so one that stopped waiting (or was killed) goes stale on its own.
+async function othersWaiting(wantedPath: string): Promise<boolean> {
+  try {
+    return Date.now() - (await fs.promises.stat(wantedPath)).mtimeMs < WANTED_FRESH_MS;
+  } catch {
+    return false;
+  }
+}
+
+async function markWaiting(wantedPath: string): Promise<void> {
+  const now = new Date();
+  await fs.promises.utimes(wantedPath, now, now).catch(() => fs.promises.writeFile(wantedPath, '', { mode: 0o600 }).catch(() => {}));
+}
+
 async function staleGuardHint(guardPath: string): Promise<string> {
   try {
     const stat = await fs.promises.stat(guardPath);
@@ -112,14 +128,24 @@ export async function acquireFileLock(lockFilePath: string, label: string, timeo
     createdAt: new Date().toISOString()
   });
 
+  const wantedPath = `${lockFilePath}.wanted`;
   const deadline = Date.now() + timeoutMs;
-  while (!(await tryCreateLock(lockFilePath, guardPath, lockContent))) {
+  // A holder that releases and at once retakes the lock would otherwise win every time: it defers its first try to
+  // anyone who has been waiting, and waiters retry often, so they get the gaps between holders.
+  for (let attempt = 0; ; attempt++) {
+    const defer = attempt === 0 && (await othersWaiting(wantedPath));
+    if (!defer && (await tryCreateLock(lockFilePath, guardPath, lockContent))) {
+      break;
+    }
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
       throw new DshError(`${label} is already held at ${lockFilePath}${await staleGuardHint(guardPath)}`, 1);
     }
-    await new Promise((resolve) => setTimeout(resolve, Math.min(LOCK_RETRY_MS, remaining)));
+    await markWaiting(wantedPath);
+    const ceiling = Math.min(LOCK_RETRY_MAX_MS, LOCK_RETRY_MIN_MS * 2 ** attempt);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(LOCK_RETRY_MIN_MS + Math.random() * ceiling, remaining)));
   }
+  await fs.promises.rm(wantedPath, { force: true }).catch(() => {});
 
   return {
     lockPath: lockFilePath,

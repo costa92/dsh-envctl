@@ -4,6 +4,7 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type { EnvironmentManifest, EnvironmentState } from '../domain.js';
 import { ValidationError } from '../errors.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
+import { retryWhileBusy } from '../io/windows-retry.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { loadManifest, loadState } from '../manifest/files.js';
 import { clearManagedPatches, profilePatchFile } from '../apply/patches.js';
@@ -135,7 +136,7 @@ export async function purgePlugin(
     if (hasClone) {
       const dest = path.join(trashRoot, 'source');
       try {
-        await fs.promises.rename(cloneDir, dest);
+        await retryWhileBusy(() => fs.promises.rename(cloneDir, dest));
       } catch (err) {
         await restorePatches?.();
         throw err;

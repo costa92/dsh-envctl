@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { readRemoteConfig, remoteFilePath, remoteOverlayKeys, type RemoteConfig } from '../remote/schema.js';
 import { writeAtomic } from './atomic-file.js';
+import { retryWhileBusy } from './windows-retry.js';
 
 // Overlay keys the snapshot was asked to save that did not exist at the time.
 const ABSENT_FILE = 'absent.json';
@@ -35,7 +36,7 @@ export async function createEnvironmentSnapshot(
   await fs.promises.mkdir(stagingDir, { recursive: true });
   try {
     await copySnapshotFiles(paths, stagingDir, options);
-    await fs.promises.rename(stagingDir, snapshotDir);
+    await retryWhileBusy(() => fs.promises.rename(stagingDir, snapshotDir));
   } catch (err) {
     await fs.promises.rm(stagingDir, { recursive: true, force: true });
     throw err;
