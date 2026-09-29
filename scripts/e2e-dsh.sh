@@ -128,7 +128,7 @@ step "apply update" 0 "${run[@]}" apply --yes
 step "plan clean after update" 0 "${run[@]}" plan
 
 # 3. Configure through a managed patch block.
-step "declare config" 0 "${run[@]}" config set "$alias" e2eMarker on --profile web
+step "declare config" 0 "${run[@]}" config set "$alias" e2eMarker on --profile web --force
 step "plan shows configure" 2 "${run[@]}" plan
 step "apply configure" 0 "${run[@]}" apply --yes
 step "patch file holds the managed block" 0 grep -q "# dshenv:begin profile=web plugin=$alias" "$DSH_HOME/profiles/web/cordis.patch.yml"

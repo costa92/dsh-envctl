@@ -158,6 +158,17 @@ export function listTools(tree: ProfilePatch[], options: { preset?: string; all?
   return [...top.filter((tool) => !restated.has(tool.id)), ...inPreset];
 }
 
+// The config keys DSH composes for a plugin package, from any row that loads it; empty when no row has a config map.
+export function pluginConfigKeys(tree: ProfilePatch[], packageName: string): string[] {
+  const keys = new Set<string>();
+  walkRows(tree, (row) => {
+    if (row.name === packageName && isRecord(row.config)) {
+      for (const key of Object.keys(row.config)) keys.add(key);
+    }
+  });
+  return [...keys].sort();
+}
+
 function findRow(rows: unknown, id: string): ProfilePatch | undefined {
   let found: ProfilePatch | undefined;
   walkRows(rows, (row) => {

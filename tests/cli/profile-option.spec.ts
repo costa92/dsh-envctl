@@ -10,6 +10,7 @@ const PKG = '@nanmicoder/dsh-agent-teams';
 describe('CLI -p, --profile', () => {
   let tempHome: string;
   let previousProfile: string | undefined;
+  let previousUrl: string | undefined;
 
   const run = async (args: string[]) => {
     let stdout = '';
@@ -28,6 +29,7 @@ describe('CLI -p, --profile', () => {
 
   beforeEach(async () => {
     previousProfile = process.env.DSHENV_PROFILE;
+    previousUrl = process.env.DSHENV_DSH_URL;
     delete process.env.DSHENV_PROFILE;
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-cli-profile-'));
     await run(['init']);
@@ -42,6 +44,8 @@ describe('CLI -p, --profile', () => {
   afterEach(() => {
     if (previousProfile === undefined) delete process.env.DSHENV_PROFILE;
     else process.env.DSHENV_PROFILE = previousProfile;
+    if (previousUrl === undefined) delete process.env.DSHENV_DSH_URL;
+    else process.env.DSHENV_DSH_URL = previousUrl;
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 

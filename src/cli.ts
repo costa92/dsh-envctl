@@ -52,7 +52,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     })
     .exitOverride();
 
-  defaultTargetProfile(program);
+  defaultTargetProfile(program, writeErr);
 
   const ctx: CommandContext = {
     program,

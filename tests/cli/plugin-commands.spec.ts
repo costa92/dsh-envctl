@@ -30,7 +30,7 @@ describe('Convenience Plugin CLI Commands', () => {
       io
     );
     expect(code).toBe(0);
-    expect(stdout).toContain('Installed');
+    expect(stdout).toBe("Added @nanmicoder/dsh-agent-teams (agent-teams) to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.\n");
 
     const manifest = loadManifest(fs.readFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'utf8'));
     expect(manifest.profiles.web.plugins['agent-teams']).toBeDefined();

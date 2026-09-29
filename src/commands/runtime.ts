@@ -18,22 +18,29 @@ import {
   type DeclaredPlugin,
   type RuntimeBundle
 } from '../runtime/compare.js';
-import { resolveCliPaths, resolveCliOverlay, profileOption, profileFromEnv, missingProfileError, TARGET_PROFILE_HELP, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, profileOption, profileFromEnv, PROFILE_ENV, TARGET_PROFILE_HELP, type CommandContext } from './context.js';
+import { didYouMean } from './suggest.js';
 
-// -p, else DSHENV_PROFILE, else the only declared profile.
-function selectProfile(paths: EnvironmentPaths, opts: { overlay?: string | false }, manifest: EnvironmentManifest, requested: string | undefined): string {
-  const names = Object.keys(manifest.profiles);
-  const named = requested ?? profileFromEnv();
+// -p, else DSHENV_PROFILE, else the only declared profile; only a declared profile can be checked.
+function selectProfile(manifest: EnvironmentManifest, requested: string | undefined): { profile: string; fromEnv: boolean } {
+  const names = Object.keys(manifest.profiles).sort();
+  const fromEnv = requested === undefined ? profileFromEnv() : undefined;
+  const named = requested ?? fromEnv;
   if (named !== undefined) {
     if (!names.includes(named)) {
-      throw new ValidationError(`Profile '${named}' is not declared in the manifest`);
+      const source = fromEnv !== undefined ? ` (from ${PROFILE_ENV})` : '';
+      throw new ValidationError(
+        `Profile '${named}'${source} is not declared in the manifest${didYouMean(named, names)}${names.length > 0 ? ` (declared: ${names.join(', ')})` : ''}`
+      );
     }
-    return named;
+    return { profile: named, fromEnv: fromEnv !== undefined };
   }
   if (names.length === 1) {
-    return names[0];
+    return { profile: names[0], fromEnv: false };
   }
-  throw missingProfileError(paths, opts);
+  throw new ValidationError(
+    names.length === 0 ? 'The manifest declares no profiles' : `Missing -p, --profile <name>: choose one of ${names.join(', ')}, or set ${PROFILE_ENV}`
+  );
 }
 
 // DSH does not say which profile it runs; listBundles reads that profile's package.json, so the packages must agree.
@@ -68,7 +75,7 @@ function assertSameProfile(
 }
 
 export function registerRuntimeCommand(ctx: CommandContext): void {
-  const { program, writeOut, setExitCode } = ctx;
+  const { program, writeOut, writeErr, setExitCode } = ctx;
 
   program
     .command('runtime')
@@ -80,7 +87,10 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
-      const profile = selectProfile(paths, opts, manifest, cmdOpts.profile);
+      const { profile, fromEnv } = selectProfile(manifest, cmdOpts.profile);
+      if (fromEnv && !opts.json) {
+        writeErr(`Using profile '${profile}' from ${PROFILE_ENV}\n`);
+      }
       if (!cmdOpts.start) {
         const url = process.env[DSH_URL_ENV]?.trim() ? process.env[DSH_URL_ENV] : (await runningWebRecord(paths, profile))?.url;
         if (url === undefined) {
@@ -94,7 +104,7 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
       if (cmdOpts.allowRemote) {
         throw new ValidationError('--start and --allow-remote cannot be combined: --start checks the dsh web it starts on this machine');
       }
-      assertProfileExists(paths, profile);
+      assertProfileExists(paths, opts, profile);
       const web = await startDshWeb(profile, { command: resolveCliDshCommand(paths, opts), dshHome: paths.home });
       try {
         await checkProfile(paths, manifest, profile, parseDshWebUrl(web.url), opts.json);

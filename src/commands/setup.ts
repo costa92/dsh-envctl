@@ -11,6 +11,7 @@ import type { CaptureDocument } from '../domain.js';
 import { assertNotRemoteOwned } from '../remote/ownership.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
+import { Option } from 'commander';
 import { pullProfilePatches } from '../profile-patches/pull.js';
 import { renderPullResult } from './pull.js';
 
@@ -69,7 +70,8 @@ export function registerSetupCommands(ctx: CommandContext): void {
     .description('Adopt a candidate capture manifest into active environment management')
     .requiredOption('-f, --from <file>', 'path to candidate capture manifest')
     .option('-y, --yes', 'skip confirmation')
-    .option('--layer <layer>', 'layer to write when an overlay is active; adopt only supports base')
+    // Only base is valid, so the option is accepted for scripts that pass it but not shown.
+    .addOption(new Option('--layer <layer>').hideHelp())
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
