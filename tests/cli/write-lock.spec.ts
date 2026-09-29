@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -22,12 +22,25 @@ describe('CLI write commands wait for the environment lock', () => {
 
   const expectWaitsForLock = async (args: string[], changed: () => boolean) => {
     const handle = await acquireEnvironmentLock(resolveEnvironmentPaths({ cliDshHome: tempHome }));
-    const pending = run(args);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(changed()).toBe(false);
-    await handle.release();
-    expect(await pending).toBe(0);
-    expect(changed()).toBe(true);
+    const lockPath = handle.lockPath;
+    // Counts tries to create the held lock, so the test knows the command is waiting rather than guessing a delay.
+    let tries = 0;
+    const open = fs.promises.open.bind(fs.promises);
+    const spy = vi.spyOn(fs.promises, 'open').mockImplementation(((file: fs.PathLike, ...rest: [never]) => {
+      if (file === lockPath) tries += 1;
+      return open(file, ...rest);
+    }) as typeof fs.promises.open);
+    try {
+      const pending = run(args);
+      // Each round tries twice (before and after the stale check); a third try means it waited a round.
+      while (tries < 3) await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(changed()).toBe(false);
+      await handle.release();
+      expect(await pending).toBe(0);
+      expect(changed()).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   };
 
   it('holds the lock while editing the base manifest', async () => {

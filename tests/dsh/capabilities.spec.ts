@@ -92,7 +92,7 @@ describe('evaluateCapabilities', () => {
     const caps = evaluateCapabilities('0.1.7', evidence({ operationsExport }));
     expect(caps.packageOperations.status).toBe('disabled');
     expect(caps.packageOperations.source).toBe('operations-export');
-    expect(caps.packageOperations.reason).toBeTruthy();
+    expect(caps.packageOperations.reason).toMatch(/operations/);
   });
 
   it.each(['0.0.1', '0.1.70', 'v0.1.7'])('disables every capability for unrecognized version %s', version => {

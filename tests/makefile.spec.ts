@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
 
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Every target here depends on `build`, which empties and rewrites lib/ while other tests or a running
+// bin/dshenv.js may read it; `pnpm install` already built lib/ through the prepare script.
+const KEEP_LIB = ['-o', 'build'];
 
 describe('Makefile demo paths', () => {
   let userHome: string;
@@ -19,7 +22,7 @@ describe('Makefile demo paths', () => {
   });
 
   it('creates the default demo home below the current user home', async () => {
-    await execa('make', ['demo-gc'], {
+    await execa('make', [...KEEP_LIB, 'demo-gc'], {
       cwd: projectDir,
       env: { ...process.env, HOME: userHome }
     });
@@ -29,7 +32,7 @@ describe('Makefile demo paths', () => {
 
   it('reports an actionable error when the Harness source is missing', async () => {
     const missingHarness = path.join(userHome, 'missing-harness');
-    const result = await execa('make', ['demo-doctor', `HARNESS_SOURCE=${missingHarness}`], {
+    const result = await execa('make', [...KEEP_LIB, 'demo-doctor', `HARNESS_SOURCE=${missingHarness}`], {
       cwd: projectDir,
       env: { ...process.env, HOME: userHome },
       reject: false
@@ -41,7 +44,7 @@ describe('Makefile demo paths', () => {
   });
 
   it('requires DSH_VERSION for the DSH smoke test', async () => {
-    const result = await execa('make', ['smoke-dsh'], {
+    const result = await execa('make', [...KEEP_LIB, 'smoke-dsh'], {
       cwd: projectDir,
       env: { ...process.env, HOME: userHome, DSH_VERSION: '' },
       reject: false
@@ -52,7 +55,7 @@ describe('Makefile demo paths', () => {
   });
 
   it('requires DSH_VERSION for the DSH end-to-end test', async () => {
-    const result = await execa('make', ['e2e-dsh'], {
+    const result = await execa('make', [...KEEP_LIB, 'e2e-dsh'], {
       cwd: projectDir,
       env: { ...process.env, HOME: userHome, DSH_VERSION: '' },
       reject: false

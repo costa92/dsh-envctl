@@ -38,7 +38,7 @@ describe('Managed Git Source Lifecycle', () => {
     const status = await inspectGitWorkingTree(repoDir);
     expect(status.isGitRepo).toBe(true);
     expect(status.isDirty).toBe(false);
-    expect(status.commit).toBeTruthy();
+    expect(status.commit).toBe((await execa('git', ['rev-parse', 'HEAD'], { cwd: repoDir })).stdout.trim());
   });
 
   it('should detect dirty git working tree and block operations', async () => {

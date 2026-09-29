@@ -141,4 +141,19 @@ profiles:
     await expect(purgePlugin(paths, 'web', 'agent-teams', { dryRun: true })).rejects.toThrow(/uncommitted changes/);
     expect(fs.readFileSync(path.join(cloneDir, 'wip.txt'), 'utf8')).toBe('unsaved work');
   });
+
+  it('refuses a managed clone that is a symlink to a directory outside envctl, and leaves that directory alone', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const outside = path.join(tempHome, 'outside-repo');
+    fs.mkdirSync(outside);
+    await execa('git', ['init', '-q'], { cwd: outside });
+    await execa('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: outside });
+    const cloneDir = path.join(paths.managerDir, 'sources', 'web', '@nanmicoder_dsh-agent-teams');
+    fs.mkdirSync(path.dirname(cloneDir), { recursive: true });
+    fs.symlinkSync(outside, cloneDir, 'dir');
+
+    await expect(purgePlugin(paths, 'web', 'agent-teams')).rejects.toThrow(/Refusing to follow symlink outside allowed root/);
+    expect(fs.lstatSync(cloneDir).isSymbolicLink()).toBe(true);
+    expect(fs.existsSync(path.join(outside, '.git'))).toBe(true);
+  });
 });

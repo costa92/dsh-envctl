@@ -37,7 +37,8 @@ describe('Local Source Lifecycle and Digest', () => {
     expect(info.isValid).toBe(true);
     expect(info.name).toBe('my-local-pkg');
     expect(info.version).toBe('1.0.0');
-    expect(info.digest).toBeTruthy();
+    expect(info.digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(info.digest).toBe(await calculateSourceDigest(pkgDir));
   });
 
   it('should calculate stable digest ignoring node_modules and .git', async () => {

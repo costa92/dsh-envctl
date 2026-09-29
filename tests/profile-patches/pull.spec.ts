@@ -122,6 +122,8 @@ describe('pullProfilePatches', () => {
     try {
       paths = await writeRemoteOwnedFixture(home);
       setupProfile(home);
+      // This test uses its own home; the one beforeEach made would leak once afterEach removes this one instead.
+      fs.rmSync(tempHome, { recursive: true, force: true });
       tempHome = home;
       const manifestBefore = fs.readFileSync(paths.manifestFile, 'utf8');
       const selection = { name: 'mine', via: 'file' as const };
