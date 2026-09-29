@@ -45,10 +45,12 @@ jobs:
       - run: pnpm pack --pack-destination dist
       # Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
       - run: npm install -g npm@^11.5.1
-      # No token: npm trusts this workflow (configured on npmjs.com) and adds provenance itself.
+      # npm tries trusted publishing (OIDC) first and falls back to NPM_TOKEN; verbose logs why OIDC was not used.
+      # The trusted publisher is not registered on npmjs.com yet, so the token is what publishes today.
       # Without ./ npm reads dist/<file> as a GitHub owner/repo shorthand.
-      # verbose logs why the OIDC token exchange failed before npm falls back to the placeholder token.
-      - run: npm publish ./dist/*.tgz --access public --loglevel verbose
+      - run: npm publish ./dist/*.tgz --access public --provenance --loglevel verbose
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: gh release create "$GITHUB_REF_NAME" dist/*.tgz --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}
