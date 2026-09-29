@@ -15,6 +15,13 @@ const alive = (pid: number): boolean => {
   }
 };
 
+// Node reaps an exited child asynchronously; until then its pid still answers kill(pid, 0) (seen on macOS).
+const reaped = async (pid: number): Promise<boolean> => {
+  const deadline = Date.now() + 2_000;
+  while (alive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  return !alive(pid);
+};
+
 describe('startDshWeb', () => {
   let dir: string;
   const fakeDsh = (body: string) => {
@@ -50,7 +57,7 @@ setInterval(() => {}, 1000);
     } finally {
       await web.stop();
     }
-    expect(alive(pid)).toBe(false);
+    expect(await reaped(pid)).toBe(true);
   });
 
   it('waits for everything DSH started to stop, not just DSH itself', async () => {
@@ -105,7 +112,7 @@ process.exit(1);
   it('gives up and stops DSH when no URL appears in time', async () => {
     const command = fakeDsh(`setInterval(() => {}, 1000);`);
     await expect(startDshWeb('web', { command, dshHome: dir, timeoutMs: 500 })).rejects.toThrow(/did not print a dsh web URL within 500 ms/);
-    expect(alive(Number(fs.readFileSync(path.join(dir, 'pid'), 'utf8')))).toBe(false);
+    expect(await reaped(Number(fs.readFileSync(path.join(dir, 'pid'), 'utf8')))).toBe(true);
   });
 
   it('refuses when no DSH CLI was found', async () => {
