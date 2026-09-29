@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execa } from 'execa';
 import { DegradedError } from '../errors.js';
+import { awaitWithTreeTimeout } from '../io/process-tree.js';
 import { parseDshVersion } from './version.js';
 
 export interface CommandSpec {
@@ -54,7 +55,8 @@ export function resolveDshCommand(input?: ResolveDshCommandInput): CommandSpec |
   if (sourceDir && checkExists(sourceDir)) {
     return {
       file: 'pnpm',
-      args: ['--dir', sourceDir, 'dsh'],
+      // --silent keeps pnpm's script banner out of stdout, which callers parse (--version, --dump-config YAML).
+      args: ['--silent', '--dir', sourceDir, 'dsh'],
       cwd: sourceDir
     };
   }
@@ -103,15 +105,18 @@ export interface ProbeResult {
 
 export async function probeDsh(
   cmd: CommandSpec,
-  runner?: (file: string, args: string[], opts: Record<string, unknown>) => Promise<{ stdout: string; stderr: string }>
+  runner?: (file: string, args: string[], opts: Record<string, unknown>) => Promise<{ stdout: string; stderr: string }>,
+  timeoutMs = 10000
 ): Promise<ProbeResult> {
   const run = runner ?? (async (file, args, opts) => {
-    return await execa(file, args, {
-      ...opts,
-      shell: false,
-      timeout: 10000,
-      maxBuffer: 1024 * 1024
-    });
+    const { result, timedOut } = await awaitWithTreeTimeout(
+      execa(file, args, { ...opts, shell: false, reject: false, maxBuffer: 1024 * 1024 }),
+      timeoutMs
+    );
+    if (timedOut || result.failed) {
+      throw new Error('DSH probe failed');
+    }
+    return result;
   });
 
   let res: { stdout: string; stderr: string };
