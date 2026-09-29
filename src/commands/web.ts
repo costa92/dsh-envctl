@@ -1,9 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
-import { ValidationError } from '../errors.js';
+import { DshError, ValidationError } from '../errors.js';
 import { resolveDshCommand } from '../dsh/command.js';
-import { DSH_WEB_START_TIMEOUT_MS, dshWebRunning, launchDshWeb, stopProcessGroup } from '../dsh/web-server.js';
+import { DSH_WEB_START_TIMEOUT_MS, dshWebState, launchDshWeb, stopProcessGroup, type DshWebState } from '../dsh/web-server.js';
 import { acquireFileLock } from '../io/lock.js';
 import { listWebRecords, readWebRecord, removeWebRecord, webLogFile, writeWebRecord, type DshWebRecord } from '../dsh/web-record.js';
 import { parseDshWebUrl } from '../dsh/web-client.js';
@@ -45,8 +45,28 @@ export function resolveCliDshCommand(paths: EnvironmentPaths, opts: CliOpts) {
 // The dsh web `dshenv web start` left running for the profile, or null when there is none or it has stopped.
 export async function runningWebRecord(paths: EnvironmentPaths, profile: string): Promise<DshWebRecord | null> {
   const record = readWebRecord(paths, profile);
-  return record && (await dshWebRunning(record.pid, profile)) ? record : null;
+  return record && (await dshWebState(record.pid, record.leaderStart)) === 'running' ? record : null;
 }
+
+// Stops what the record names, keeping the record when that is not certain to be this dsh web or it does not stop.
+async function stopRecorded(paths: EnvironmentPaths, record: DshWebRecord, state: DshWebState): Promise<void> {
+  if (state === 'unknown') {
+    throw new DshError(
+      `Cannot tell whether pid ${record.pid} is still the dsh web dshenv started for profile ${record.profile}, so it was left alone; stop it yourself if it is, then delete ${path.join(paths.runDir, `${record.profile}.json`)}`
+    );
+  }
+  if ((state === 'running' || state === 'leftover') && !(await stopProcessGroup(record.pid))) {
+    throw new DshError(`dsh web for profile ${record.profile} (pid ${record.pid}) is still running after SIGKILL`);
+  }
+  removeWebRecord(paths, record.profile);
+}
+
+const stateText: Record<DshWebState, string> = {
+  running: 'running',
+  leftover: 'not running (leftover processes)',
+  stopped: 'not running',
+  unknown: 'unknown (cannot tell whether the pid is still this dsh web)'
+};
 
 function portOption(value: string): number {
   const port = Number(value);
@@ -86,8 +106,9 @@ export function registerWebCommands(ctx: CommandContext): void {
       assertProfileExists(paths, profile);
 
       await withProfileLock(paths, profile, async () => {
-        const current = await runningWebRecord(paths, profile);
-        if (current) {
+        const current = readWebRecord(paths, profile);
+        const state = current ? await dshWebState(current.pid, current.leaderStart) : 'stopped';
+        if (current && state === 'running') {
           if (opts.json) {
             writeOut(JSON.stringify({ status: 'running', ...current, endpoint: endpointOf(current) }, null, 2) + '\n');
           } else {
@@ -95,10 +116,20 @@ export function registerWebCommands(ctx: CommandContext): void {
           }
           return;
         }
+        if (current) {
+          await stopRecorded(paths, current, state);
+        }
         removeWebRecord(paths, profile);
         const logFile = webLogFile(paths, profile);
         const launched = await launchDshWeb(profile, { command: resolveCliDshCommand(paths, opts), dshHome: paths.home, logFile, port });
-        const record: DshWebRecord = { profile, pid: launched.pid, url: launched.url, logFile, startedAt: new Date().toISOString() };
+        const record: DshWebRecord = {
+          profile,
+          pid: launched.pid,
+          url: launched.url,
+          logFile,
+          startedAt: new Date().toISOString(),
+          leaderStart: launched.leaderStart
+        };
         writeWebRecord(paths, record);
         if (opts.json) {
           writeOut(JSON.stringify({ status: 'started', ...record, endpoint: endpointOf(record) }, null, 2) + '\n');
@@ -119,12 +150,13 @@ export function registerWebCommands(ctx: CommandContext): void {
       const paths = resolveCliPaths(opts);
       const { profile } = cmdOpts;
       const record = await withProfileLock(paths, profile, async () => {
-        const running = await runningWebRecord(paths, profile);
-        if (running) {
-          await stopProcessGroup(running.pid);
+        const current = readWebRecord(paths, profile);
+        const state = current ? await dshWebState(current.pid, current.leaderStart) : 'stopped';
+        if (current) {
+          await stopRecorded(paths, current, state);
         }
         removeWebRecord(paths, profile);
-        return running;
+        return current && (state === 'running' || state === 'leftover') ? current : null;
       });
       if (opts.json) {
         writeOut(JSON.stringify({ profile, status: record ? 'stopped' : 'not-running', ...(record ? { pid: record.pid } : {}) }, null, 2) + '\n');
@@ -141,8 +173,16 @@ export function registerWebCommands(ctx: CommandContext): void {
       const paths = resolveCliPaths(opts);
       const webs = await Promise.all(
         listWebRecords(paths).map(async (record) => {
-          const running = await dshWebRunning(record.pid, record.profile);
-          return { profile: record.profile, pid: record.pid, running, endpoint: endpointOf(record), startedAt: record.startedAt, logFile: record.logFile };
+          const state = await dshWebState(record.pid, record.leaderStart);
+          return {
+            profile: record.profile,
+            pid: record.pid,
+            running: state === 'running',
+            state,
+            endpoint: endpointOf(record),
+            startedAt: record.startedAt,
+            logFile: record.logFile
+          };
         })
       );
       if (opts.json) {
@@ -154,7 +194,7 @@ export function registerWebCommands(ctx: CommandContext): void {
         return;
       }
       for (const entry of webs) {
-        writeOut(entry.running ? `${entry.profile}  running  pid ${entry.pid}  ${entry.endpoint}\n` : `${entry.profile}  not running  pid ${entry.pid}\n`);
+        writeOut(entry.running ? `${entry.profile}  running  pid ${entry.pid}  ${entry.endpoint}\n` : `${entry.profile}  ${stateText[entry.state]}  pid ${entry.pid}\n`);
       }
     });
 }

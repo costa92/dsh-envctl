@@ -19,7 +19,7 @@ import { acquireEnvironmentLock } from '../io/lock.js';
 import { createEnvironmentSnapshot, restoreSnapshotFiles, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
-import { killProcessTree } from '../io/process-tree.js';
+import { awaitWithTreeTimeout } from '../io/process-tree.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
 import { probeDsh, resolveDshCommand, type CommandSpec } from '../dsh/command.js';
@@ -83,19 +83,8 @@ async function runDshPluginCommand(
     shell: false,
     reject: false
   });
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    if (subprocess.pid !== undefined) {
-      killProcessTree(subprocess.pid);
-    }
-  }, timeoutMs);
-  try {
-    const result = await subprocess;
-    return { exitCode: result.exitCode, timedOut, stdout: result.stdout, stderr: result.stderr };
-  } finally {
-    clearTimeout(timer);
-  }
+  const { result, timedOut } = await awaitWithTreeTimeout(subprocess, timeoutMs);
+  return { exitCode: result.exitCode, timedOut, stdout: result.stdout, stderr: result.stderr };
 }
 
 interface ProfileRollback {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { execa } from 'execa';
 import { runCli } from '../../src/cli.js';
 import { startFakeDshWeb, type FakeDshWeb } from '../helpers/fake-dsh-web.js';
 
@@ -34,6 +35,17 @@ describe('CLI web', () => {
       return true;
     } catch {
       return false;
+    }
+  };
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const withEnv = async (name: string, value: string, fn: () => Promise<void>) => {
+    const previous = process.env[name];
+    process.env[name] = value;
+    try {
+      await fn();
+    } finally {
+      if (previous === undefined) delete process.env[name];
+      else process.env[name] = previous;
     }
   };
   // Stands in for dsh web: prints the fake server's URL like DSH does, then serves until stopped.
@@ -182,5 +194,62 @@ describe('CLI web', () => {
     expect(results.map((result) => result.stdout.split(' ')[0]).sort()).toEqual(['Started', 'dsh']);
     const { pid } = record();
     expect(results.every((result) => result.stdout.includes(`pid ${pid})`))).toBe(true);
+  });
+
+  it('recognizes its dsh web when ps would cut the command line to the terminal width', async () => {
+    serving();
+    await run(['web', 'start', '-p', 'web']);
+    const { pid } = record();
+    await withEnv('COLUMNS', '20', async () => {
+      expect((await run(['web', 'status'])).stdout).toMatch(/^web {2}running {2}pid /);
+      expect((await run(['web', 'stop', '-p', 'web'])).stdout).toBe(`Stopped dsh web for profile web (pid ${pid})\n`);
+    });
+    expect(alive(pid)).toBe(false);
+  });
+
+  it('leaves alone a process that later got the recorded pid, even where ps is missing', async () => {
+    serving();
+    await run(['web', 'start', '-p', 'web']);
+    const stale = record();
+    process.kill(-stale.pid, 'SIGKILL');
+    while (alive(stale.pid)) await sleep(20);
+    // Whatever gets the pid next, in a process group of its own like dsh web's.
+    const other = execa(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore', reject: false });
+    const otherPid = other.pid!;
+    fs.writeFileSync(recordFile(), JSON.stringify({ ...stale, pid: otherPid }));
+    try {
+      await withEnv('PATH', path.join(tempHome, 'no-bin'), async () => {
+        expect((await run(['web', 'status'])).stdout).toBe(`web  not running  pid ${otherPid}\n`);
+        expect((await run(['web', 'stop', '-p', 'web'])).stdout).toBe('No dsh web started by dshenv is running for profile web.\n');
+      });
+      expect(alive(otherPid)).toBe(true);
+    } finally {
+      other.kill('SIGKILL');
+      await other;
+    }
+  });
+
+  it('treats what a crashed dsh web left behind as not running, and clears it before starting anew', async () => {
+    const childPidFile = path.join(tempHome, 'child-pid');
+    fakeDsh(`import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+// Like an MCP server DSH started, it outlives a DSH that crashed.
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+fs.writeFileSync(${JSON.stringify(childPidFile)}, String(child.pid));
+console.log('dsh web: ${fake.url}');
+setInterval(() => {}, 1000);`);
+    await run(['web', 'start', '-p', 'web']);
+    const { pid } = record();
+    const child = Number(fs.readFileSync(childPidFile, 'utf8'));
+    process.kill(pid, 'SIGKILL');
+    while (alive(pid)) await sleep(20);
+    expect(alive(child)).toBe(true);
+
+    expect((await run(['web', 'status'])).stdout).toBe(`web  not running (leftover processes)  pid ${pid}\n`);
+    expect((await run(['runtime', '-p', 'web'])).code).toBe(3);
+    const restarted = await run(['web', 'start', '-p', 'web']);
+    expect(restarted.stdout).toMatch(/^Started dsh web/);
+    expect(alive(child)).toBe(false);
+    expect(record().pid).not.toBe(pid);
   });
 });

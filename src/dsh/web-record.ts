@@ -10,6 +10,8 @@ export interface DshWebRecord {
   url: string;
   logFile: string;
   startedAt: string;
+  // Tells this dsh web apart from a later process that reuses its pid.
+  leaderStart: string;
 }
 
 export function webLogFile(paths: EnvironmentPaths, profile: string): string {
@@ -31,6 +33,7 @@ function isRecord(value: unknown, profile: string): value is DshWebRecord {
     typeof record.url === 'string' &&
     typeof record.logFile === 'string' &&
     typeof record.startedAt === 'string' &&
+    typeof record.leaderStart === 'string' &&
     validUrl(record.url)
   );
 }
