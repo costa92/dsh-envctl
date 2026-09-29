@@ -95,7 +95,8 @@ describe('writeAtomic', () => {
     expect(fs.readFileSync(realFile, 'utf8')).toBe('new');
   });
 
-  it('keeps the permissions of the file it overwrites', async () => {
+  // Windows has no POSIX permission bits to keep or restrict.
+  it.skipIf(process.platform === 'win32')('keeps the permissions of the file it overwrites', async () => {
     const targetFile = path.join(tempDir, 'shared.yml');
     fs.writeFileSync(targetFile, 'old');
     fs.chmodSync(targetFile, 0o644);
@@ -105,7 +106,7 @@ describe('writeAtomic', () => {
     expect(fs.statSync(targetFile).mode & 0o777).toBe(0o644);
   });
 
-  it('still creates new files private to the owner', async () => {
+  it.skipIf(process.platform === 'win32')('still creates new files private to the owner', async () => {
     const targetFile = path.join(tempDir, 'fresh.json');
     await writeAtomic(targetFile, '{}', 'overwrite');
     expect(fs.statSync(targetFile).mode & 0o777).toBe(0o600);

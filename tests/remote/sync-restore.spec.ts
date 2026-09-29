@@ -21,7 +21,7 @@ vi.mock('../../src/io/atomic-file.js', async (importOriginal) => {
       if (file === failOn.file) {
         failOn.file = failOn.then;
         failOn.then = null;
-        throw new Error(`injected write failure: ${file.split('/').pop()}`);
+        throw new Error(`injected write failure: ${file.split(/[\\/]/).pop()}`);
       }
       return actual.writeAtomic(file, contents, mode);
     }

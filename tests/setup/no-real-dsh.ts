@@ -8,6 +8,8 @@ import * as path from 'node:path';
 export default function setup(): () => void {
   const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-test-bin-'));
   fs.writeFileSync(path.join(binDir, 'dsh'), '#!/bin/sh\nexit 127\n', { mode: 0o755 });
+  // Windows finds commands through PATHEXT, so there the stub is the dsh.cmd an npm install would put first.
+  fs.writeFileSync(path.join(binDir, 'dsh.cmd'), '@exit /b 127\r\n');
   process.env.PATH = `${binDir}${path.delimiter}${process.env.PATH ?? ''}`;
   const originalDshCli = process.env.DSH_CLI;
   delete process.env.DSH_CLI;

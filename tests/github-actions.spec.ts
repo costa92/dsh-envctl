@@ -100,7 +100,8 @@ describe('repository CI workflow', () => {
   });
 });
 
-describe('dshenv example workflow scripts', () => {
+// The example runs these bash steps on ubuntu-latest; Windows is not a target for them.
+describe.skipIf(process.platform === 'win32')('dshenv example workflow scripts', () => {
   let workDir: string;
   let dshenv: string;
 
@@ -336,7 +337,7 @@ describe('real DSH workflows', () => {
     expect(knownDshFamily(VERIFIED_DSH)).toBe('0.1.7');
   });
 
-  it.each(['scripts/e2e-dsh.sh', 'scripts/smoke-dsh.sh'])('keeps %s executable', (script) => {
+  it.skipIf(process.platform === 'win32').each(['scripts/e2e-dsh.sh', 'scripts/smoke-dsh.sh'])('keeps %s executable', (script) => {
     expect(fs.statSync(path.join(projectDir, script)).mode & 0o111).not.toBe(0);
   });
 });

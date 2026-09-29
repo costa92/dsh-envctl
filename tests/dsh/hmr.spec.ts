@@ -134,7 +134,8 @@ process.stdout.write(${JSON.stringify(dumpWithHmr("  disabled: !!js '!ctx.get(''
     });
   });
 
-  it('reports a command that cannot start as unknown', async () => {
+  // Windows runs the missing command through cmd.exe, which reports it in its own words instead of ENOENT.
+  it.skipIf(process.platform === 'win32')('reports a command that cannot start as unknown', async () => {
     expect(await probeProfileHmr('web', { command: { file: path.join(dir, 'missing-dsh'), args: [] }, dshHome: dir })).toEqual({
       state: 'unknown',
       reason: 'failed to start dsh (ENOENT)'
@@ -151,7 +152,8 @@ process.stdout.write(${JSON.stringify(dumpWithHmr("  disabled: !!js '!ctx.get(''
     expect(JSON.stringify(missing)).not.toContain('SECRET');
   });
 
-  it('names the signal when dsh is killed without writing stderr', async () => {
+  // Windows has no signals to name; a killed process there just exits.
+  it.skipIf(process.platform === 'win32')('names the signal when dsh is killed without writing stderr', async () => {
     const command = fakeDsh(`process.kill(process.pid, 'SIGKILL');`);
     expect(await probeProfileHmr('web', { command, dshHome: dir })).toEqual({
       state: 'unknown',

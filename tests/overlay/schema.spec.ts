@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as path from 'node:path';
 import { parseOverlay, serializeOverlay, loadState } from '../../src/manifest/files.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 
@@ -54,8 +55,8 @@ profiles:
 
   it('exposes overlay paths and accepts appliedOverlay in state', () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: '/tmp/h' });
-    expect(paths.overlaysDir).toBe('/tmp/h/envctl/overlays');
-    expect(paths.overlaySelectionFile).toBe('/tmp/h/envctl/overlay-selection.json');
+    expect(paths.overlaysDir).toBe(path.join('/tmp/h', 'envctl', 'overlays'));
+    expect(paths.overlaySelectionFile).toBe(path.join('/tmp/h', 'envctl', 'overlay-selection.json'));
     const state = loadState(
       JSON.stringify({ apiVersion: 'dshenv-state/v1', lastApplied: 'x', appliedLockHash: '', profiles: {}, appliedOverlay: 'laptop' })
     );

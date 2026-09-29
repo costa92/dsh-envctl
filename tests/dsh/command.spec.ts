@@ -116,7 +116,7 @@ describe('findOnPath', () => {
     expect(findOnPath('dsh', env, 'win32')).toBe(path.join(dir, 'dsh.CMD'));
   });
 
-  it('finds a plain dsh on a POSIX PATH and skips a directory of that name', () => {
+  it.skipIf(process.platform === 'win32')('finds a plain dsh on a POSIX PATH and skips a directory of that name', () => {
     const other = path.join(dir, 'other');
     fs.mkdirSync(path.join(other, 'dsh'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'dsh'), '');

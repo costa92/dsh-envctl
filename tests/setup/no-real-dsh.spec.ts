@@ -5,7 +5,7 @@ import { resolveDshCommand } from '../../src/dsh/command.js';
 describe('test isolation from a real dsh', () => {
   it('resolves dsh on PATH to the stub, which exits 127 without doing anything', async () => {
     const command = resolveDshCommand({ envDshCli: '' });
-    expect(command?.file).toMatch(/dshenv-test-bin-[^/]+\/dsh$/);
+    expect(command?.file).toMatch(process.platform === 'win32' ? /dshenv-test-bin-[^\\]+\\dsh\.cmd$/i : /dshenv-test-bin-[^/]+\/dsh$/);
     const result = await execa(command!.file, ['--profile', 'web', '--dump-config'], { reject: false });
     expect(result.exitCode).toBe(127);
     expect(result.stdout).toBe('');

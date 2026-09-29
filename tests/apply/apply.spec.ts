@@ -577,7 +577,7 @@ profiles:
         package: demo-plugin
         source:
           type: local-file
-          path: "${sourceDir}"
+          path: ${JSON.stringify(sourceDir)}
 `
     );
     fs.writeFileSync(path.join(tempHome, 'envctl', 'lock.json'), JSON.stringify({ apiVersion: 'dshenv-lock/v1', profiles: {} }));

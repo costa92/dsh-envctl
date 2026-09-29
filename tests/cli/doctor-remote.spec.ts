@@ -14,11 +14,11 @@ describe('CLI doctor with a remote subscription', () => {
   beforeEach(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-doctor-remote-'));
     binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-doctor-remote-bin-'));
-    const fakeDsh = path.join(binDir, 'fake-dsh.sh');
-    fs.writeFileSync(fakeDsh, '#!/bin/sh\nif [ "$1" = "--version" ]; then\n  echo "0.1.7-rc.2"\nfi\nexit 0\n');
-    fs.chmodSync(fakeDsh, 0o755);
+    // A Node script, not a shell script, so the fake also runs on Windows.
+    const fakeDsh = path.join(binDir, 'fake-dsh.mjs');
+    fs.writeFileSync(fakeDsh, "if (process.argv[2] === '--version') console.log('0.1.7-rc.2');\n");
     previousDshCli = process.env.DSH_CLI;
-    process.env.DSH_CLI = fakeDsh;
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
   });
 
   afterEach(() => {

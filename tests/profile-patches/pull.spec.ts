@@ -147,7 +147,8 @@ describe('pullProfilePatches', () => {
     expect(live().block?.entries).toEqual([LOCALE, insert, override]);
   });
 
-  it('puts back patch files it already rewrote when a later profile fails', async () => {
+  // The failure is injected with a read-only directory, which Windows does not enforce for new files.
+  it.skipIf(process.platform === 'win32')('puts back patch files it already rewrote when a later profile fails', async () => {
     const other = path.join(tempHome, 'profiles', 'zzz');
     fs.mkdirSync(other, { recursive: true });
     fs.writeFileSync(path.join(other, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } }));
