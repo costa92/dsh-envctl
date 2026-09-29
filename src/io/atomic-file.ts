@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { FileExistsError } from '../errors.js';
+import { retryWhileBusy } from './windows-retry.js';
 
 // Profile files may be symlinks (e.g. managed by dotfiles) and may be shared; replacing them by rename
 // must neither turn the link into a plain file nor tighten the permissions of an existing file.
@@ -82,7 +83,7 @@ export async function writeAtomic(
         }
       }
     } else {
-      await fs.promises.rename(tempPath, targetPath);
+      await retryWhileBusy(() => fs.promises.rename(tempPath, targetPath));
     }
 
     // sync parent dir

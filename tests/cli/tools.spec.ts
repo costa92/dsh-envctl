@@ -145,7 +145,7 @@ profiles:
       run(['tools', 'disable', 'tool-web', '-p', 'web']),
       run(['tools', 'enable', 'tool-bash', '-p', 'web'])
     ]);
-    expect(results.map((result) => result.code)).toEqual([0, 0]);
+    expect(results.map((result) => [result.code, result.stderr])).toEqual([[0, ''], [0, '']]);
     const plugins = (manifest().profiles.web.patches![0].config as { plugins: Record<string, unknown>[] }).plugins;
     expect(plugins).toEqual([
       expect.objectContaining({ id: 'tool-bash', disabled: false }),

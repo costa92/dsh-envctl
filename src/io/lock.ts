@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { DshError } from '../errors.js';
+import { retryWhileBusy } from './windows-retry.js';
 
 export interface LockHandle {
   lockPath: string;
@@ -14,7 +15,7 @@ const LOCK_WRITE_GRACE_MS = 5000;
 
 async function createLockFile(lockFilePath: string, lockContent: string): Promise<boolean> {
   try {
-    const handle = await fs.promises.open(lockFilePath, 'wx', 0o600);
+    const handle = await retryWhileBusy(() => fs.promises.open(lockFilePath, 'wx', 0o600));
     await handle.writeFile(lockContent);
     await handle.close();
     return true;
@@ -66,7 +67,7 @@ async function reclaimStaleLock(lockFilePath: string, guardPath: string): Promis
   }
   try {
     if (await isStaleLock(lockFilePath)) {
-      await fs.promises.rm(lockFilePath, { force: true });
+      await retryWhileBusy(() => fs.promises.rm(lockFilePath, { force: true }));
     }
   } finally {
     await fs.promises.rmdir(guardPath);
@@ -124,7 +125,7 @@ export async function acquireFileLock(lockFilePath: string, label: string, timeo
     lockPath: lockFilePath,
     release: async () => {
       try {
-        await fs.promises.unlink(lockFilePath);
+        await retryWhileBusy(() => fs.promises.unlink(lockFilePath));
       } catch {
         // ignore
       }
