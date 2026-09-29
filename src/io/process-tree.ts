@@ -6,14 +6,15 @@ const POLL_MS = 50;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Signalling only the direct child would leave the package manager it started still writing the profile.
-// Returns once the whole tree is gone, so dshenv cannot exit before its SIGKILL is sent.
-export async function killProcessTree(pid: number): Promise<void> {
+// Returns the pids it stopped once the whole tree is gone, so dshenv cannot exit before its SIGKILL is sent.
+export async function killProcessTree(pid: number): Promise<number[]> {
   if (process.platform === 'win32') {
     await execa('taskkill', ['/pid', String(pid), '/T', '/F'], { reject: false });
-    return;
+    return [pid];
   }
   // Collected before any signal: once a parent exits, its children are reparented and no longer traceable.
-  let pids = [pid, ...descendantsOf(pid)];
+  const tree = [pid, ...descendantsOf(pid)];
+  let pids = tree;
   for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
     signalAll(pids, signal);
     const deadline = Date.now() + FORCE_KILL_AFTER_MS;
@@ -21,30 +22,37 @@ export async function killProcessTree(pid: number): Promise<void> {
     while ((pids = pids.filter(alive)).length > 0 && Date.now() < deadline) {
       await sleep(POLL_MS);
     }
-    if (pids.length === 0) return;
+    if (pids.length === 0) break;
   }
+  return tree;
 }
 
 // execa's own timeout signals only the direct child; a grandchild (dsh under `pnpm --dir <source> dsh`) keeps the
-// output pipes open, and execa waits for them.
+// output pipes open, and execa waits for them. An abort stops the tree the same way.
 export async function awaitWithTreeTimeout<T>(
   subprocess: Promise<T> & { pid?: number },
-  timeoutMs: number
-): Promise<{ result: T; timedOut: boolean }> {
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<{ result: T; timedOut: boolean; killed: number[] }> {
   let timedOut = false;
-  let killing: Promise<void> | undefined;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    if (subprocess.pid !== undefined) {
+  let killing: Promise<number[]> | undefined;
+  const kill = () => {
+    if (subprocess.pid !== undefined && !killing) {
       killing = killProcessTree(subprocess.pid);
     }
+  };
+  const timer = setTimeout(() => {
+    timedOut = true;
+    kill();
   }, timeoutMs);
+  signal?.addEventListener('abort', kill, { once: true });
+  if (signal?.aborted) kill();
   try {
     const result = await subprocess;
-    await killing;
-    return { result, timedOut };
+    return { result, timedOut, killed: (await killing) ?? [] };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', kill);
   }
 }
 

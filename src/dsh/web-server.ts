@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { execa } from 'execa';
 import type { CommandSpec } from './command.js';
 import { CapabilityError, DshError } from '../errors.js';
+import { isInterrupting, stopOnInterrupt } from '../io/interrupt.js';
 
 export interface StartedDshWeb {
   url: string;
@@ -81,35 +82,6 @@ export async function stopProcessGroup(pid: number): Promise<boolean> {
     if (!groupAlive(pid)) return true;
   }
   return false;
-}
-
-// Ctrl-C ends dshenv without running async cleanup, and a detached dsh web would outlive it. One handler runs
-// every registered cleanup to the end (SIGTERM, then SIGKILL) and then lets the signal end dshenv as it would have;
-// a second Ctrl-C meanwhile ends dshenv at once.
-const INTERRUPTS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-const interruptCleanups = new Set<() => Promise<void>>();
-let interrupting = false;
-
-function onInterrupt(signal: NodeJS.Signals): void {
-  interrupting = true;
-  for (const name of INTERRUPTS) process.off(name, onInterrupt);
-  const cleanups = [...interruptCleanups];
-  interruptCleanups.clear();
-  void Promise.allSettled(cleanups.map((cleanup) => cleanup())).then(() => process.kill(process.pid, signal));
-}
-
-// Registers a cleanup to run if dshenv is interrupted; the returned function unregisters it.
-export function stopOnInterrupt(cleanup: () => Promise<void>): () => void {
-  if (interruptCleanups.size === 0) {
-    for (const name of INTERRUPTS) process.on(name, onInterrupt);
-  }
-  interruptCleanups.add(cleanup);
-  return () => {
-    interruptCleanups.delete(cleanup);
-    if (interruptCleanups.size === 0) {
-      for (const name of INTERRUPTS) process.off(name, onInterrupt);
-    }
-  };
 }
 
 // When the process under the pid started: null when none runs under it, undefined when that cannot be told.
@@ -220,7 +192,7 @@ async function awaitUrl(profile: string, child: ReturnType<typeof spawnDshWeb>, 
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     // The cleanup is stopping this dsh web; its exit is not a failure to report, the signal ends dshenv.
-    if (interrupting) await new Promise(() => {});
+    if (isInterrupting()) await new Promise(() => {});
     const output = fs.readFileSync(options.logFile, 'utf8');
     const url = URL_PATTERN.exec(output)?.[0];
     if (url && child.pid !== undefined) {

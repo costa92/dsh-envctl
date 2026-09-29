@@ -62,3 +62,23 @@ export async function withProfilePackageLock<T>(
     await fs.promises.rm(lockPath, { force: true });
   }
 }
+
+// A DSH that dshenv had to kill leaves its lock behind, as nothing ends it gracefully mid-write. Removed only when a
+// process dshenv stopped holds it and is gone, so a lock another DSH took meanwhile stays.
+export async function releaseProfileLockOfStopped(packageJsonPath: string, stopped: number[]): Promise<void> {
+  const lockPath = `${packageJsonPath}.lock`;
+  let holder: number;
+  try {
+    holder = Number.parseInt(await fs.promises.readFile(lockPath, 'utf8'), 10);
+  } catch {
+    return;
+  }
+  if (!stopped.includes(holder)) {
+    return;
+  }
+  try {
+    process.kill(holder, 0);
+  } catch {
+    await fs.promises.rm(lockPath, { force: true });
+  }
+}
