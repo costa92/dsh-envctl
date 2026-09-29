@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { dshWebState, launchDshWeb, startDshWeb, stopProcessGroup } from '../../src/dsh/web-server.js';
 import { execa } from 'execa';
 
@@ -147,6 +148,24 @@ describe('launchDshWeb', () => {
     }
     expect(await dshWebState(web.pid, web.leaderStart)).toBe('stopped');
   });
+
+  it('keeps dsh web running after the dshenv that launched it exits, and stops it later by the record', async () => {
+    const script = path.join(dir, 'fake-dsh.mjs');
+    fs.writeFileSync(script, `console.log('dsh web: http://127.0.0.1:4567/?token=abc'); setInterval(() => {}, 1000);`);
+    const driver = path.join(dir, 'driver.mts');
+    fs.writeFileSync(driver, `import { launchDshWeb } from ${JSON.stringify(pathToFileURL(path.resolve('src/dsh/web-server.ts')).href)};
+const web = await launchDshWeb('web', { command: { file: process.execPath, args: [${JSON.stringify(script)}] }, dshHome: ${JSON.stringify(dir)}, logFile: ${JSON.stringify(path.join(dir, 'run', 'web.log'))} });
+console.log(JSON.stringify(web));
+process.exit(0);`);
+    const dshenv = await execa(process.execPath, ['--import', 'tsx/esm', driver]);
+    const web = JSON.parse(dshenv.stdout) as { pid: number; leaderStart: string };
+    try {
+      expect(await dshWebState(web.pid, web.leaderStart)).toBe('running');
+    } finally {
+      expect(await stopProcessGroup(web.pid)).toBe(true);
+    }
+    expect(alive(web.pid)).toBe(false);
+  }, 30_000);
 });
 
 // Ctrl-C ends dshenv without running async cleanup, so startDshWeb must stop the detached dsh web itself.

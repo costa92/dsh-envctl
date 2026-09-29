@@ -6,7 +6,7 @@
 
 ### 新增
 
-- `dshenv web start|stop|status`：在后台启动 dsh web（Linux/macOS 上为独立进程组，dshenv 退出后继续运行；Windows 上关闭控制台窗口时一起退出）并打印浏览器地址，停止时连同它启动的子进程一起停止；地址、pid 与主进程启动时间记在权限为 `0600` 的 `envctl/run/<profile>.json`，`runtime` 在没有设置 `DSHENV_DSH_URL` 时自动使用它。
+- `dshenv web start|stop|status`：在后台启动 dsh web（Linux/macOS 上为独立进程组，Windows 上不附着在启动它的控制台上，dshenv 退出或关闭终端后继续运行）并打印浏览器地址，停止时连同它启动的子进程一起停止；地址、pid 与主进程启动时间记在权限为 `0600` 的 `envctl/run/<profile>.json`，`runtime` 在没有设置 `DSHENV_DSH_URL` 时自动使用它。
   - 按 pid 与启动时间识别自己启动的 dsh web，不受 `COLUMNS` 截断 `ps` 输出、系统没有 `ps` 或 pid 被复用的影响；无法确认时 `status` 显示 `unknown`，`start`/`stop` 报错并保留记录，不停止任何进程。
   - dsh web 退出而它启动的子进程还在时，`status` 显示 `not running (leftover processes)`，`start` 先停掉这些子进程再启动，`stop` 也会停掉它们。
   - SIGKILL 后仍未停下时 `stop` 以非零退出码报错并保留记录；同一 Profile 的 `start`/`stop` 依次执行；启动中按 Ctrl+C 会停止正在启动的 dsh web。
