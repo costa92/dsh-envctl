@@ -9,7 +9,7 @@ import { loadEffectiveManifest } from '../overlay/effective.js';
 import { renderRuntimeReport } from '../output/render.js';
 import { callDshWeb, DSH_URL_ENV, loginDshWeb, parseDshWebUrl, type DshWebTarget } from '../dsh/web-client.js';
 import { startDshWeb } from '../dsh/web-server.js';
-import { resolveDshCommand } from '../dsh/command.js';
+import { assertProfileExists, resolveCliDshCommand, runningWebRecord } from './web.js';
 import {
   checkRuntime,
   parseRuntimeBundles,
@@ -82,18 +82,20 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
       const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
       const profile = selectProfile(manifest, cmdOpts.profile);
       if (!cmdOpts.start) {
-        await checkProfile(paths, manifest, profile, parseDshWebUrl(process.env[DSH_URL_ENV], { allowRemote: Boolean(cmdOpts.allowRemote) }), opts.json);
+        const url = process.env[DSH_URL_ENV]?.trim() ? process.env[DSH_URL_ENV] : (await runningWebRecord(paths, profile))?.url;
+        if (url === undefined) {
+          throw new ValidationError(
+            `${DSH_URL_ENV} is not set and no dsh web started by 'dshenv web start' is running for profile ${profile}; export the URL dsh web printed, run dshenv web start -p ${profile}, or pass --start`
+          );
+        }
+        await checkProfile(paths, manifest, profile, parseDshWebUrl(url, { allowRemote: Boolean(cmdOpts.allowRemote) }), opts.json);
         return;
       }
       if (cmdOpts.allowRemote) {
         throw new ValidationError('--start and --allow-remote cannot be combined: --start checks the dsh web it starts on this machine');
       }
-      // dsh creates a missing profile, which a check must not do.
-      if (!fs.existsSync(path.join(paths.profilesDir, profile, 'package.json'))) {
-        throw new ValidationError(`Profile '${profile}' does not exist; start DSH with --profile ${profile} once`);
-      }
-      const command = resolveDshCommand({ cliHarnessSource: opts.harnessSource, manifestHarnessSource: manifest.environment?.harness?.sourceDir });
-      const web = await startDshWeb(profile, { command, dshHome: paths.home });
+      assertProfileExists(paths, profile);
+      const web = await startDshWeb(profile, { command: resolveCliDshCommand(paths, opts), dshHome: paths.home });
       try {
         await checkProfile(paths, manifest, profile, parseDshWebUrl(web.url), opts.json);
       } finally {

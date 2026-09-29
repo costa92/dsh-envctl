@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { startDshWeb } from '../../src/dsh/web-server.js';
+import { dshWebRunning, launchDshWeb, startDshWeb, stopProcessGroup } from '../../src/dsh/web-server.js';
+import { execa } from 'execa';
 
 const alive = (pid: number): boolean => {
   try {
@@ -96,5 +97,35 @@ process.exit(1);
 
   it('refuses when no DSH CLI was found', async () => {
     await expect(startDshWeb('web', { command: null, dshHome: dir })).rejects.toThrow(/DSH CLI was not found/);
+  });
+});
+
+describe('launchDshWeb', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-web-launch-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('leaves dsh web running on its own, logging to a private file, until it is stopped', async () => {
+    const script = path.join(dir, 'fake-dsh.mjs');
+    fs.writeFileSync(script, `console.log('ready'); console.log('dsh web: http://127.0.0.1:4567/?token=abc'); setInterval(() => {}, 1000);`);
+    const logFile = path.join(dir, 'run', 'web.log');
+    const web = await launchDshWeb('web', { command: { file: process.execPath, args: [script] }, dshHome: dir, logFile, port: 3090 });
+    expect(web.url).toBe('http://127.0.0.1:4567/?token=abc');
+    expect(fs.readFileSync(logFile, 'utf8')).toContain('ready');
+    expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
+    // Its own process group and session: it does not stop with the terminal or process that launched it.
+    expect(Number((await execa('ps', ['-o', 'pgid=', '-p', String(web.pid)])).stdout.trim())).toBe(web.pid);
+    expect((await execa('ps', ['-o', 'args=', '-p', String(web.pid)])).stdout).toContain('--profile web --no-open --port 3090');
+
+    expect(await dshWebRunning(web.pid, 'web')).toBe(true);
+    expect(await dshWebRunning(web.pid, 'other')).toBe(false);
+    await stopProcessGroup(web.pid);
+    expect(await dshWebRunning(web.pid, 'web')).toBe(false);
   });
 });

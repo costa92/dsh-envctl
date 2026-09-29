@@ -11,6 +11,7 @@ export interface EnvironmentPaths {
   stateFile: string;
   backupsDir: string;
   logsDir: string;
+  runDir: string;
   trashDir: string;
   overlaysDir: string;
   overlaySelectionFile: string;
@@ -59,6 +60,7 @@ export function resolveEnvironmentPaths(input?: ResolvePathsInput): EnvironmentP
     stateFile: path.join(managerDir, 'state.json'),
     backupsDir: path.join(managerDir, 'backups'),
     logsDir: path.join(managerDir, 'logs'),
+    runDir: path.join(managerDir, 'run'),
     trashDir: path.join(managerDir, 'trash'),
     overlaysDir: path.join(managerDir, 'overlays'),
     overlaySelectionFile: path.join(managerDir, 'overlay-selection.json'),
