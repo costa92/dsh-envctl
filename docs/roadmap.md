@@ -146,7 +146,7 @@
 - [x] 版本号只取 `package.json`（`dshenv --version` 读取它）；变更记录见 [`CHANGELOG.md`](../CHANGELOG.md)
 - [x] 推送 `v*` tag 触发 `.github/workflows/release.yml`：核对 tag 与版本、从 CHANGELOG 取发布说明、跑与 CI 相同的检查、`pnpm pack` 后把同一份 `.tgz` 发布到 npm（带 provenance）并附在 GitHub Release 上。步骤见 [`发布流程.md`](发布流程.md)
 - [x] npm 包 [`@costa92/dshenv`](https://www.npmjs.com/package/@costa92/dshenv)：`npm install -g @costa92/dshenv`，命令名 `dshenv`。无作用域的 `dshenv` 被 npm 以与 dotenv、osenv 过于相似为由拒绝
-- [x] 已发布：0.1.0（首个公开版本，仅 GitHub Release）、0.1.1（首次发布到 npm）、0.1.2（容器端到端测试发现的修复）、0.1.3（仓库改名后的元数据）、0.2.0（审查修复与 schema 收紧）、0.2.1（`self-update`）、0.3.0（DSH 配置双向同步、`tools`、`install in-box:`），各版本内容见 CHANGELOG
+- [x] 已发布：0.1.0（首个公开版本，仅 GitHub Release）、0.1.1（首次发布到 npm）、0.1.2（容器端到端测试发现的修复）、0.1.3（仓库改名后的元数据）、0.2.0（审查修复与 schema 收紧）、0.2.1（`self-update`）、0.3.0（DSH 配置双向同步、`tools`、`install in-box:`）、0.3.1（`web start|stop|status`、`runtime --start` 与 2026-09-29 审查修复），各版本内容见 CHANGELOG
 - [x] 改用 npm Trusted Publishing：0.3.0 起经 OIDC 发布（npm ≥ 11.5.1、自动 provenance），失败时才用备用的 `NPM_TOKEN`；手动运行 Release 工作流可在不发布的情况下检查两种方式，见 [`发布流程.md`](发布流程.md#npm-trusted-publishing)
 
 ## 容器端到端测试与修复（已实现）
