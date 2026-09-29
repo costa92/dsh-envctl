@@ -8,8 +8,8 @@ import { withProfilePackageLock } from '../io/profile-lock.js';
 import { assertPatchFileArray, extractPluginBlocks, removePatchBlock, repairPatchFile, replacePluginBlocks, splicePluginBlocks } from '../patch/patch.js';
 import { PROFILE_PATCHES_ALIAS, replaceProfileBlock } from '../profile-patches/entries.js';
 import { mountBlockAlias, writeMount } from '../patch/mount.js';
+import { isValidProfileName } from '../manifest/schema.js';
 
-const ProfileNameRegex = /^[-A-Za-z0-9._]+$/;
 const MAX_PATCH_BYTES = 1024 * 1024;
 
 function isPathInside(root: string, candidate: string): boolean {
@@ -20,7 +20,7 @@ function isPathInside(root: string, candidate: string): boolean {
 }
 
 export function profilePatchFile(paths: EnvironmentPaths, profileName: string): string {
-  if (!ProfileNameRegex.test(profileName)) {
+  if (!isValidProfileName(profileName)) {
     throw new ValidationError(`Invalid profile name: ${profileName}`);
   }
   const profileDir = path.resolve(paths.profilesDir, profileName);

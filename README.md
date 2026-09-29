@@ -323,7 +323,7 @@ dshenv runtime --profile web
 
 - 没有设置 `DSHENV_DSH_URL` 时，使用 `dshenv web start` 为该 Profile 启动并仍在运行的 dsh web（见第 24 节）。
 - 也可以用 `dshenv runtime --profile web --start` 临时启动一个（`dsh --profile web --no-open --port 0`），核对完即停止；它不读取 `DSHENV_DSH_URL`，Profile 须已存在。
-- 地址只从环境变量 `DSHENV_DSH_URL` 读取。它等同于登录凭据，dshenv 不会输出或记录其中的 token；默认只连本机，连其他主机需加 `--allow-remote`。
+- 地址只从环境变量 `DSHENV_DSH_URL` 读取。它等同于登录凭据，dshenv 不会输出或记录其中的 token；默认只连本机，连其他主机需加 `--allow-remote`，且地址必须是 https（明文 http 会把 token 暴露在网络上）。
 - 只适用于 `dsh web`；headless、sdk、acp 运行不开 web 服务，无法核对（`--start` 会报 `did not start dsh web`）。
 - 每个插件的结果：`loaded`、`unloaded`（符合清单），`loading`（热加载进行中，也覆盖 `apply` 之后 DSH 还未热加载的瞬间；若持续为 `loading`，说明热加载没有生效，需重启 DSH；带 `is waiting for services it injects` 时，是插件依赖的 service 还没有任何插件提供，检查是否漏装或停用了提供它的插件），`unverifiable`（包没有可核对的插件行），`missing`、`failed`、`not-loaded`、`still-loaded`（与清单不符）。
 - 退出码：`0` 全部符合；`2` 仍在加载，稍后重跑；`5` 有不符项；`1` 无法连接、登录失败或运行中的 DSH 不是该 profile；`3` 用法错误。
@@ -366,7 +366,7 @@ dshenv sync --ref v1.2.0 --yes                               # 移动到订阅�
 dshenv remote remove --yes                                   # 取消订阅，文件保留为本地文件
 ```
 
-- 只采用 `<path>/manifest.yaml`（必需）、`<path>/lock.json`、`<path>/overlays/*.yaml`；`--path` 指定仓库内目录（`.` 为仓库根），`--branch` 指定分支（默认远程 HEAD 所指分支）。团队 manifest、团队 overlay 与团队 lock 都不能使用 `local-link` / `local-file` 源（本机路径无法跨机器共享），否则整个 commit 被拒绝。
+- 只采用 `<path>/manifest.yaml`（必需）、`<path>/lock.json`、`<path>/overlays/*.yaml`；`--path` 指定仓库内目录（`.` 为仓库根），`--branch` 指定分支（默认远程 HEAD 所指分支）。团队 manifest、团队 overlay 与团队 lock 都不能使用 `local-link` / `local-file` 源或指向本机的 Git 地址（`file://`、本地路径），团队 manifest 与团队 overlay 也不能设置 `environment.harness.sourceDir` / `environment.sourceRoot`（本机路径无法跨机器共享，且 dshenv 会执行该目录下的 DSH），否则整个 commit 被拒绝；这两项请写在本机 overlay 里。
 - `manifest.yaml` 与团队 overlay 整文件归远程；`lock.json` 按 `profile/alias` 条目归属：团队 lock 中的条目归远程，其余条目（本地 overlay 插件的 Git commit、本地源摘要）归本机，同步时只替换团队条目。本地 overlay 把团队 lock 已固定的插件改为 `local-link` / `local-file` 源时，`apply` 以退出码 3 拒绝；应在本地 overlay 中对它写 `remove: true`，再以新 alias 加入本地源插件。
 - 远程内容只读：写 base、写远程 overlay、改写团队 lock 条目的命令都以退出码 3 拒绝；本机定制写本地 overlay（`--layer overlay`），`source clone --profile` 等写本机条目的命令照常可用。
 - 本地已有 `manifest.yaml`、同名 overlay，或本地 lock 已有团队 lock 同名条目时，`remote add` 需要 `--replace`（先快照再覆盖）；本地改过远程文件或团队条目时 `sync` 拒绝，`--discard-local-changes` 可覆盖。

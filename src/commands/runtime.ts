@@ -74,7 +74,7 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
     .command('runtime')
     .description(`Ask a running dsh web (${DSH_URL_ENV}) whether the declared plugins are loaded`)
     .option('-p, --profile <name>', 'profile to check', profileOption)
-    .option('--allow-remote', 'allow sending the dsh web token to a non-loopback host')
+    .option('--allow-remote', 'allow sending the dsh web token to a non-loopback https host')
     .option('--start', `start dsh web for the profile, check it and stop it again, instead of using ${DSH_URL_ENV}`)
     .action(async (cmdOpts: { profile?: string; allowRemote?: boolean; start?: boolean }) => {
       const opts = program.opts();

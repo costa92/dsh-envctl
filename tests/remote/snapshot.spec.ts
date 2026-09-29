@@ -127,6 +127,49 @@ describe('loadRemoteSnapshot', () => {
       /^Remote file envctl\/overlays\/dev\.yaml: Plugin 'web\/shared' has a local-link source; a team configuration cannot reference machine-local paths$/
     ],
     [
+      'manifest naming a DSH checkout',
+      { 'envctl/manifest.yaml': `apiVersion: dshenv/v1\nenvironment:\n  harness:\n    sourceDir: /home/someone/.dsh/envctl/skills/x\n${TEAM_MANIFEST.split('\n').slice(1).join('\n')}` },
+      /^Remote file envctl\/manifest\.yaml: environment\.harness\.sourceDir names a machine-local DSH checkout that dshenv runs; set it in a local overlay, not in a team configuration$/
+    ],
+    [
+      'manifest naming a source root',
+      { 'envctl/manifest.yaml': `apiVersion: dshenv/v1\nenvironment:\n  sourceRoot: /home/someone/src\n${TEAM_MANIFEST.split('\n').slice(1).join('\n')}` },
+      /environment\.sourceRoot names a machine-local path/
+    ],
+    [
+      'overlay naming a DSH checkout',
+      {
+        'envctl/manifest.yaml': TEAM_MANIFEST,
+        'envctl/overlays/dev.yaml': 'apiVersion: dshenv-overlay/v1\nenvironment:\n  harness:\n    sourceDir: /tmp/evil\n'
+      },
+      /^Remote file envctl\/overlays\/dev\.yaml: environment\.harness\.sourceDir names a machine-local DSH checkout/
+    ],
+    [
+      'manifest with a git plugin at a local path',
+      { 'envctl/manifest.yaml': `${TEAM_MANIFEST}      mine:\n        package: mine\n        source: { type: git, url: /home/someone/mine.git }\n` },
+      /^Remote file envctl\/manifest\.yaml: Plugin 'web\/mine' has a Git URL on this machine; a team configuration cannot reference machine-local paths$/
+    ],
+    [
+      'overlay with a git plugin at a file URL',
+      {
+        'envctl/manifest.yaml': TEAM_MANIFEST,
+        'envctl/overlays/dev.yaml':
+          'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      shared:\n        source: { type: git, url: "file:///etc/x.git" }\n'
+      },
+      /Plugin 'web\/shared' has a Git URL on this machine/
+    ],
+    [
+      'lock with a git entry at a relative path',
+      {
+        'envctl/manifest.yaml': TEAM_MANIFEST,
+        'envctl/lock.json': JSON.stringify({
+          apiVersion: 'dshenv-lock/v1',
+          profiles: { web: { plugins: { mine: { package: 'mine', source: { type: 'git', url: '../mine', commit: 'a'.repeat(40) } } } } }
+        })
+      },
+      /^Remote file envctl\/lock\.json: Lock entry 'web\/mine' has a Git URL on this machine; a team lock cannot pin machine-local paths$/
+    ],
+    [
       'pair of overlays differing only by case',
       { 'envctl/manifest.yaml': TEAM_MANIFEST, 'envctl/overlays/Team.yaml': TEAM_OVERLAY, 'envctl/overlays/team.yaml': TEAM_OVERLAY },
       /^Remote overlays envctl\/overlays\/Team\.yaml and envctl\/overlays\/team\.yaml differ only by case$/
@@ -134,6 +177,16 @@ describe('loadRemoteSnapshot', () => {
   ])('refuses an invalid %s', async (_label, files, message) => {
     await expect(snapshotOf(files)).rejects.toThrow(message);
   });
+
+  it.each(['https://example.com/team/demo.git', 'git+ssh://git@example.com/demo.git', 'git@github.com:acme/demo.git', 'github:acme/demo'])(
+    'accepts a git plugin at %j',
+    async (url) => {
+      const snapshot = await snapshotOf({
+        'envctl/manifest.yaml': `${TEAM_MANIFEST}      demo:\n        package: demo\n        source: { type: git, url: "${url}" }\n`
+      });
+      expect(snapshot.manifest.profiles.web.plugins.demo.source).toMatchObject({ url });
+    }
+  );
 
   it('refuses a symlink in place of an adopted file', async () => {
     const team = await createTeamRepo(root, { 'envctl/real.yaml': TEAM_MANIFEST });

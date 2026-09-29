@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EnvironmentConfigSchema, PackageNameRegex, PluginSourceSchema, ProfilePatchSchema } from '../manifest/schema.js';
+import { EnvironmentConfigSchema, PackageNameRegex, PluginSourceSchema, ProfileNameKeySchema, ProfilePatchSchema } from '../manifest/schema.js';
 
 export const OverlayPatchSchema = z
   .object({
@@ -36,7 +36,7 @@ export const OverlaySchema = z
     environment: EnvironmentConfigSchema.optional(),
     profiles: z
       .record(
-        z.string(),
+        ProfileNameKeySchema,
         z.object({ plugins: z.record(z.string(), OverlayPluginSchema).optional(), patches: z.array(OverlayProfilePatchSchema).optional() }).strict()
       )
       .optional()

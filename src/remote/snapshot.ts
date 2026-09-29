@@ -27,14 +27,29 @@ function candidateKey(rel: string): string | null {
   return /^overlays\/[^/]+\.yaml$/.test(rel) || rel.startsWith('skills/') ? rel : null;
 }
 
+// Only a network URL (scheme://, or scp-style host:path) names the same repository on every machine.
+function isMachineLocalGitUrl(url: string): boolean {
+  const scheme = /^(?:git\+)?([a-z][a-z0-9+.-]*):\/\//i.exec(url)?.[1].toLowerCase();
+  if (scheme !== undefined) {
+    return scheme === 'file';
+  }
+  return !/^(?:[^@/:]+@)?[^/:\\]{2,}:/.test(url);
+}
+
+function localSourceKind(source: { type: string; url?: string } | undefined): string | null {
+  if (source?.type === 'local-link' || source?.type === 'local-file') {
+    return `a ${source.type} source`;
+  }
+  return source?.type === 'git' && source.url !== undefined && isMachineLocalGitUrl(source.url) ? 'a Git URL on this machine' : null;
+}
+
 // Local paths and their digests only mean something on the machine that recorded them.
 function assertNoLocalSources(lock: EnvironmentLock): void {
   for (const [profile, { plugins }] of Object.entries(lock.profiles)) {
     for (const [alias, entry] of Object.entries(plugins)) {
-      if (entry.source.type === 'local-link' || entry.source.type === 'local-file') {
-        throw new ValidationError(
-          `Lock entry '${lockEntryId(profile, alias)}' has a ${entry.source.type} source; a team lock cannot pin machine-local paths`
-        );
+      const kind = localSourceKind(entry.source);
+      if (kind !== null) {
+        throw new ValidationError(`Lock entry '${lockEntryId(profile, alias)}' has ${kind}; a team lock cannot pin machine-local paths`);
       }
     }
   }
@@ -42,17 +57,30 @@ function assertNoLocalSources(lock: EnvironmentLock): void {
 
 // Same reason as the lock: a machine-local path from untrusted remote content would also be hashed by preview.
 function assertNoLocalPluginSources(
-  profiles: Record<string, { plugins?: Record<string, { source?: { type: string } }> }> | undefined
+  profiles: Record<string, { plugins?: Record<string, { source?: { type: string; url?: string } }> }> | undefined
 ): void {
   for (const [profile, { plugins }] of Object.entries(profiles ?? {})) {
     for (const [alias, plugin] of Object.entries(plugins ?? {})) {
-      const type = plugin.source?.type;
-      if (type === 'local-link' || type === 'local-file') {
+      const kind = localSourceKind(plugin.source);
+      if (kind !== null) {
         throw new ValidationError(
-          `Plugin '${lockEntryId(profile, alias)}' has a ${type} source; a team configuration cannot reference machine-local paths`
+          `Plugin '${lockEntryId(profile, alias)}' has ${kind}; a team configuration cannot reference machine-local paths`
         );
       }
     }
+  }
+}
+
+// dshenv runs `pnpm --dir <harness.sourceDir> dsh` for read-only commands too, so a team could otherwise run a script it
+// synced into envctl/skills on every member's machine.
+function assertNoLocalEnvironment(environment: EnvironmentManifest['environment']): void {
+  if (environment?.harness?.sourceDir !== undefined) {
+    throw new ValidationError(
+      'environment.harness.sourceDir names a machine-local DSH checkout that dshenv runs; set it in a local overlay, not in a team configuration'
+    );
+  }
+  if (environment?.sourceRoot !== undefined) {
+    throw new ValidationError('environment.sourceRoot names a machine-local path; set it in a local overlay, not in a team configuration');
   }
 }
 
@@ -105,6 +133,7 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
   }
   const manifest = withFile(where('manifest.yaml'), () => {
     const parsed = loadManifest(files['manifest.yaml'].toString('utf8'));
+    assertNoLocalEnvironment(parsed.environment);
     assertNoLocalPluginSources(parsed.profiles);
     return parsed;
   });
@@ -135,6 +164,7 @@ export async function loadRemoteSnapshot(repoDir: string, commit: string, remote
     }
     withFile(where(key), () => {
       const overlay = parseOverlay(files[key].toString('utf8'), where(key));
+      assertNoLocalEnvironment(overlay.environment);
       assertNoLocalPluginSources(overlay.profiles);
       mergeManifest(manifest, overlay, name);
     });
