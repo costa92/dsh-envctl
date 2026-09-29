@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Run by hand to check both ways of publishing without publishing anything.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: verify-tag
+        if: github.event_name == 'push'
         run: |
           version="$(node -p 'require("./package.json").version')"
           if [ "$GITHUB_REF_NAME" != "v$version" ]; then
@@ -22,6 +25,7 @@ jobs:
             exit 1
           fi
       - id: notes
+        if: github.event_name == 'push'
         run: |
           version="${GITHUB_REF_NAME#v}"
           awk -v v="$version" '/^## /{f = ($2 == v); next} f' CHANGELOG.md > release-notes.md
@@ -45,12 +49,35 @@ jobs:
       - run: pnpm pack --pack-destination dist
       # Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
       - run: npm install -g npm@^11.5.1
-      # npm tries trusted publishing (OIDC) first and falls back to NPM_TOKEN; verbose logs why OIDC was not used.
-      # The trusted publisher is not registered on npmjs.com yet, so the token is what publishes today.
-      # Without ./ npm reads dist/<file> as a GitHub owner/repo shorthand.
-      - run: npm publish ./dist/*.tgz --access public --provenance --loglevel verbose
+      # The trusted publisher on npmjs.com is bound to this file name, so the check has to run here.
+      # --force skips the already-published check; --dry-run still exchanges the OIDC token but uploads nothing.
+      - id: check-oidc
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          npm publish ./dist/*.tgz --dry-run --force --access public --loglevel verbose 2>&1 | tee publish.log || true
+          if ! grep -q 'oidc Successfully retrieved and set token' publish.log; then
+            echo "::error::npm trusted publishing did not get a token: $(grep -m1 'npm verbose oidc' publish.log || echo 'no oidc log line')"
+            exit 1
+          fi
+      - id: check-token
+        if: github.event_name == 'workflow_dispatch' && !cancelled()
+        run: npm whoami
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - run: gh release create "$GITHUB_REF_NAME" dist/*.tgz --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+      # Without ./ npm reads dist/<file> as a GitHub owner/repo shorthand. No token here: npm trusts this
+      # workflow through OIDC and adds provenance itself; verbose logs why the exchange failed, if it does.
+      - id: publish-oidc
+        if: github.event_name == 'push'
+        continue-on-error: true
+        run: npm publish ./dist/*.tgz --access public --loglevel verbose
+      - id: publish-token
+        if: github.event_name == 'push' && steps.publish-oidc.outcome == 'failure'
+        run: |
+          echo "::warning::npm trusted publishing failed; publishing with NPM_TOKEN instead"
+          npm publish ./dist/*.tgz --access public --provenance --loglevel verbose
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - if: github.event_name == 'push'
+        run: gh release create "$GITHUB_REF_NAME" dist/*.tgz --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}
