@@ -9,7 +9,7 @@ import { listWebRecords, readWebRecord, removeWebRecord, webLogFile, writeWebRec
 import { parseDshWebUrl } from '../dsh/web-client.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import { assertProfileName } from '../manifest/schema.js';
-import { profileOption, resolveCliOverlay, resolveCliPaths, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
+import { profileNotCreatedError, profileOption, resolveCliOverlay, resolveCliPaths, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 
 interface CliOpts {
   dshHome?: string;
@@ -19,10 +19,10 @@ interface CliOpts {
 }
 
 // dsh creates a profile it is started with, which starting or checking dsh web must not do.
-export function assertProfileExists(paths: EnvironmentPaths, profile: string): void {
+export function assertProfileExists(paths: EnvironmentPaths, opts: { overlay?: string | false }, profile: string): void {
   assertProfileName(profile);
   if (!fs.existsSync(path.join(paths.profilesDir, profile, 'package.json'))) {
-    throw new ValidationError(`Profile '${profile}' does not exist; start DSH with --profile ${profile} once`);
+    throw profileNotCreatedError(paths, opts, profile);
   }
 }
 
@@ -94,7 +94,7 @@ export function registerWebCommands(ctx: CommandContext): void {
       const port = portOption(cmdOpts.port);
       const paths = resolveCliPaths(opts);
       const { profile } = cmdOpts;
-      assertProfileExists(paths, profile);
+      assertProfileExists(paths, opts, profile);
 
       await withProfileLock(paths, profile, async () => {
         const current = readWebRecord(paths, profile);

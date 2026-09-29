@@ -16,6 +16,11 @@ export default function setup(): () => void {
   // A default profile exported in the developer's shell would fill in every -p the tests leave out.
   const originalProfile = process.env.DSHENV_PROFILE;
   delete process.env.DSHENV_PROFILE;
+  const originalLayer = process.env.DSHENV_LAYER;
+  delete process.env.DSHENV_LAYER;
+  // install asks npm whether a version exists; tests must not depend on the registry, so they opt in per test.
+  const originalNpmCheck = process.env.DSHENV_NPM_CHECK;
+  process.env.DSHENV_NPM_CHECK = 'off';
   // Commits made in tests must not depend on the developer's git identity or on signing being set up.
   const gitConfig = Object.entries({ 'user.name': 'dshenv-test', 'user.email': 'test@example.invalid', 'commit.gpgsign': 'false', 'tag.gpgsign': 'false' });
   process.env.GIT_CONFIG_COUNT = String(gitConfig.length);
@@ -26,6 +31,9 @@ export default function setup(): () => void {
   return () => {
     if (originalDshCli !== undefined) process.env.DSH_CLI = originalDshCli;
     if (originalProfile !== undefined) process.env.DSHENV_PROFILE = originalProfile;
+    if (originalLayer !== undefined) process.env.DSHENV_LAYER = originalLayer;
+    if (originalNpmCheck === undefined) delete process.env.DSHENV_NPM_CHECK;
+    else process.env.DSHENV_NPM_CHECK = originalNpmCheck;
     fs.rmSync(binDir, { recursive: true, force: true });
   };
 }

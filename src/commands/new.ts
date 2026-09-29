@@ -2,7 +2,7 @@ import { ValidationError } from '../errors.js';
 import { scaffoldComponent } from '../scaffold/scaffold.js';
 import type { ComponentKind } from '../scaffold/templates.js';
 import type { PluginCommands } from './plugins.js';
-import { aliasOption, profileOption, resolveCliPaths, type CommandContext } from './context.js';
+import { aliasOption, profileOption, resolveCliPaths, writeLayer, WRITE_LAYER_HELP, type CommandContext } from './context.js';
 
 export function registerNewCommand(ctx: CommandContext, plugins: PluginCommands): void {
   const { program, writeOut } = ctx;
@@ -16,14 +16,15 @@ export function registerNewCommand(ctx: CommandContext, plugins: PluginCommands)
     .option('--loose', 'skill only: write SKILL.md into $DSH_HOME/skills without a package')
     .option('-p, --profile <name>', 'register the package in this profile, like dshenv install', profileOption)
     .option('--as <alias>', 'with -p: custom alias name', aliasOption)
-    .option('--layer <layer>', 'with -p: layer to write when an overlay is active: base or overlay')
+    .addOption(writeLayer(`with -p: ${WRITE_LAYER_HELP}`))
+    .option('--new-profile', 'with -p: allow a profile that is neither declared nor created yet')
     .action(async (kind: string, name: string, cmdOpts) => {
       const opts = program.opts();
       if (cmdOpts.loose && (cmdOpts.profile !== undefined || cmdOpts.as !== undefined || cmdOpts.layer !== undefined)) {
         throw new ValidationError('--loose cannot be combined with -p, --as or --layer');
       }
-      if (cmdOpts.profile === undefined && (cmdOpts.as !== undefined || cmdOpts.layer !== undefined)) {
-        throw new ValidationError('--as and --layer require -p');
+      if (cmdOpts.profile === undefined && (cmdOpts.as !== undefined || cmdOpts.layer !== undefined || cmdOpts.newProfile)) {
+        throw new ValidationError('--as, --layer and --new-profile require -p');
       }
 
       const paths = resolveCliPaths(opts);
@@ -46,7 +47,8 @@ export function registerNewCommand(ctx: CommandContext, plugins: PluginCommands)
             profile: cmdOpts.profile,
             alias: cmdOpts.as,
             packageName: result.packageName,
-            layer: cmdOpts.layer
+            layer: cmdOpts.layer,
+            newProfile: cmdOpts.newProfile
           });
           installed = { profile: cmdOpts.profile, alias: registered.alias };
         } catch (err) {

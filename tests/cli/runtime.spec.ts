@@ -297,7 +297,7 @@ describe('CLI runtime', () => {
       writeManifest(`${webProfile()}  cli:\n    plugins: {}\n`);
       const out = await run(['runtime', '--profile', 'cli', '--start']);
       expect(out.code).toBe(3);
-      expect(out.stderr).toMatch(/Profile 'cli' does not exist; start DSH with --profile cli once/);
+      expect(out.stderr).toMatch(/Profile 'cli' is declared but DSH has not created it yet; start DSH with --profile cli once/);
       expect(fs.existsSync(pidFile())).toBe(false);
     });
 

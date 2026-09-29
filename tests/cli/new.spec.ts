@@ -72,8 +72,9 @@ describe('CLI new', () => {
 
   it.each([
     [['new', 'skill', 'x', '--loose', '-p', 'web'], '--loose cannot be combined with -p, --as or --layer'],
-    [['new', 'tool', 'x', '--dir', 'OUT', '--as', 'y'], '--as and --layer require -p'],
-    [['new', 'tool', 'x', '--dir', 'OUT', '--layer', 'base'], '--as and --layer require -p'],
+    [['new', 'tool', 'x', '--dir', 'OUT', '--as', 'y'], '--as, --layer and --new-profile require -p'],
+    [['new', 'tool', 'x', '--dir', 'OUT', '--layer', 'base'], '--as, --layer and --new-profile require -p'],
+    [['new', 'tool', 'x', '--dir', 'OUT', '--new-profile'], '--as, --layer and --new-profile require -p'],
     [['new', 'tool', 'Bad', '--dir', 'OUT'], "Component name 'Bad' must be kebab-case"]
   ])('rejects %j with exit code 3', async (args, message) => {
     const out = path.join(work, 'out');

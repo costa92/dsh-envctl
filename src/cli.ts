@@ -110,7 +110,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .addHelpText('after', ROOT_HELP_AFTER)
     .exitOverride();
 
-  defaultTargetProfile(program);
+  defaultTargetProfile(program, writeErr);
 
   const ctx: CommandContext = {
     program,

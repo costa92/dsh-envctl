@@ -8,6 +8,11 @@
 
 - `-p, --profile` 的统一规则：作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）不写 `-p` 时使用环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报 `Missing -p, --profile <name>: choose one of …, or set DSHENV_PROFILE`，列出清单声明的与 DSH 已创建的 Profile（此前是 commander 的 `required option ... not specified`，退出码 1）。`DSHENV_PROFILE` 不合法时报错并注明来源。
 - `web status -p <name>` 只列出一个 Profile；`capture` 支持 `-p` 简写。
+- `tools reset <tool>`：删掉清单里改动该工具的 patch，恢复 DSH 的默认；预设内的工具会连同整个预设一起解除固定。
+- `config unset <alias> <dottedPath>`：从插件配置 patch 里删掉一个键（删空的父级一并删除）；overlay 只能删它自己设置的键。
+- `--new-profile`（`install`、`new -p`、`source clone -p`）：写入一个清单没声明、DSH 也没创建的 Profile 时须显式加上，防止拼错的名字悄悄建出新 Profile。
+- `DSHENV_LAYER`：有生效 overlay 时作为改清单命令 `--layer` 的默认值；没有 overlay 时不起作用。取自 `DSHENV_PROFILE` 或 `DSHENV_LAYER` 的值会在 stderr 提示一行（`--json` 时不提示）。
+- `config set --force`：DSH 为该插件组合出了配置而其中没有这个键时，`config set` 报错并给出相近的键名，`--force` 仍然写入。
 - `plan -p <name>`、`status -p <name>` 只看一个 Profile；`status` 文本输出列出每个插件的状态，`status <alias>` 只列出该插件（此前只有 `--json` 生效），`Profiles monitored` 计入清单声明但尚未创建的 Profile。
 - `dshenv remote sync`：即原来的顶层 `sync`。
 - `dshenv overlay create <name>`：新建只含 `apiVersion` 的空 overlay，文件已存在时退出码 3。README 补上 overlay 文件格式示例。
@@ -20,6 +25,15 @@
 - `config get <alias> [dottedPath]` 用位置参数读取嵌套字段，与 `config set`、`tools config` 一致；`--path` 仍然可用，但不再出现在帮助里。
 - `source pull` 的 ref 只在帮助里保留 `--ref`（与 `source clone` 一致）；第二个位置参数仍然可用。
 - `purge`、`status` 的参数在帮助里改名为 `<alias>`（接受别名或包名，行为不变）。
+- `install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable|disable|config` 的输出说明只改了清单并给出下一步：如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`；同一别名重新 `install` 换了版本时说 `Changed agent-teams in profile 'web' from 0.1.20 to 0.1.21`。`--json` 输出不变。
+- `install` 的 npm 版本先用 `npm view` 核对：包或版本不存在时以退出码 3 报错并给出最新版本；npm 查询不了（离线等）时只警告。设 `DSHENV_NPM_CHECK=off` 跳过。
+- `tools enable|disable|config` 只接受 `tools list --all` 列出的工具 id，其他 id（如 DSH 的 web 能力层 `web`）以退出码 3 拒绝并给出相近的 id。
+- 插件别名写错时报错给出相近的别名，也接受包名；插件只在 overlay 里却写 base 时，提示改用 `--layer overlay`；Profile 未声明时直接说明，而不是说找不到插件。
+- 需要 DSH 已创建 Profile 的命令（`tools`、`web start`、`runtime --start`）：Profile 已声明时仍提示先用 `--profile` 启动 DSH 一次；未声明时列出已知 Profile 和相近的名字，不再引导去创建拼错的 Profile。
+- `runtime`：`DSHENV_PROFILE` 指向未声明的 Profile 时报错注明来源；缺 `-p` 时只列出清单声明的 Profile；清单没有 Profile 时仍报 `The manifest declares no profiles`。
+- `config get` 同时给位置参数和 `--path`、`source pull` 同时给位置 ref 和 `--ref` 时以退出码 3 报冲突；`config get` 读不存在的键时以退出码 3 报错（`--json` 下是标准错误 JSON，不再输出 `undefined`）。
+- 缺 `-p` 时列出的 Profile 读不到清单或 overlay 时，直接报出真实错误，不再说 `no profile exists yet`。
+- `adopt --help` 不再显示 `--layer`（它只写 base，传入 `--layer base` 仍可用）。
 - **退出码**：改状态的命令不带 `--yes` 时一律只预览，有待执行的内容时退出码 2（与 `plan` 相同），没有时退出码 0；`--dry-run` 同样有变更时退出码 2。
 
   | 命令 | 之前 | 现在 |

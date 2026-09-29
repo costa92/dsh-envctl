@@ -21,7 +21,7 @@ import { readPackageJsonName } from '../source/local.js';
 import { assertLockEntryNotRemoteOwned, assertNotRemoteOwned } from '../remote/ownership.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer, saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
 import { overlayFilePath } from '../overlay/selection.js';
-import { resolveCliPaths, resolveCliOverlay, profileOption, aliasOption, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, profileOption, aliasOption, assertKnownProfile, writeLayer, type CommandContext } from './context.js';
 
 function overlaySuffix(name: string): string {
   return ` (overlay '${name}')`;
@@ -99,7 +99,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
     .option('-p, --profile <name>', 'record the clone as a managed git plugin for this profile', profileOption)
     .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
     .option('--package <name>', 'package name when --profile is set; defaults to the cloned package.json name')
-    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
+    .addOption(writeLayer())
+    .option('--new-profile', 'with --profile: allow a profile that is neither declared nor created yet')
     .action(async (url: string, targetDir: string | undefined, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -113,6 +114,9 @@ export function registerSourceCommands(ctx: CommandContext): void {
       }
       if (!cmdOpts.profile && cmdOpts.layer !== undefined) {
         throw new ValidationError('--layer requires --profile for source clone');
+      }
+      if (cmdOpts.profile) {
+        assertKnownProfile(paths, opts, cmdOpts.profile, cmdOpts.newProfile);
       }
       const selection = cmdOpts.profile ? resolveCliOverlay(opts, paths) : null;
       const layer = resolveWriteLayer(selection, cmdOpts.layer);
@@ -251,6 +255,9 @@ export function registerSourceCommands(ctx: CommandContext): void {
     .action(async (targetDir: string | undefined, targetRef: string | undefined, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+      if (cmdOpts.ref !== undefined && targetRef !== undefined) {
+        throw new ValidationError('Give the ref once: with --ref or as the second argument, not both');
+      }
       const ref = cmdOpts.ref || targetRef;
       if (!ref) {
         throw new ValidationError('source pull requires --ref <ref>');

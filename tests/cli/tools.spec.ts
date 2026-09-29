@@ -6,7 +6,9 @@ import { runCli } from '../../src/cli.js';
 import { loadManifest } from '../../src/manifest/files.js';
 
 const DUMPS: Record<string, string> = {
-  web: `- id: tool-bash
+  web: `- id: web
+  name: '@deepseek-ai/dsh-web'
+- id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
   disabled: true
 - id: agent-preset-registry
@@ -161,6 +163,35 @@ profiles:
 
     const unknown = await run(['tools', 'enable', 'tool-lsp', '-p', 'web']);
     expect(unknown.code).not.toBe(0);
-    expect(unknown.stderr).toMatch(/not part of this profile/);
+    expect(unknown.stderr).toMatch(/'tool-lsp' is not a tool in profile 'web'.*see dshenv tools list --all -p web/);
+  });
+
+  it('switches only the rows tools list shows, suggesting the closest tool for a typo', async () => {
+    const layer = await run(['tools', 'disable', 'web', '-p', 'web']);
+    expect(layer.code).toBe(3);
+    expect(layer.stderr).toMatch(/^'web' is not a tool in profile 'web'; did you mean 'tool-web'\?/);
+    const typo = await run(['tools', 'disable', 'tool-wbe', '-p', 'web']);
+    expect(typo.code).toBe(3);
+    expect(typo.stderr).toMatch(/did you mean 'tool-web'\?/);
+    expect(manifest().profiles.web.patches).toBeUndefined();
+  });
+
+  it('resets a tool by dropping the patch that changes it', async () => {
+    await run(['tools', 'disable', 'tool-web', '-p', 'web']);
+    expect(manifest().profiles.web.patches).toHaveLength(1);
+    const reset = await run(['tools', 'reset', 'tool-web', '-p', 'web']);
+    expect(reset.code).toBe(0);
+    expect(reset.stdout).toBe(
+      "Removed patch 'preset-standard', which pinned preset 'standard': every tool change in that preset is reset. Next: dshenv plan, then dshenv apply --yes.\n"
+    );
+    expect(manifest().profiles.web.patches).toBeUndefined();
+    const again = await run(['tools', 'reset', 'tool-web', '-p', 'web']);
+    expect(again.code).toBe(0);
+    expect(again.stdout).toMatch(/has no patch in the manifest; nothing to reset/);
+
+    await run(['tools', 'disable', 'tool-web', '-p', 'headless']);
+    expect(manifest().profiles.headless.patches?.map((patch) => patch.id)).toEqual(['tool-web']);
+    expect((await run(['tools', 'reset', 'tool-web', '-p', 'headless'])).stdout).toMatch(/^Removed patch 'tool-web' for tool 'tool-web' in profile 'headless'/);
+    expect(manifest().profiles.headless.patches).toBeUndefined();
   });
 });

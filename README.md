@@ -123,6 +123,9 @@ DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容�
 - 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效。
 - `source`、`new` 的 `-p` 表示把克隆或新建的包登记到该 Profile，不写就不登记。
 
+- 写入命令（`install`、`new -p`、`source clone -p`）指定一个清单没声明、DSH 也没创建的 Profile 时，默认按拼写错误拒绝并给出相近的名字；确实要新建时加 `--new-profile`。
+- 用了 `DSHENV_PROFILE` 时，命令会在 stderr 提示 `Using profile 'web' from DSHENV_PROFILE`（`--json` 时不提示）。
+
 ```bash
 export DSHENV_PROFILE=web      # 之后 dshenv web start、dshenv runtime 等可以省略 -p
 dshenv disable agent-teams     # 等同于 dshenv disable agent-teams -p web
@@ -289,6 +292,14 @@ dshenv config get agent-teams --profile web
 dshenv config get agent-teams taskPlanning --profile web   # 只读一个字段
 dshenv config validate agent-teams --profile web
 dshenv config set agent-teams taskPlanning captain --profile web
+dshenv config unset agent-teams taskPlanning --profile web     # 删掉一个键
+```
+
+- 值按 JSON 解析（`3`、`true`、`{"a":1}`），解析不了时当作字符串；要写字符串 `"3"` 就传 `'"3"'`。
+- DSH 为该插件组合出了配置时，`config set` 只接受其中已有的顶层键，拼错的键会报错并给出相近的键名；确实要写新键时加 `--force`。
+- 读取不存在的键时以退出码 3 报错。
+
+```bash
 ```
 
 ### 13. `dshenv status`
@@ -343,7 +354,7 @@ profiles:
         remove: true              # 本机不装 base 中的这个插件
 ```
 
-选择优先级：`--overlay` 或 `--no-overlay`（两者同时使用时报错，退出码 3）> `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable/disable/config`、`source clone --profile`、`new -p`、`adopt`）必须带 `--layer base` 或 `--layer overlay`。
+选择优先级：`--overlay` 或 `--no-overlay`（两者同时使用时报错，退出码 3）> `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable/disable/config`、`source clone --profile`、`new -p`、`adopt`）必须带 `--layer base` 或 `--layer overlay`；也可以设环境变量 `DSHENV_LAYER` 作为默认值，它只在有生效 overlay 时起作用，使用时会在 stderr 提示。`adopt` 只写 base。
 
 ### 16. `dshenv mark-restarted`
 `apply` 输出 `Restart DSH to load:` 分组时，其中插件的状态标为 `restart-required`（升级了已装插件，或该 Profile 的热加载关闭、无法判断）。热加载开启时的安装、启用、停用、配置与卸载当场生效，不需要本命令。重启 DSH 后运行本命令确认，清除该状态（已卸载插件的条目一并删除）。dshenv 无法自行判断 DSH 是否已重启。
@@ -455,6 +466,7 @@ dshenv tools list -p web --preset ptc                      # 看另一个 agent 
 dshenv tools disable tool-web -p web                       # 关闭；enable 打开（id 见 tools list）
 dshenv tools config tool-web -p web                        # 查看配置；加 <路径> 看单个键
 dshenv tools config tool-web fetchMaxOutputChars 20000 -p web   # 设置一个键
+dshenv tools reset tool-web -p web                         # 删掉改动它的 patch，恢复 DSH 的默认
 dshenv apply --yes                                         # 写进 DSH
 ```
 
@@ -463,7 +475,8 @@ dshenv apply --yes                                         # 写进 DSH
 - web 等 Profile 的工具在 agent 预设（`preset-standard`、`preset-ptc` 等）里，按 id 的 patch 够不到预设内部，只能整份替换预设的 `config`。dshenv 会把当前预设整份复制进清单再改目标工具（`!!js` 条件原样保留），这个预设从此**固定**：DSH 升级对它的改动不再生效，`plan` 会在 `Pinned agent presets` 下列出。删掉清单里那条预设 patch 并 `apply`，即恢复跟随 DSH。
 - 目标与 `tools list` 显示的一致：先找 `--preset` 指定的预设（不指定时用 DSH 当前的默认预设），其中没有该工具时改 profile 级那一行；只有别的预设里有时报错，提示加 `--preset`。
 - overlay 已声明同一个 id 的条目时，写 base 会被它覆盖而不生效，因此会拒绝，请改用 `--layer overlay`。
-- 不在 Profile 组合里的工具（如默认未装的 `tool-lsp`、`tool-terminal`）不能用 `enable` 打开，需先安装对应的包。
+- 只接受 `tools list --all` 列出的 id；不在 Profile 组合里的工具（如默认未装的 `tool-lsp`、`tool-terminal`）不能用 `enable` 打开，需先安装对应的包。
+- `tools reset <tool>` 删掉清单里改动该工具的那条 patch：顶层工具只删它自己的，预设里的工具会删掉整个预设 patch（该预设内的所有工具改动一起撤销，预设恢复跟随 DSH）。overlay 里写时，base 声明的 patch 记为 `remove: true`。
 
 
 ### 24. `dshenv web`
@@ -499,9 +512,12 @@ dshenv remove agent-teams -p web
 ```
 
 - 别名默认取包名（去掉作用域与 `dsh-plugin-`、`dsh-` 前缀），`--as` 指定。本地来源的包名默认读其 `package.json` 的 `name`（读不到时用目录名），Git 来源默认用仓库名，与实际包名不同时用 `--package` 指定（`source clone --profile` 会读仓库的 `package.json`）；`--package` 只对 Git 与本地来源有效。
-- 同一别名重新 `install` 同一个包只改来源，保留 `patches` 与启用状态。
+- 同一别名重新 `install` 同一个包只改来源，保留 `patches` 与启用状态；输出会说明从哪个版本（来源）改成了哪个。
+- npm 来源先用 `npm view` 核对包与版本：不存在时以退出码 3 报错并给出最新版本，npm 查询不了（离线等）时只警告。设 `DSHENV_NPM_CHECK=off` 跳过核对。
+- `enable`、`disable`、`remove`、`update`、`config` 也接受包名；别名写错时报错会给出相近的别名。
+- 输出统一为「改了清单 + 下一步」，如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`。
 - `remove` 从清单删除该条目；写 overlay 时，base 中已有的插件记为 `remove: true`。`apply` 只卸载有所有权记录的插件（dshenv 安装或 `adopt` 接管的），其他实际存在的插件标为 `unmanaged`，不会卸载。`remove` 只改清单，无需确认；旧脚本里的 `-y`/`--yes` 仍被接受。`uninstall` 是 `remove` 的别名。
-- 有生效 overlay 时这四个命令都须带 `--layer base|overlay`（见第 15 节）。
+- 有生效 overlay 时这四个命令都须带 `--layer base|overlay`，或设环境变量 `DSHENV_LAYER=base|overlay` 作为默认（见第 15 节）。
 
 ---
 

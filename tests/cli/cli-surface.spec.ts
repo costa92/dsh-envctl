@@ -38,7 +38,7 @@ describe('CLI surface', () => {
   describe('status and plan', () => {
     beforeEach(async () => {
       await run(['install', `${PKG}@0.1.21`, '-p', 'web']);
-      await run(['install', 'dsh-plugin-other@1.0.0', '-p', 'headless']);
+      await run(['install', 'dsh-plugin-other@1.0.0', '-p', 'headless', '--new-profile']);
     });
 
     it('shows the rows of the plugin status is asked about, and counts declared profiles', async () => {

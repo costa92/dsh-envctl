@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { ProfilePatch } from '../domain.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { ValidationError } from '../errors.js';
+import { didYouMean } from './suggest.js';
 import { getAtPath, parseConfigValue } from '../config/config.js';
 import { resolveDshCommand } from '../dsh/command.js';
 import { dumpProfileConfig } from '../dsh/hmr.js';
@@ -22,7 +23,7 @@ import {
   type ToolTarget
 } from '../tools/catalog.js';
 import { resolveWrite, writeBase, writeOverlay } from './manifest-write.js';
-import { resolveCliOverlay, resolveCliPaths, targetProfile, type CommandContext } from './context.js';
+import { profileNotCreatedError, resolveCliOverlay, resolveCliPaths, targetProfile, writeLayer, type CommandContext } from './context.js';
 
 const CATEGORY_TITLES: Record<ToolCategory, string> = {
   terminal: 'Terminal',
@@ -52,7 +53,7 @@ function declaredPatches(paths: EnvironmentPaths, selection: OverlaySelection | 
 async function composedProfile(paths: EnvironmentPaths, opts: CliOpts, profile: string): Promise<ProfilePatch[]> {
   // dsh --dump-config creates a missing profile, which only reading tools must not do.
   if (!fs.existsSync(path.join(paths.profilesDir, profile, 'package.json'))) {
-    throw new ValidationError(`Profile '${profile}' does not exist; start DSH with --profile ${profile} once`);
+    throw profileNotCreatedError(paths, opts, profile);
   }
   const manifestSource = fs.existsSync(paths.manifestFile)
     ? loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest.environment?.harness?.sourceDir
@@ -97,6 +98,16 @@ function describeTarget(profile: string, target: ToolTarget): string {
   return target.location.kind === 'preset'
     ? `in preset '${target.location.preset}' of profile '${profile}'`
     : `in profile '${profile}'`;
+}
+
+// Only the rows tools list shows are tools; any other id (a DSH layer such as 'web', say) must not be switched from here.
+function assertListedTool(tree: ProfilePatch[], profile: string, toolId: string): void {
+  const ids = listTools(tree, { all: true }).map((row) => row.id);
+  if (!ids.includes(toolId)) {
+    throw new ValidationError(
+      `'${toolId}' is not a tool in profile '${profile}'${didYouMean(toolId, ids)}; see dshenv tools list --all -p ${profile}`
+    );
+  }
 }
 
 function upsertPatch(list: ProfilePatch[] | undefined, patch: ProfilePatch): ProfilePatch[] {
@@ -155,6 +166,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
     const paths = resolveCliPaths(opts);
     const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
     const tree = await composedProfile(paths, opts, cmdOpts.profile);
+    assertListedTool(tree, cmdOpts.profile, toolId);
     const target = locateTool(tree, toolId, cmdOpts.preset);
     const patchId = target.location.kind === 'preset' ? target.location.entry : String(target.row.id);
     // The overlay's entry replaces the base one with the same id, so a base write under it would change nothing.
@@ -183,7 +195,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
     if (opts.json) {
       writeOut(`${JSON.stringify({ status, profile: cmdOpts.profile, tool: toolId, location, patch, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}) }, null, 2)}\n`);
     } else {
-      writeOut(`${verb} tool '${toolId}' ${describeTarget(cmdOpts.profile, target)}${overlay ? ` (overlay '${overlay.name}')` : ''}. Apply to write the live patch.${pinned}\n`);
+      writeOut(`${verb} tool '${toolId}' ${describeTarget(cmdOpts.profile, target)}${overlay ? ` (overlay '${overlay.name}')` : ''} in the manifest. Next: dshenv plan, then dshenv apply --yes.${pinned}\n`);
     }
   }
 
@@ -196,7 +208,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
       .description(`${toggle.verb.replace(/d$/, '')} a tool row by its id (see tools list)`)
       .addOption(targetProfile())
       .option('--preset <name>', 'agent preset holding the tool (default: the profile default)')
-      .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
+      .addOption(writeLayer())
       .action((tool: string, cmdOpts) => change(tool, cmdOpts, { kind: toggle.kind }, toggle.verb, toggle.status));
   }
 
@@ -205,7 +217,7 @@ export function registerToolsCommands(ctx: CommandContext): void {
     .description("Show a tool's config, one key of it, or set that key (the patch restates the whole config)")
     .addOption(targetProfile())
     .option('--preset <name>', 'agent preset holding the tool (default: the profile default)')
-    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
+    .addOption(writeLayer())
     .action(async (tool: string, dottedPath: string | undefined, value: string | undefined, cmdOpts) => {
       if (dottedPath !== undefined && value !== undefined) {
         await change(tool, cmdOpts, { kind: 'set', path: dottedPath, value: parseConfigValue(value) }, `Set ${dottedPath} of`, 'set');
@@ -214,9 +226,69 @@ export function registerToolsCommands(ctx: CommandContext): void {
       const opts: CliOpts = program.opts();
       const paths = resolveCliPaths(opts);
       const tree = await composedProfile(paths, opts, cmdOpts.profile);
+      assertListedTool(tree, cmdOpts.profile, tool);
       const target = locateTool(tree, tool, cmdOpts.preset);
       const config = declaredToolRow(tree, declaredPatches(paths, resolveCliOverlay(opts, paths), cmdOpts.profile), target).config ?? {};
       const shown = dottedPath === undefined ? config : getAtPath(config as Record<string, unknown>, dottedPath);
       writeOut(`${JSON.stringify(shown ?? null, null, 2)}\n`);
+    });
+
+  tools
+    .command('reset <tool>')
+    .description("Drop the manifest patch that changes a tool, so DSH's default applies again (a preset tool resets its whole preset)")
+    .addOption(targetProfile())
+    .option('--preset <name>', 'agent preset holding the tool (default: the profile default)')
+    .addOption(writeLayer())
+    .action(async (toolId: string, cmdOpts: { profile: string; preset?: string; layer?: string }) => {
+      const opts: CliOpts = program.opts();
+      const paths = resolveCliPaths(opts);
+      const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
+      const tree = await composedProfile(paths, opts, cmdOpts.profile);
+      assertListedTool(tree, cmdOpts.profile, toolId);
+      const target = locateTool(tree, toolId, cmdOpts.preset);
+      const patchId = target.location.kind === 'preset' ? target.location.entry : String(target.row.id);
+      const overlayDeclares = (name: string) =>
+        readOverlay(paths, name).profiles?.[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId) ?? false;
+      if (!overlay && selection && overlayDeclares(selection.name)) {
+        throw new ValidationError(`The active overlay '${selection.name}' declares '${patchId}', which overrides the base; use --layer overlay`);
+      }
+      const outcome = overlay
+        ? await writeOverlay(paths, overlay, (doc, base) => {
+            const profile = ((doc.profiles ??= {})[cmdOpts.profile] ??= {});
+            const own = profile.patches?.filter((entry) => overrideKey(entry) !== patchId);
+            if (own && own.length !== (profile.patches?.length ?? 0)) {
+              profile.patches = own;
+              return 'removed' as const;
+            }
+            // The base declares it: the overlay can only drop it from the effective manifest.
+            if (base.profiles[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId)) {
+              profile.patches = [...(profile.patches ?? []), { id: patchId, remove: true }];
+              return 'removed' as const;
+            }
+            return 'unchanged' as const;
+          })
+        : await writeBase(paths, selection, (manifest) => {
+            const profile = manifest.profiles[cmdOpts.profile];
+            const kept = profile?.patches?.filter((entry) => overrideKey(entry) !== patchId);
+            if (!profile || !kept || kept.length === profile.patches!.length) {
+              return 'unchanged' as const;
+            }
+            profile.patches = kept.length > 0 ? kept : undefined;
+            if (profile.patches === undefined) delete profile.patches;
+            return 'removed' as const;
+          });
+      const location = target.location;
+      if (opts.json) {
+        writeOut(`${JSON.stringify({ status: outcome === 'removed' ? 'reset' : 'unchanged', profile: cmdOpts.profile, tool: toolId, patch: patchId, location, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}) }, null, 2)}\n`);
+        return;
+      }
+      if (outcome === 'unchanged') {
+        writeOut(`Tool '${toolId}' ${describeTarget(cmdOpts.profile, target)} has no patch in the ${overlay ? `overlay '${overlay.name}'` : 'manifest'}; nothing to reset.\n`);
+        return;
+      }
+      const scope = location.kind === 'preset'
+        ? `Removed patch '${patchId}', which pinned preset '${location.preset}': every tool change in that preset is reset`
+        : `Removed patch '${patchId}' for tool '${toolId}' in profile '${cmdOpts.profile}'`;
+      writeOut(`${scope}${overlay ? ` (overlay '${overlay.name}')` : ''}. Next: dshenv plan, then dshenv apply --yes.\n`);
     });
 }

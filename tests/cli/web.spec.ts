@@ -165,7 +165,7 @@ describe('CLI web', () => {
     serving();
     const missing = await run(['web', 'start', '-p', 'nope']);
     expect(missing.code).toBe(3);
-    expect(missing.stderr).toMatch(/Profile 'nope' does not exist; start DSH with --profile nope once/);
+    expect(missing.stderr).toBe("Profile 'nope' does not exist (known profiles: web)\n");
 
     fakeDsh(`console.error("error: unknown option '--no-open'"); process.exit(1);`);
     const headless = await run(['web', 'start', '-p', 'web']);

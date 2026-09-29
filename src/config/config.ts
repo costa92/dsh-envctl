@@ -47,6 +47,27 @@ export function getAtPath(target: Record<string, unknown>, dottedPath: string): 
   return cursor;
 }
 
+// Removes one key; parents it leaves empty go too. False when the key is not there.
+export function unsetAtPath(target: Record<string, unknown>, dottedPath: string): boolean {
+  const [head, ...rest] = dottedPath.split('.');
+  if (!(head in target)) {
+    return false;
+  }
+  if (rest.length === 0) {
+    delete target[head];
+    return true;
+  }
+  const child = target[head];
+  if (!child || typeof child !== 'object' || Array.isArray(child)) {
+    return false;
+  }
+  const removed = unsetAtPath(child as Record<string, unknown>, rest.join('.'));
+  if (removed && Object.keys(child as Record<string, unknown>).length === 0) {
+    delete target[head];
+  }
+  return removed;
+}
+
 export async function readPluginConfig(
   paths: EnvironmentPaths,
   manifest: EnvironmentManifest,

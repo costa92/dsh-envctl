@@ -2,8 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Option } from 'commander';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
-import { getAtPath, parseConfigValue, readPluginConfig, upsertPluginPatch } from '../config/config.js';
-import { loadLock, loadState, serializeLock } from '../manifest/files.js';
+import { getAtPath, parseConfigValue, readPluginConfig, unsetAtPath, upsertPluginPatch } from '../config/config.js';
+import { loadLock, loadManifest, loadState, serializeLock } from '../manifest/files.js';
 import { buildPlan } from '../planner/plan.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { readLocalSourceDigests } from '../source/local.js';
@@ -16,7 +16,23 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { assertLockEntryNotRemoteOwned } from '../remote/ownership.js';
 import { readRemoteConfig } from '../remote/schema.js';
-import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, aliasOption, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
+import {
+  resolveCliPaths,
+  resolveCliOverlay,
+  overlayBanner,
+  profileOption,
+  aliasOption,
+  assertKnownProfile,
+  targetProfile,
+  writeLayer,
+  PROFILE_FILTER_HELP,
+  type CommandContext
+} from './context.js';
+import { didYouMean } from './suggest.js';
+import { checkNpmVersion } from '../source/npm-registry.js';
+import { resolveDshCommand } from '../dsh/command.js';
+import { dumpProfileConfig } from '../dsh/hmr.js';
+import { parseComposedProfile, pluginConfigKeys } from '../tools/catalog.js';
 import { withEnvironmentLock } from '../io/lock.js';
 import { renderPluginTable } from '../output/render.js';
 import { resolveWrite, writeBase, writeOverlay } from './manifest-write.js';
@@ -28,6 +44,8 @@ export interface InstallPluginRequest {
   alias?: string;
   packageName?: string;
   layer?: string;
+  // A profile that is neither declared nor created is refused as a likely typo unless this is set.
+  newProfile?: boolean;
 }
 
 export interface InstallPluginResult {
@@ -35,10 +53,28 @@ export interface InstallPluginResult {
   packageName: string;
   source: PluginSource;
   overlay: OverlaySelection | null;
+  // The source the alias had before, when the install only moved it (to another version, say).
+  previousSource?: PluginSource;
 }
 
 export interface PluginCommands {
   installPlugin: (opts: { dshHome?: string; overlay?: string | false }, request: InstallPluginRequest) => Promise<InstallPluginResult>;
+}
+
+export const NEXT_STEP = 'Next: dshenv plan, then dshenv apply --yes.';
+
+function describeSource(source: PluginSource): string {
+  switch (source.type) {
+    case 'npm':
+      return source.version;
+    case 'git':
+      return source.commit ? `${source.url}#${source.commit}` : source.url;
+    case 'local-link':
+    case 'local-file':
+      return source.path;
+    default:
+      return source.type;
+  }
 }
 
 // Windows paths (C:\src, \\server\share, .\src) are local there; npm and git specs never parse as absolute paths.
@@ -144,18 +180,52 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     return requirePlugin(loadEffectiveManifest(paths, overlay).manifest, profile, alias);
   }
 
+  // The alias a command names, also by its package name. A base write (`write` without an overlay) also needs the
+  // alias in the base manifest, not only in the active overlay.
+  function resolveAlias(
+    paths: EnvironmentPaths,
+    selection: OverlaySelection | null,
+    profile: string,
+    name: string,
+    write?: { overlay: OverlaySelection | null }
+  ): string {
+    const manifest = loadEffectiveManifest(paths, selection).manifest;
+    const declaredProfiles = Object.keys(manifest.profiles).sort();
+    if (!manifest.profiles[profile]) {
+      throw new ValidationError(
+        `Profile '${profile}' is not declared in the manifest${didYouMean(profile, declaredProfiles)}${declaredProfiles.length > 0 ? ` (declared: ${declaredProfiles.join(', ')})` : ''}`
+      );
+    }
+    const plugins = manifest.profiles[profile].plugins;
+    const byPackage = Object.entries(plugins).filter(([, plugin]) => plugin.package === name).map(([alias]) => alias);
+    const alias = name in plugins ? name : byPackage.length === 1 ? byPackage[0] : undefined;
+    if (alias === undefined) {
+      const aliases = Object.keys(plugins).sort();
+      // A close alias is the better hint; package names only when no alias is close.
+      const hint = didYouMean(name, aliases) || didYouMean(name, Object.values(plugins).map((plugin) => plugin.package));
+      throw new ValidationError(`Plugin '${name}' not found in profile '${profile}'${hint}${aliases.length > 0 ? ` (aliases: ${aliases.join(', ')})` : ''}`);
+    }
+    if (write && !write.overlay && selection && fs.existsSync(paths.manifestFile)) {
+      const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
+      if (!base.profiles[profile]?.plugins[alias]) {
+        throw new ValidationError(`Plugin '${alias}' is declared in overlay '${selection.name}', not in the base manifest; use --layer overlay`);
+      }
+    }
+    return alias;
+  }
+
+  // These commands only change the manifest; the text says so and names the step that changes DSH.
   function reportWrite(
     opts: { json?: boolean },
     overlay: OverlaySelection | null,
     status: string,
     fields: Record<string, unknown>,
-    text: string,
-    textTail = ''
+    text: string
   ): void {
     if (opts.json) {
       writeOut(JSON.stringify({ status, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}), ...fields }, null, 2) + '\n');
     } else {
-      writeOut(`${text}${overlay ? ` (overlay '${overlay.name}')` : ''}.${textTail}\n`);
+      writeOut(`${text} in the ${overlay ? `overlay '${overlay.name}'` : 'manifest'}. ${NEXT_STEP}\n`);
     }
   }
 
@@ -182,13 +252,16 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   }
 
   async function installPlugin(
-    opts: { dshHome?: string; overlay?: string | false },
+    opts: { dshHome?: string; overlay?: string | false; json?: boolean },
     request: InstallPluginRequest
   ): Promise<InstallPluginResult> {
     const paths = resolveCliPaths(opts);
     const { profile } = request;
     const { selection, overlay } = resolveWrite(opts, paths, request.layer);
+    assertKnownProfile(paths, opts, profile, request.newProfile);
+    await checkNpmSpec(opts, parsePluginSpec(request.spec, request.alias, request.packageName));
 
+    let previousSource: PluginSource | undefined;
     const parsed = overlay
       ? await writeOverlay(paths, overlay, (doc, base) => {
           const next = parsePluginSpec(request.spec, request.alias, request.packageName);
@@ -201,6 +274,9 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
           const overlayEntry = doc.profiles?.[profile]?.plugins?.[next.alias];
           // Reinstalling a plugin the effective manifest already has only moves its source, as in the base.
           const exists = overlayEntry ? !overlayEntry.remove : Boolean(baseEntry);
+          if (exists) {
+            previousSource = overlayEntry?.source ?? baseEntry?.source;
+          }
           setOverlayPluginFields(doc, profile, next.alias, exists
             ? { source: next.source }
             : baseEntry
@@ -215,21 +291,44 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
           const next = parsePluginSpec(request.spec, request.alias, request.packageName);
           const current = manifest.profiles[profile].plugins[next.alias];
           // Reinstalling the same package only moves its source; patches and the enabled state are kept.
+          if (current?.package === next.packageName) {
+            previousSource = current.source;
+          }
           manifest.profiles[profile].plugins[next.alias] = current?.package === next.packageName
             ? { ...current, source: next.source }
             : { package: next.packageName, enabled: true, source: next.source };
           return next;
         });
-    return { ...parsed, overlay };
+    const moved = previousSource !== undefined && JSON.stringify(previousSource) !== JSON.stringify(parsed.source);
+    return { ...parsed, overlay, ...(moved ? { previousSource } : {}) };
+  }
+
+  // A version npm does not have fails only at apply, minutes later; offline, the install goes ahead with a warning.
+  async function checkNpmSpec(opts: { json?: boolean }, parsed: { packageName: string; source: PluginSource }): Promise<void> {
+    if (parsed.source.type !== 'npm' || process.env.DSHENV_NPM_CHECK === 'off') {
+      return;
+    }
+    const check = await checkNpmVersion(parsed.packageName, parsed.source.version);
+    if (check.status === 'missing') {
+      throw new ValidationError(
+        check.what === 'package'
+          ? `npm has no package ${parsed.packageName}`
+          : `npm has no version ${parsed.source.version} of ${parsed.packageName}${check.latest ? `; the latest is ${check.latest}` : ''}`
+      );
+    }
+    if (check.status === 'unknown' && !opts.json) {
+      ctx.writeErr(`Could not check ${parsed.packageName}@${parsed.source.version} on npm (${check.reason}); apply fails if it does not exist\n`);
+    }
   }
 
   program
     .command('install <spec>')
-    .description('Install a plugin into the manifest for a profile')
+    .description('Add a plugin to the manifest for a profile (apply installs it)')
     .addOption(targetProfile())
     .option('--as <alias>', 'custom alias name for the plugin', aliasOption)
     .option('--package <name>', 'package name for a git or local source; defaults to its package.json name')
-    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
+    .addOption(writeLayer())
+    .option('--new-profile', 'allow a profile that is neither declared nor created yet (guards against typos)')
     .action(async (spec: string, cmdOpts) => {
       const opts = program.opts();
       const result = await installPlugin(opts, {
@@ -237,14 +336,17 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         profile: cmdOpts.profile,
         alias: cmdOpts.as,
         packageName: cmdOpts.package,
-        layer: cmdOpts.layer
+        layer: cmdOpts.layer,
+        newProfile: cmdOpts.newProfile
       });
       reportWrite(
         opts,
         result.overlay,
         'installed',
         { profile: cmdOpts.profile, alias: result.alias, package: result.packageName, source: result.source },
-        `Installed ${result.packageName} (${result.alias}) in profile '${cmdOpts.profile}'`
+        result.previousSource
+          ? `Changed ${result.alias} in profile '${cmdOpts.profile}' from ${describeSource(result.previousSource)} to ${describeSource(result.source)}`
+          : `Added ${result.packageName} (${result.alias}) to profile '${cmdOpts.profile}'`
       );
     });
 
@@ -253,8 +355,8 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     .description('Update the declared npm version for a plugin in the manifest')
     .addOption(targetProfile())
     .requiredOption('--to <version>', '(required) exact version to declare; does not float to latest')
-    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
-    .action(async (alias: string, cmdOpts) => {
+    .addOption(writeLayer())
+    .action(async (name: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       if (!ExactVersionRegex.test(cmdOpts.to)) {
@@ -263,6 +365,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       const profile: string = cmdOpts.profile;
       const version: string = cmdOpts.to;
       const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
+      const alias = resolveAlias(paths, selection, profile, name, { overlay });
       // The lock pin runs after the manifest write, so a team-pinned entry must be refused before anything is written.
       // Skip the lock read entirely when unsubscribed, so a corrupt lock.json still fails where it always did.
       if (readRemoteConfig(paths) && lockPinsNpm(paths, profile, alias)) {
@@ -288,7 +391,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         });
       }
       await pinLockVersion(paths, profile, alias, version);
-      reportWrite(opts, overlay, 'updated', { profile, alias, version }, `Updated ${alias} in profile '${profile}' to ${version}`);
+      reportWrite(opts, overlay, 'updated', { profile, alias, version }, `Set ${alias} in profile '${profile}' to ${version}`);
     });
 
   program
@@ -347,34 +450,71 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       }
     });
 
+  // Where DSH composes a default config for the package, a key it does not have is most likely a typo.
+  async function assertKnownConfigKey(paths: EnvironmentPaths, opts: { harnessSource?: string; overlay?: string | false }, profile: string, packageName: string, dottedPath: string): Promise<void> {
+    // dsh --dump-config creates a missing profile, which a manifest write must not do.
+    if (!fs.existsSync(path.join(paths.profilesDir, profile, 'package.json'))) {
+      return;
+    }
+    const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
+    const command = resolveDshCommand({ cliHarnessSource: opts.harnessSource, manifestHarnessSource: manifest.environment?.harness?.sourceDir });
+    if (!command) {
+      return;
+    }
+    const dump = await dumpProfileConfig(profile, { command, dshHome: paths.home });
+    if (!dump.ok) {
+      return;
+    }
+    let keys: string[];
+    try {
+      keys = pluginConfigKeys(parseComposedProfile(dump.yaml), packageName);
+    } catch {
+      return;
+    }
+    const head = dottedPath.split('.')[0];
+    if (keys.length > 0 && !keys.includes(head)) {
+      throw new ValidationError(
+        `'${head}' is not a config key of ${packageName}${didYouMean(head, keys)} (DSH composes: ${keys.join(', ')}); pass --force to set it anyway`
+      );
+    }
+  }
+
   const configCmd = program.command('config').description('Read or update declared plugin configuration');
   configCmd
     .command('get <alias> [dottedPath]')
-    .description("Print a plugin's declared configuration, or one field of it")
+    .description("Show a plugin's config (live if applied, else as declared), or one key of it")
     .addOption(targetProfile())
     // Superseded by the positional dottedPath, the spelling config set and tools config use.
     .addOption(new Option('--path <dottedPath>').hideHelp())
-    .action(async (alias: string, dottedPath: string | undefined, cmdOpts) => {
+    .action(async (name: string, dottedPath: string | undefined, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
-      const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
+      if (dottedPath !== undefined && cmdOpts.path !== undefined) {
+        throw new ValidationError('Give the config path once: as the argument or with --path, not both');
+      }
+      const selection = resolveCliOverlay(opts, paths);
+      const alias = resolveAlias(paths, selection, cmdOpts.profile, name);
+      const manifest = loadEffectiveManifest(paths, selection).manifest;
       const config = await readPluginConfig(paths, manifest, cmdOpts.profile, alias);
       const field = dottedPath ?? cmdOpts.path;
       const value = field ? getAtPath(config.config, field) : config;
-      if (opts.json) {
-        writeOut(JSON.stringify(value, null, 2) + '\n');
-      } else {
-        writeOut(`${JSON.stringify(value, null, 2)}\n`);
+      if (value === undefined) {
+        throw new ValidationError(
+          `The config of '${alias}' in profile '${cmdOpts.profile}' has no '${field}'${didYouMean(field!.split('.')[0], Object.keys(config.config))}`
+        );
       }
+      writeOut(`${JSON.stringify(value, null, 2)}\n`);
     });
   configCmd
     .command('validate <alias>')
-    .description("Check a plugin's configuration against the digest DSH recorded")
+    .description("Check that a plugin's live config patch still matches what dshenv wrote")
     .addOption(targetProfile())
-    .action(async (alias: string, cmdOpts) => {
+    .action(async (name: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
-      const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
+      const selection = resolveCliOverlay(opts, paths);
+      const alias = resolveAlias(paths, selection, cmdOpts.profile, name);
+      const manifest = loadEffectiveManifest(paths, selection).manifest;
       const config = await readPluginConfig(paths, manifest, cmdOpts.profile, alias);
       const ok = config.source === 'manifest' || config.digestValid === true;
       if (opts.json) {
@@ -388,14 +528,20 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     });
   configCmd
     .command('set <alias> <dottedPath> <value>')
-    .description('Declare one configuration field of a plugin in the manifest')
+    .description('Set one key of a plugin config patch in the manifest (the value is parsed as JSON, else taken as a string)')
     .addOption(targetProfile())
-    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
-    .action(async (alias: string, dottedPath: string, value: string, cmdOpts) => {
+    .addOption(writeLayer())
+    .option('--force', 'set a key DSH does not compose for this plugin')
+    .action(async (name: string, dottedPath: string, value: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const profile: string = cmdOpts.profile;
       const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
+      const alias = resolveAlias(paths, selection, profile, name, { overlay });
+      if (!cmdOpts.force) {
+        const plugin = loadEffectiveManifest(paths, selection).manifest.profiles[profile].plugins[alias];
+        await assertKnownConfigKey(paths, opts, profile, plugin.package, dottedPath);
+      }
 
       const patch = overlay
         ? await writeOverlay(paths, overlay, (doc) => {
@@ -406,30 +552,59 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
             upsertPluginPatch(manifest, profile, alias, dottedPath, parseConfigValue(value))
           );
 
-      reportWrite(
-        opts,
-        overlay,
-        'set',
-        { profile, alias, path: dottedPath, patch },
-        `Updated ${alias} config ${dottedPath} in profile '${profile}'`,
-        ' Apply to write the live patch.'
-      );
+      reportWrite(opts, overlay, 'set', { profile, alias, path: dottedPath, patch }, `Set ${alias} config ${dottedPath} in profile '${profile}'`);
+    });
+  configCmd
+    .command('unset <alias> <dottedPath>')
+    .description('Remove one key from a plugin config patch in the manifest')
+    .addOption(targetProfile())
+    .addOption(writeLayer())
+    .action(async (name: string, dottedPath: string, cmdOpts) => {
+      const opts = program.opts();
+      const paths = resolveCliPaths(opts);
+      const profile: string = cmdOpts.profile;
+      const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
+      const alias = resolveAlias(paths, selection, profile, name, { overlay });
+      const missing = (where: string) => new ValidationError(`The config of '${alias}' in ${where} has no '${dottedPath}'`);
+
+      if (overlay) {
+        await writeOverlay(paths, overlay, (doc, base) => {
+          const entry = doc.profiles?.[profile]?.plugins?.[alias];
+          const removed = Boolean(entry && !entry.remove && entry.patches?.some((patch) => patch.config && unsetAtPath(patch.config, dottedPath)));
+          if (!removed) {
+            // Overlay patches merge into the base ones, so a key the base sets cannot be taken out from the overlay.
+            if (base.profiles[profile]?.plugins[alias]?.patches?.some((patch) => getAtPath(patch.config, dottedPath) !== undefined)) {
+              throw new ValidationError(`'${dottedPath}' of '${alias}' is set in the base manifest, which an overlay cannot remove; use --layer base`);
+            }
+            throw missing(`overlay '${overlay.name}'`);
+          }
+        });
+      } else {
+        await writeBase(paths, selection, (manifest) => {
+          const patch = requirePlugin(manifest, profile, alias).patches?.[0];
+          if (!patch || !unsetAtPath(patch.config, dottedPath)) {
+            throw missing(`profile '${profile}'`);
+          }
+        });
+      }
+      reportWrite(opts, overlay, 'unset', { profile, alias, path: dottedPath }, `Removed ${alias} config ${dottedPath} in profile '${profile}'`);
     });
 
   for (const toggle of [
-    { name: 'enable', description: 'Enable an installed plugin in a profile', enabled: true, status: 'enabled', verb: 'Enabled' },
-    { name: 'disable', description: 'Disable an installed plugin in a profile', enabled: false, status: 'disabled', verb: 'Disabled' }
+    { name: 'enable', description: 'Enable a plugin in the manifest (apply enables it in DSH)', enabled: true, status: 'enabled', verb: 'Enabled' },
+    { name: 'disable', description: 'Disable a plugin in the manifest (apply disables it in DSH)', enabled: false, status: 'disabled', verb: 'Disabled' }
   ]) {
     program
       .command(`${toggle.name} <alias>`)
       .description(toggle.description)
       .addOption(targetProfile())
-      .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
-      .action(async (alias: string, cmdOpts) => {
+      .addOption(writeLayer())
+      .action(async (name: string, cmdOpts) => {
         const opts = program.opts();
         const paths = resolveCliPaths(opts);
         const profile: string = cmdOpts.profile;
         const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
+        const alias = resolveAlias(paths, selection, profile, name, { overlay });
 
         if (overlay) {
           await writeOverlay(paths, overlay, (doc) => {
@@ -448,16 +623,17 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   program
     .command('remove <alias>')
     .alias('uninstall')
-    .description('Remove an installed plugin from a profile')
+    .description('Remove a plugin from the manifest (apply removes it from DSH)')
     .addOption(targetProfile())
     // Removing only edits the manifest (apply does the rest), so there is nothing to confirm; kept for old scripts.
     .addOption(new Option('-y, --yes').hideHelp())
-    .option('--layer <layer>', 'layer to write when an overlay is active: base or overlay')
-    .action(async (alias: string, cmdOpts) => {
+    .addOption(writeLayer())
+    .action(async (name: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const profile: string = cmdOpts.profile;
       const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
+      const alias = resolveAlias(paths, selection, profile, name, { overlay });
 
       if (overlay) {
         const outcome = await writeOverlay(paths, overlay, (doc, base) => removeOverlayPlugin(doc, base, profile, alias));
