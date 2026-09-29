@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -158,6 +158,46 @@ describe('CLI source clone --profile', () => {
     expect(code).not.toBe(0);
     expect(fs.readFileSync(manifestFile, 'utf8')).toBe(before);
     expect(fs.existsSync(path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin'))).toBe(false);
+  });
+
+  it('puts the manifest back and removes the clone when writing the lock fails', async () => {
+    const manifestFile = path.join(tempHome, 'envctl', 'manifest.yaml');
+    const lockFile = path.join(tempHome, 'envctl', 'lock.json');
+    const before = fs.readFileSync(manifestFile, 'utf8');
+    const rename = fs.promises.rename.bind(fs.promises);
+    vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
+      if (String(to) === lockFile) throw new Error('ENOSPC: no space left on device');
+      return rename(from, to);
+    });
+    try {
+      const code = await runCli(
+        ['source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome],
+        { stdout: () => {}, stderr: () => {} }
+      );
+      expect(code).not.toBe(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(fs.readFileSync(manifestFile, 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin'))).toBe(false);
+  });
+
+  it('writes the lock entry on source pull --profile even when the lock has none yet', async () => {
+    await runCli(['source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome]);
+    fs.rmSync(path.join(tempHome, 'envctl', 'lock.json'));
+    fs.writeFileSync(path.join(upstream, 'extra.txt'), 'second');
+    await execa('git', ['add', '.'], { cwd: upstream });
+    await execa('git', ['commit', '-m', 'second'], { cwd: upstream });
+    const newHead = (await execa('git', ['rev-parse', 'HEAD'], { cwd: upstream })).stdout.trim();
+    const branch = (await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: upstream })).stdout.trim();
+
+    const code = await runCli(
+      ['source', 'pull', '--profile', 'web', '--as', 'demo', '--ref', `origin/${branch}`, '--dsh-home', tempHome],
+      { stdout: () => {}, stderr: () => {} }
+    );
+    expect(code).toBe(0);
+    const lock = loadLock(fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8'));
+    expect(lock.profiles.web.plugins.demo).toEqual({ package: 'demo-plugin', source: { type: 'git', url: upstream, commit: newHead } });
   });
 
   it('keeps patches and the enabled state when cloning over an existing alias', async () => {
