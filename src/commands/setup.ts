@@ -23,11 +23,15 @@ export function registerSetupCommands(ctx: CommandContext): void {
     .action(async () => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+      if (fs.existsSync(paths.manifestFile)) {
+        throw new ValidationError(`dshenv is already initialized at ${paths.managerDir}; see dshenv status or dshenv plan`);
+      }
       await initEnvironment(paths);
       if (opts.json) {
         writeOut(JSON.stringify({ status: 'initialized', paths }, null, 2) + '\n');
       } else {
         writeOut(`Initialized dshenv environment at ${paths.managerDir}\n`);
+        writeOut('Next: declare a plugin with dshenv install <package>@<version> -p <profile>, then dshenv plan and dshenv apply --yes\n');
       }
     });
 
@@ -119,13 +123,18 @@ export function registerSetupCommands(ctx: CommandContext): void {
       if (opts.json) {
         writeOut(JSON.stringify(patches ? { ...summary, patches } : summary, null, 2) + '\n');
       } else {
-        writeOut(`Adopted ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}\n`);
+        writeOut(
+          summary.adoptedCount === 0
+            ? 'Nothing to adopt: the candidate declares no plugins.\n'
+            : `Adopted ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}\n`
+        );
         for (const d of summary.details) {
           writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]\n`);
         }
         if (patches && patches.changes.length > 0) {
           writeOut(renderPullResult(patches));
         }
+        writeOut('Next: dshenv plan\n');
       }
     });
 }

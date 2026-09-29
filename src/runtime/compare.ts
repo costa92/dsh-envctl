@@ -48,6 +48,7 @@ export interface RuntimeCheckItem {
 }
 
 export const RESTART_HINT = 'restart DSH, then run dshenv restarted';
+export const LOADED_RESTART_HINT = 'if DSH restarted after the last apply, run dshenv restarted to clear the restart flag';
 
 const BundleSchema = z.object({
   name: z.string(),
@@ -212,7 +213,7 @@ export function checkRuntime(
       item.detail = outcome.detail;
     }
     if (plugin.restartRequired && outcome.result !== 'unloaded') {
-      item.hint = RESTART_HINT;
+      item.hint = outcome.result === 'loaded' ? LOADED_RESTART_HINT : RESTART_HINT;
     }
     return item;
   });

@@ -1,8 +1,15 @@
 import * as crypto from 'node:crypto';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
-import { createEnvironmentSnapshot, findEnvironmentSnapshot, readAbsentKeys, restoreEnvironmentSnapshot } from '../io/backup.js';
-import { appendJournalEntry } from '../io/journal.js';
+import {
+  createEnvironmentSnapshot,
+  findEnvironmentSnapshot,
+  listEnvironmentSnapshots,
+  readAbsentKeys,
+  restoreEnvironmentSnapshot,
+  type EnvironmentSnapshot
+} from '../io/backup.js';
+import { appendJournalEntry, readJournalEntries } from '../io/journal.js';
 import { ValidationError } from '../errors.js';
 import { overlayFilePath, readSelectionFile, writeSelectionFile } from '../overlay/selection.js';
 import { loadLock, loadManifest, loadState, serializeState } from '../manifest/files.js';
@@ -80,18 +87,62 @@ function assertSnapshotReadable(snapshotId: string, snapshotDir: string): void {
   }
 }
 
+// A snapshot id is `<timestamp>-<operation id>`, the timestamp an ISO time with ':' and '.' replaced by '-'.
+function snapshotOperationId(snapshotId: string): string {
+  return snapshotId.replace(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-/, '');
+}
+
+// Applies that failed and put their own lock.json and state.json back; restoring their snapshot changes nothing.
+async function selfUndoneApplies(paths: EnvironmentPaths): Promise<Set<string>> {
+  return new Set((await readJournalEntries(paths)).filter((entry) => entry.type === 'apply-rollback').map((entry) => entry.operationId));
+}
+
+// The latest apply that completed and whose snapshot still exists: its snapshot holds the manifest it applied.
+export async function lastSuccessfulApply(paths: EnvironmentPaths): Promise<string | null> {
+  const snapshots = new Set((await listEnvironmentSnapshots(paths)).map((snapshot) => snapshotOperationId(snapshot.snapshotId)));
+  const completed = (await readJournalEntries(paths)).filter((entry) => entry.type === 'apply-completed' && snapshots.has(entry.operationId));
+  return completed.at(-1)?.operationId ?? null;
+}
+
+// Without an id, the latest snapshot that is not from a failed apply: that one already undid itself.
+async function pickSnapshot(paths: EnvironmentPaths, operationId: string | undefined): Promise<{ snapshot: EnvironmentSnapshot; skipped: string[] }> {
+  if (operationId) {
+    return { snapshot: await findEnvironmentSnapshot(paths, operationId), skipped: [] };
+  }
+  const snapshots = await listEnvironmentSnapshots(paths);
+  if (snapshots.length === 0) {
+    throw new Error('No environment snapshots found');
+  }
+  const undone = await selfUndoneApplies(paths);
+  const skipped: string[] = [];
+  for (const snapshot of snapshots) {
+    const id = snapshotOperationId(snapshot.snapshotId);
+    if (!undone.has(id)) {
+      return { snapshot, skipped };
+    }
+    skipped.push(id);
+  }
+  throw new Error(
+    `Every snapshot left is from a failed apply that already undid itself (${skipped.join(', ')}); name one to restore it anyway: dshenv rollback <operation-id> --yes`
+  );
+}
+
 export async function rollbackEnvironment(
   paths: EnvironmentPaths,
   options?: RollbackOptions
 ): Promise<RollbackResult> {
-  let snapshot;
+  let picked;
   try {
-    snapshot = await findEnvironmentSnapshot(paths, options?.operationId);
+    picked = await pickSnapshot(paths, options?.operationId);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     throw new ValidationError(message);
   }
+  const { snapshot, skipped } = picked;
   assertSnapshotReadable(snapshot.snapshotId, snapshot.snapshotDir);
+  const target = `before ${snapshotOperationId(snapshot.snapshotId)} (snapshot ${snapshot.snapshotId})`;
+  const skippedNote =
+    skipped.length > 0 ? `; skipped ${skipped.join(', ')}, which failed and had already undone its own changes` : '';
 
   if (options?.dryRun) {
     return {
@@ -99,7 +150,7 @@ export async function rollbackEnvironment(
       dryRun: true,
       snapshotId: snapshot.snapshotId,
       operationId: options.operationId,
-      message: `Would restore snapshot ${snapshot.snapshotId}`
+      message: `Would restore the envctl files as they were ${target}${skippedNote}`
     };
   }
 
@@ -137,7 +188,7 @@ export async function rollbackEnvironment(
       snapshotId: snapshot.snapshotId,
       operationId: options?.operationId,
       backupSnapshotId: backup.snapshotId,
-      message: `Restored snapshot ${snapshot.snapshotId}; replaced files saved as snapshot ${backup.snapshotId}`
+      message: `Restored the envctl files as they were ${target}; replaced files saved as snapshot ${backup.snapshotId}${skippedNote}`
     };
   } finally {
     await lockHandle.release();

@@ -163,11 +163,13 @@ describe('applyEnvironment profile restore on failure', () => {
       (err: Error) => err
     );
 
-    expect(error.message).toBe(
-      'Apply execution failed: DSH plugin command exited with code 1\n' +
+    const [failure, recovery] = error.message.split(/\n(?=Apply apply-)/);
+    expect(failure).toBe(
+      'Apply execution failed at [web] install c-new (c-new), step 1 of 1: DSH plugin command exited with code 1\n' +
         '  dsh: installation rejected: c-new@1.0.0 is incompatible with dsh 0.1.7-rc.2\n' +
         '  dsh: to accept the risk, run: dsh plugin --profile web allow-version c-new@1.0.0 --dsh-version 0.1.7-rc.2 --accept-risk'
     );
+    expect(recovery).toMatch(/^Apply apply-[0-9a-f]{12} put lock\.json and state\.json back\.\nThe manifest still declares what failed: fix it and apply again\.$/);
     expect(error.message).not.toContain('secret-token');
   });
 

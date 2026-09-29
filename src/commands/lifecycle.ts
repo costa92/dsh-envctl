@@ -48,10 +48,10 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
           writeOut(overlayBanner(selection));
         }
         if (res.dryRun) {
-          writeOut(`[DRY-RUN] Planned operations:\n` + renderPlan(res.plan, res.restart));
+          writeOut(renderPlan(res.plan, res.restart, '[DRY-RUN] Planned operations:'));
         } else if (res.applied) {
           writeOut(`Successfully applied changes (Operation ID: ${res.operationId})\n`);
-          writeOut(renderPlan(res.plan));
+          writeOut(renderPlan(res.plan, undefined, 'Applied operations:'));
           if (res.restart) {
             writeOut(renderRestartSummary(res.restart));
           }

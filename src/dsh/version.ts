@@ -74,3 +74,13 @@ export function isCompatibleDshVersion(
     reason: `Unsupported DSH version: ${value}. Use --allow-untested-dsh to enable untested runtimes.`
   };
 }
+
+// The prerelease tag is left out: DSH_CLI can name a wrapper whose --version output carries a credential.
+export function unsupportedDshVersionMessage(value: string): string {
+  const parsed = parseDshVersion(value);
+  const shown = parsed ? ` ${parsed.major}.${parsed.minor}.${parsed.patch}${parsed.prerelease ? '-*' : ''}` : '';
+  return (
+    `Unsupported DSH version${shown}: dshenv supports DSH 0.1.7 (e.g. 0.1.7-rc.2). ` +
+    'Point DSH_CLI at a supported DSH, or pass --allow-untested-dsh to use this one anyway.'
+  );
+}
