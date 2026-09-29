@@ -46,6 +46,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: scripts/smoke-dsh.sh "${{ matrix.dsh }}" "$RUNNER_TEMP/smoke"
+        env:
+          # The verified DSH must take the plugin as declared; newer ones may predate the plugin's next peer range.
+          SMOKE_ALLOW_PLUGIN_EXEMPTION: ${{ matrix.informational }}
 
   requested:
     name: smoke (requested DSH)

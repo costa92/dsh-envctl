@@ -329,6 +329,8 @@ describe('real DSH workflows', () => {
     ]);
     expect(smoke['continue-on-error']).toBe('${{ matrix.informational }}');
     expect(smoke.steps.at(-1)?.run).toBe('scripts/smoke-dsh.sh "${{ matrix.dsh }}" "$RUNNER_TEMP/smoke"');
+    // Only the report-only versions may grant a plugin DSH's exact-version exemption.
+    expect(smoke.steps.at(-1)?.env?.SMOKE_ALLOW_PLUGIN_EXEMPTION).toBe('${{ matrix.informational }}');
     expect(Object.keys(compat.on as object)).toContain('schedule');
   });
 
