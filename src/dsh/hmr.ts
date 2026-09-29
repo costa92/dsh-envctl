@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { parseDocument, type ScalarTag } from 'yaml';
 import type { CommandSpec } from './command.js';
+import { awaitWithTreeTimeout } from '../io/process-tree.js';
 
 export type HmrStatus = { state: 'on' } | { state: 'off' } | { state: 'unknown'; reason: string };
 
@@ -77,15 +78,15 @@ export async function dumpProfileConfig(profile: string, options: ProbeHmrOption
     return { ok: false, reason: 'DSH CLI was not found' };
   }
   const timeoutMs = options.timeoutMs ?? HMR_PROBE_TIMEOUT_MS;
-  const result = await execa(command.file, [...command.args, '--profile', profile, '--dump-config'], {
+  const subprocess = execa(command.file, [...command.args, '--profile', profile, '--dump-config'], {
     cwd: command.cwd,
     env: { ...process.env, DSH_HOME: options.dshHome },
     shell: false,
     reject: false,
-    timeout: timeoutMs,
     maxBuffer: 16 * 1024 * 1024
   });
-  if (result.timedOut) {
+  const { result, timedOut } = await awaitWithTreeTimeout(subprocess, timeoutMs);
+  if (timedOut) {
     return { ok: false, reason: `dsh --dump-config timed out after ${timeoutMs} ms` };
   }
   // Never use execa's messages here: they include the command line, and DSH_CLI args can carry credentials.
