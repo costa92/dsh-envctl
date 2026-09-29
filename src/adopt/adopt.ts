@@ -75,6 +75,15 @@ function readExisting<T>(kind: string, file: string, load: (content: string) => 
   }
 }
 
+// A captured alias can already name another declared package; overwriting that entry would drop it and its patches.
+function freeAlias(plugins: Record<string, unknown>, alias: string): string {
+  let candidate = alias;
+  for (let counter = 1; Object.hasOwn(plugins, candidate); counter++) {
+    candidate = `${alias}-${counter}`;
+  }
+  return candidate;
+}
+
 export interface AdoptOptions {
   // Runs before anything is written; lets callers reject a base that an active overlay cannot merge onto.
   validateManifest?: (manifest: EnvironmentManifest) => void;
@@ -162,7 +171,7 @@ async function adoptUnderLock(
       // Capture derives its own alias; keep the one the manifest already uses for this package.
       const existingAlias = Object.entries(mergedManifest.profiles[profileName].plugins)
         .find(([, entry]) => entry.package === plugin.package)?.[0];
-      const alias = existingAlias ?? candidateAlias;
+      const alias = existingAlias ?? freeAlias(mergedManifest.profiles[profileName].plugins, candidateAlias);
       // Capture cannot see declared patches, so a candidate without any must not erase them.
       const existingPatches = existingAlias ? mergedManifest.profiles[profileName].plugins[existingAlias].patches : undefined;
       mergedManifest.profiles[profileName].plugins[alias] =

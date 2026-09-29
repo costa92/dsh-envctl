@@ -28,6 +28,26 @@ describe('probeDsh', () => {
   it('accepts a strict version line from stderr when stdout is empty', async () => {
     expect((await probeDsh(cmd, async () => ({ stdout: '', stderr: '0.1.7\n' }))).version).toBe('0.1.7');
   });
+
+  it('times out when dsh runs under a wrapper, as pnpm runs a source checkout, and stops what it started', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-probe-'));
+    try {
+      const pidFile = path.join(dir, 'grandchild.pid');
+      const wrapper = path.join(dir, 'wrapper.mjs');
+      // Like pnpm: the grandchild shares the output pipes, so they stay open after the wrapper is killed.
+      fs.writeFileSync(wrapper, `
+import { spawn } from 'node:child_process';
+spawn(process.execPath, ['-e', \`require('fs').writeFileSync(\${JSON.stringify(${JSON.stringify(pidFile)})}, String(process.pid)); setTimeout(() => {}, 15000)\`], { stdio: 'inherit' });
+setInterval(() => {}, 1000);
+`);
+      const started = Date.now();
+      await expect(probeDsh({ file: process.execPath, args: [wrapper] }, undefined, 300)).rejects.toThrow('DSH runtime probe execution failed');
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(() => process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 0)).toThrow();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });
 
 describe('resolveDshCommand', () => {
@@ -51,14 +71,14 @@ describe('resolveDshCommand', () => {
     });
   });
 
-  it('should resolve harness source dir to pnpm --dir <sourceDir> dsh', () => {
+  it('should resolve harness source dir to pnpm --silent --dir <sourceDir> dsh', () => {
     const cmd = resolveDshCommand({
       cliHarnessSource: '/Users/costalong/code/dsh/deepseek-harness',
       sourceDirExists: () => true
     });
     expect(cmd).toEqual({
       file: 'pnpm',
-      args: ['--dir', '/Users/costalong/code/dsh/deepseek-harness', 'dsh'],
+      args: ['--silent', '--dir', '/Users/costalong/code/dsh/deepseek-harness', 'dsh'],
       cwd: '/Users/costalong/code/dsh/deepseek-harness'
     });
   });

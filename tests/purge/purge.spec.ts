@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -142,18 +142,54 @@ profiles:
     expect(fs.readFileSync(path.join(cloneDir, 'wip.txt'), 'utf8')).toBe('unsaved work');
   });
 
-  it('refuses a managed clone that is a symlink to a directory outside envctl, and leaves that directory alone', async () => {
+  it('refuses a patch file or clone that links outside DSH_HOME and changes nothing', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-    const outside = path.join(tempHome, 'outside-repo');
-    fs.mkdirSync(outside);
-    await execa('git', ['init', '-q'], { cwd: outside });
-    await execa('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: outside });
-    const cloneDir = path.join(paths.managerDir, 'sources', 'web', '@nanmicoder_dsh-agent-teams');
-    fs.mkdirSync(path.dirname(cloneDir), { recursive: true });
-    fs.symlinkSync(outside, cloneDir, 'dir');
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-purge-outside-'));
+    try {
+      const outsidePatch = path.join(outside, 'cordis.patch.yml');
+      const content = '# dshenv:begin profile=web plugin=agent-teams digest=x\n- id: agent-teams\n# dshenv:end profile=web plugin=agent-teams\n';
+      fs.writeFileSync(outsidePatch, content);
+      fs.symlinkSync(outsidePatch, path.join(tempHome, 'profiles', 'web', 'cordis.patch.yml'));
+      await expect(purgePlugin(paths, 'web', 'agent-teams')).rejects.toThrow(/symlink outside allowed root/);
+      expect(fs.readFileSync(outsidePatch, 'utf8')).toBe(content);
+      fs.rmSync(path.join(tempHome, 'profiles', 'web', 'cordis.patch.yml'));
 
-    await expect(purgePlugin(paths, 'web', 'agent-teams')).rejects.toThrow(/Refusing to follow symlink outside allowed root/);
-    expect(fs.lstatSync(cloneDir).isSymbolicLink()).toBe(true);
-    expect(fs.existsSync(path.join(outside, '.git'))).toBe(true);
+      const outsideClone = path.join(outside, 'clone');
+      fs.mkdirSync(outsideClone);
+      fs.writeFileSync(path.join(outsideClone, 'keep.txt'), 'keep');
+      fs.mkdirSync(path.join(paths.managerDir, 'sources', 'web'), { recursive: true });
+      fs.symlinkSync(outsideClone, path.join(paths.managerDir, 'sources', 'web', '@nanmicoder_dsh-agent-teams'));
+      await applyEnvironment(paths);
+      const patchFile = path.join(tempHome, 'profiles', 'web', 'cordis.patch.yml');
+      const patched = fs.readFileSync(patchFile, 'utf8');
+      await expect(purgePlugin(paths, 'web', 'agent-teams')).rejects.toThrow(/symlink outside allowed root/);
+      expect(fs.readFileSync(path.join(outsideClone, 'keep.txt'), 'utf8')).toBe('keep');
+      // Checked before the patch block is stripped, so a refused clone leaves the patch alone.
+      expect(fs.readFileSync(patchFile, 'utf8')).toBe(patched);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('puts the patch block back when the clone cannot be moved to trash', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    await applyEnvironment(paths);
+    const patchFile = path.join(tempHome, 'profiles', 'web', 'cordis.patch.yml');
+    const patched = fs.readFileSync(patchFile, 'utf8');
+    const cloneDir = path.join(paths.managerDir, 'sources', 'web', '@nanmicoder_dsh-agent-teams');
+    fs.mkdirSync(cloneDir, { recursive: true });
+
+    const rename = fs.promises.rename.bind(fs.promises);
+    vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
+      if (String(from) === cloneDir) throw new Error('EXDEV: cross-device link');
+      return rename(from, to);
+    });
+    try {
+      await expect(purgePlugin(paths, 'web', 'agent-teams')).rejects.toThrow(/EXDEV/);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(fs.readFileSync(patchFile, 'utf8')).toBe(patched);
+    expect(fs.existsSync(cloneDir)).toBe(true);
   });
 });

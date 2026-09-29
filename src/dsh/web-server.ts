@@ -13,7 +13,12 @@ export interface StartedDshWeb {
 export interface LaunchedDshWeb {
   pid: number;
   url: string;
+  // When the leader started; a later process that reuses its pid started at another time.
+  leaderStart: string;
 }
+
+// leftover: the leader is gone, but processes it started still run in its process group.
+export type DshWebState = 'running' | 'leftover' | 'stopped' | 'unknown';
 
 export interface LaunchDshWebOptions {
   command: CommandSpec | null;
@@ -34,6 +39,15 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // On POSIX dsh web leads its own process group, which lives on while what it started (an MCP server, say)
 // is still shutting down after DSH itself is gone.
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function groupAlive(pid: number): boolean {
   try {
     process.kill(POSIX ? -pid : pid, 0);
@@ -51,21 +65,22 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-// Stops dsh web and everything it started, and returns once they are all gone.
-export async function stopProcessGroup(pid: number): Promise<void> {
-  for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
-    if (POSIX) {
-      signalGroup(pid, signal);
-    } else {
-      // Windows has no process groups; taskkill /T takes the whole tree (cmd.exe shim, node, MCP servers).
-      await execa('taskkill', ['/pid', String(pid), '/T', ...(signal === 'SIGKILL' ? ['/F'] : [])], { reject: false });
-    }
+// Stops dsh web and everything it started; false when some of it still runs after SIGKILL.
+export async function stopProcessGroup(pid: number): Promise<boolean> {
+  // Windows has no process groups; taskkill /T takes the whole tree (cmd.exe shim, node, MCP servers). Without /F it
+  // only asks windowless console processes to close, which they never do.
+  const rounds = POSIX
+    ? (['SIGTERM', 'SIGKILL'] as const).map((signal) => async () => signalGroup(pid, signal))
+    : [async () => void (await execa('taskkill', ['/pid', String(pid), '/T', '/F'], { reject: false, windowsHide: true }))];
+  for (const round of rounds) {
+    await round();
     const deadline = Date.now() + STOP_GRACE_MS;
     while (groupAlive(pid) && Date.now() < deadline) {
       await sleep(POLL_MS);
     }
-    if (!groupAlive(pid)) return;
+    if (!groupAlive(pid)) return true;
   }
+  return false;
 }
 
 // Ctrl-C ends dshenv without running async cleanup, and a detached dsh web would outlive it. One handler runs
@@ -97,26 +112,54 @@ export function stopOnInterrupt(cleanup: () => Promise<void>): () => void {
   };
 }
 
-// Whether the dsh web dshenv launched for the profile still runs under this pid; a reused pid is not it.
-export async function dshWebRunning(pid: number, profile: string): Promise<boolean> {
-  if (!groupAlive(pid)) {
-    return false;
+// When the process under the pid started: null when none runs under it, undefined when that cannot be told.
+async function processStartTime(pid: number): Promise<string | null | undefined> {
+  if (!processAlive(pid)) {
+    return null;
   }
-  if (!POSIX) {
-    return true;
+  if (process.platform === 'linux') {
+    try {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      // Field 22, counted from the state that follows the command name, which can hold spaces and parentheses.
+      return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+    } catch {
+      return processAlive(pid) ? undefined : null;
+    }
   }
-  const leader = await execa('ps', ['-o', 'args=', '-p', String(pid)], { reject: false });
-  const args = String(leader.stdout ?? '').trim();
-  // The leader can exit before the rest of its group, which still carries this launch's group id.
-  return args === '' || args.includes(`--profile ${profile} --no-open --port`);
+  const result = POSIX
+    ? await execa('ps', ['-o', 'lstart=', '-p', String(pid)], { reject: false })
+    : await execa('powershell', ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${pid}).StartTime.ToFileTimeUtc()`], {
+        reject: false,
+        windowsHide: true
+      });
+  const start = String(result.stdout ?? '').trim();
+  if (result.exitCode === 0 && start !== '') {
+    return start;
+  }
+  return processAlive(pid) ? undefined : null;
+}
+
+// Whether the dsh web dshenv launched under this pid still runs; a process that later reuses the pid is not it.
+export async function dshWebState(pid: number, leaderStart: string): Promise<DshWebState> {
+  const start = await processStartTime(pid);
+  if (start === undefined) {
+    return 'unknown';
+  }
+  if (start === leaderStart) {
+    return 'running';
+  }
+  // A pid that still names a live process group is not handed out again, so that group is what this dsh web left.
+  return start === null && POSIX && groupAlive(pid) ? 'leftover' : 'stopped';
 }
 
 // pnpm echoes the script ("$ node ...") before a source checkout's output and adds an ELIFECYCLE line after it.
+// A login URL the pattern above does not match (another host, say) must not reach the error either.
 function firstErrorLine(output: string): string | undefined {
   return output
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find((line) => line.length > 0 && !line.startsWith('$ ') && !line.includes('ELIFECYCLE'));
+    .find((line) => line.length > 0 && !line.startsWith('$ ') && !line.includes('ELIFECYCLE'))
+    ?.replace(/token=[^\s&]*/g, 'token=<redacted>');
 }
 
 function spawnDshWeb(profile: string, command: CommandSpec, options: LaunchDshWebOptions) {
@@ -154,13 +197,19 @@ export async function launchDshWeb(profile: string, options: LaunchDshWebOptions
     if (child.pid !== undefined) await stopProcessGroup(child.pid);
   });
   try {
-    return await awaitUrl(profile, child, options);
+    const { pid, url } = await awaitUrl(profile, child, options);
+    const leaderStart = await processStartTime(pid);
+    if (typeof leaderStart !== 'string') {
+      await stopProcessGroup(pid);
+      throw new DshError(`dsh --profile ${profile} started dsh web (pid ${pid}), but dshenv could not tell when it started, so it could not stop it safely later`);
+    }
+    return { pid, url, leaderStart };
   } finally {
     dispose();
   }
 }
 
-async function awaitUrl(profile: string, child: ReturnType<typeof spawnDshWeb>, options: LaunchDshWebOptions): Promise<LaunchedDshWeb> {
+async function awaitUrl(profile: string, child: ReturnType<typeof spawnDshWeb>, options: LaunchDshWebOptions): Promise<{ pid: number; url: string }> {
   const timeoutMs = options.timeoutMs ?? DSH_WEB_START_TIMEOUT_MS;
   let exit: string | undefined;
   void child.then((result) => {

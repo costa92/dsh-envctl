@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { parseHmrFromDump, probeProfileHmr } from '../../src/dsh/hmr.js';
+import { resolveDshCommand } from '../../src/dsh/command.js';
 
 const header = `# == @deepseek-ai/dsh-base
 - id: tool-plugin-manager
@@ -168,6 +169,33 @@ process.stdout.write(${JSON.stringify(dumpWithHmr("  disabled: !!js '!ctx.get(''
       reason: 'dsh --dump-config timed out after 200 ms'
     });
   });
+
+  it('times out when dsh runs under a wrapper, as pnpm runs a source checkout, and stops what it started', async () => {
+    const pidFile = path.join(dir, 'grandchild.pid');
+    // Like pnpm: the grandchild shares the output pipes, so they stay open after the wrapper is killed.
+    const command = fakeDsh(`
+import { spawn } from 'node:child_process';
+spawn(process.execPath, ['-e', \`require('fs').writeFileSync(\${JSON.stringify(${JSON.stringify(pidFile)})}, String(process.pid)); setTimeout(() => {}, 15000)\`], { stdio: 'inherit' });
+setInterval(() => {}, 1000);
+`);
+    const started = Date.now();
+    expect(await probeProfileHmr('web', { command, dshHome: dir, timeoutMs: 300 })).toEqual({
+      state: 'unknown',
+      reason: 'dsh --dump-config timed out after 300 ms'
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const grandchild = Number(fs.readFileSync(pidFile, 'utf8'));
+    expect(() => process.kill(grandchild, 0)).toThrow();
+  }, 20_000);
+
+  it('reads the dump of a source checkout run through pnpm without pnpm script banners', async () => {
+    const source = path.join(dir, 'source');
+    fs.mkdirSync(source);
+    fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify({ name: 'harness', version: '0.1.7', private: true, scripts: { dsh: 'node cli.mjs' } }));
+    fs.writeFileSync(path.join(source, 'cli.mjs'), `process.stdout.write(${JSON.stringify(dumpWithHmr('  disabled: true\n'))});`);
+    const command = resolveDshCommand({ cliHarnessSource: source });
+    expect(await probeProfileHmr('web', { command, dshHome: dir })).toEqual({ state: 'off' });
+  }, 20_000);
 
   it('reports unparseable output as unknown', async () => {
     const command = fakeDsh(`process.stdout.write('- id: hmr\\n  name: [unclosed\\n');`);

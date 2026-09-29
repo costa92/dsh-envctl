@@ -1,0 +1,44 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { execa } from 'execa';
+import { killProcessTree } from '../../src/io/process-tree.js';
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+describe.skipIf(process.platform === 'win32')('killProcessTree', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-process-tree-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('returns once the whole tree is gone, killing a descendant that ignores SIGTERM', async () => {
+    const pidFile = path.join(dir, 'grandchild.pid');
+    const parent = path.join(dir, 'parent.mjs');
+    fs.writeFileSync(parent, `
+import { spawn } from 'node:child_process';
+spawn(process.execPath, ['-e', \`process.on('SIGTERM', () => {}); require('fs').writeFileSync(\${JSON.stringify(${JSON.stringify(pidFile)})}, String(process.pid)); setInterval(() => {}, 1000)\`], { stdio: 'ignore' });
+setInterval(() => {}, 1000);
+`);
+    const child = execa(process.execPath, [parent], { reject: false });
+    while (!fs.existsSync(pidFile)) await new Promise((resolve) => setTimeout(resolve, 20));
+    const grandchild = Number(fs.readFileSync(pidFile, 'utf8'));
+
+    await killProcessTree(child.pid!);
+    expect(alive(grandchild)).toBe(false);
+    expect((await child).signal).toBe('SIGTERM');
+  }, 20_000);
+});
