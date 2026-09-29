@@ -123,8 +123,9 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
       if (!cmdOpts.dryRun && !cmdOpts.yes) {
         throw new ValidationError('Refusing to gc without --yes. Preview with --dry-run, then re-run with --yes.');
       }
+      // Number() reads '' as 0 and '-1' as a negative age, either of which would delete all trash.
       const olderThanDays = Number(cmdOpts.olderThan);
-      if (!Number.isFinite(olderThanDays)) {
+      if (!/^\d+(\.\d+)?$/.test(cmdOpts.olderThan)) {
         throw new ValidationError(`Invalid --older-than value: ${cmdOpts.olderThan}`);
       }
       const result = await gcEnvironment(paths, {
