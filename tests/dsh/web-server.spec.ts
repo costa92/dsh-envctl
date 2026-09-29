@@ -142,10 +142,11 @@ describe('startDshWeb when dshenv is interrupted', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  const interrupt = async (urlDelayMs: number, waitFor: 'pid' | 'started') => {
+  const interrupt = async (urlDelayMs: number, waitFor: 'pid' | 'started', ignoreTerm = false) => {
     const pidFile = path.join(dir, 'pid');
     const fake = path.join(dir, 'fake-dsh.mjs');
     fs.writeFileSync(fake, `import fs from 'node:fs';
+${ignoreTerm ? "process.on('SIGTERM', () => {});" : ''}
 fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
 setTimeout(() => console.log('dsh web: http://127.0.0.1:4567/?token=abc'), ${urlDelayMs});
 setInterval(() => {}, 1000);`);
@@ -180,5 +181,9 @@ setInterval(() => {}, 1000);`);
 
   it('stops dsh web when interrupted while the check runs', async () => {
     await interrupt(0, 'started');
+  }, 30_000);
+
+  it('kills a dsh web that ignores SIGTERM before dshenv exits', async () => {
+    await interrupt(0, 'started', true);
   }, 30_000);
 });
