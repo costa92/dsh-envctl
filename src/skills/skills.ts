@@ -96,17 +96,32 @@ export async function copySkillDir(from: string, to: string): Promise<void> {
 // Returns how to undo it.
 export async function replaceSkillDir(source: string | null, target: string, trash: string): Promise<() => Promise<void>> {
   const staging = source ? `${target}.dshenv-${process.pid}-${Date.now()}` : null;
-  if (source && staging) {
-    await copySkillDir(source, staging);
-  }
   const hadTarget = fs.existsSync(target);
-  if (hadTarget) {
-    await fs.promises.mkdir(path.dirname(trash), { recursive: true });
-    await fs.promises.rename(target, trash);
-  }
-  if (staging) {
-    await fs.promises.mkdir(path.dirname(target), { recursive: true });
-    await fs.promises.rename(staging, target);
+  // A staging copy left in DSH's skills directory would read as one more skill.
+  try {
+    if (source && staging) {
+      await copySkillDir(source, staging);
+    }
+    if (hadTarget) {
+      await fs.promises.mkdir(path.dirname(trash), { recursive: true });
+      await fs.promises.rename(target, trash);
+    }
+    if (staging) {
+      await fs.promises.mkdir(path.dirname(target), { recursive: true });
+      try {
+        await fs.promises.rename(staging, target);
+      } catch (err) {
+        if (hadTarget) {
+          await fs.promises.rename(trash, target);
+        }
+        throw err;
+      }
+    }
+  } catch (err) {
+    if (staging) {
+      await fs.promises.rm(staging, { recursive: true, force: true });
+    }
+    throw err;
   }
   return async () => {
     await fs.promises.rm(target, { recursive: true, force: true });

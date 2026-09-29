@@ -830,3 +830,71 @@ describe('source kinds the inventory reports differently', () => {
     ]);
   });
 });
+
+describe('plan edge cases around profiles and in-box listings', () => {
+  const npmPlugin = (pkg: string) => ({ package: pkg, source: { type: 'npm' as const, version: '1.0.0' } });
+
+  it('installs a declared npm plugin that only a leftover bundle entry lists', () => {
+    const manifest: EnvironmentManifest = { apiVersion: 'dshenv/v1', profiles: { web: { plugins: { foo: npmPlugin('@acme/foo') } } } };
+    // What the inventory reports for a bundle entry with no dependency and nothing in node_modules.
+    const inventory: EnvironmentInventory = {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            '@acme/foo': { name: '@acme/foo', installed: true, sourceType: 'in-box', isSymlink: false, isExternalSymlink: false, bundle: true, enabled: true }
+          }
+        }
+      }
+    };
+    expect(buildPlan(manifest, null, inventory).operations).toEqual([expect.objectContaining({ kind: 'install', package: '@acme/foo' })]);
+  });
+
+  it('blocks enabling an in-box plugin in a profile that does not exist and nothing will create', () => {
+    const manifest: EnvironmentManifest = {
+      apiVersion: 'dshenv/v1',
+      profiles: { fresh: { plugins: { teams: { package: '@nanmicoder/dsh-agent-teams', source: { type: 'in-box' } } } } }
+    };
+    expect(buildPlan(manifest, null, { profiles: {} }).operations).toEqual([
+      expect.objectContaining({ kind: 'blocked', blockedReason: expect.stringMatching(/Profile 'fresh' does not exist yet/) })
+    ]);
+  });
+
+  it('installs into a new profile before enabling an in-box plugin there, whatever the package names sort as', () => {
+    const manifest: EnvironmentManifest = {
+      apiVersion: 'dshenv/v1',
+      profiles: { fresh: { plugins: { a: { package: 'a-inbox', source: { type: 'in-box' } }, z: npmPlugin('z-npm') } } }
+    };
+    expect(buildPlan(manifest, null, { profiles: {} }).operations.map((op) => `${op.kind}:${op.package}`)).toEqual([
+      'install:z-npm',
+      'enable:a-inbox'
+    ]);
+  });
+
+  it('removes the old package behind an alias before installing the new one', () => {
+    const manifest: EnvironmentManifest = { apiVersion: 'dshenv/v1', profiles: { web: { plugins: { foo: npmPlugin('aa-new') } } } };
+    const inventory: EnvironmentInventory = {
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            'zz-old': { name: 'zz-old', installed: true, version: '1.0.0', sourceType: 'npm', isSymlink: false, isExternalSymlink: false, enabled: true }
+          }
+        }
+      }
+    };
+    const state: EnvironmentState = {
+      apiVersion: 'dshenv-state/v1',
+      lastApplied: '',
+      appliedLockHash: '',
+      profiles: {},
+      ownership: { web: { 'zz-old': { package: 'zz-old', alias: 'foo', sourceType: 'npm', adoptedAt: '', adoptedBy: 'apply-1' } } }
+    };
+    expect(buildPlan(manifest, null, inventory, state).operations.map((op) => `${op.kind}:${op.package}`)).toEqual([
+      'remove:zz-old',
+      'install:aa-new'
+    ]);
+  });
+});

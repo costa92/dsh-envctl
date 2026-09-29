@@ -118,12 +118,10 @@ async function restoreRemoteFiles(snapshot: EnvironmentSnapshot, paths: Environm
   }
 }
 
-export async function restoreEnvironmentSnapshot(
-  snapshot: EnvironmentSnapshot,
-  paths: EnvironmentPaths
-): Promise<void> {
+// Restores only these envctl files (manifest, lock or state) as the snapshot saved them.
+export async function restoreSnapshotFiles(snapshot: EnvironmentSnapshot, files: string[]): Promise<void> {
   // A file absent from the snapshot did not exist then, so it must not survive the restore either.
-  for (const file of [paths.manifestFile, paths.lockFile, paths.stateFile]) {
+  for (const file of files) {
     const saved = path.join(snapshot.snapshotDir, path.basename(file));
     if (fs.existsSync(saved)) {
       await writeAtomic(file, await fs.promises.readFile(saved), 'overwrite');
@@ -131,6 +129,13 @@ export async function restoreEnvironmentSnapshot(
       await fs.promises.rm(file, { force: true });
     }
   }
+}
+
+export async function restoreEnvironmentSnapshot(
+  snapshot: EnvironmentSnapshot,
+  paths: EnvironmentPaths
+): Promise<void> {
+  await restoreSnapshotFiles(snapshot, [paths.manifestFile, paths.lockFile, paths.stateFile]);
   await restoreRemoteFiles(snapshot, paths);
   if (fs.existsSync(path.join(snapshot.snapshotDir, SKILLS_MARKER))) {
     await fs.promises.rm(paths.skillsDir, { recursive: true, force: true });

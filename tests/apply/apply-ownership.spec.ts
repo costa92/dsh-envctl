@@ -1,0 +1,175 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { applyEnvironment, type ApplyOptions } from '../../src/apply/apply.js';
+import { rollbackEnvironment } from '../../src/rollback/rollback.js';
+import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
+
+// Fake DSH: `add` installs a bundle package and selects it, `remove` drops it; FAIL_ON makes adds of matching packages fail.
+const FAKE_DSH = `
+import fs from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+if (args.includes('--version')) { console.log(process.env.FAKE_DSH_VERSION ?? '0.1.7-rc.2'); process.exit(0); }
+if (process.env.FAIL_ON && args.at(-1).includes(process.env.FAIL_ON)) { console.error('dsh: boom'); process.exit(7); }
+const profileDir = path.join(process.env.DSH_HOME, 'profiles', args[args.indexOf('--profile') + 1]);
+fs.mkdirSync(profileDir, { recursive: true });
+const pkgPath = path.join(profileDir, 'package.json');
+const pkg = fs.existsSync(pkgPath) ? JSON.parse(fs.readFileSync(pkgPath, 'utf8')) : { name: 'p', dependencies: {}, dsh: { profile: { bundles: [] } } };
+const spec = args.at(-1);
+const name = spec.startsWith('@') ? spec.slice(0, spec.indexOf('@', 1) === -1 ? undefined : spec.indexOf('@', 1)) : spec.split('@')[0];
+const dir = path.join(profileDir, 'node_modules', ...name.split('/'));
+if (args.includes('remove')) {
+  delete pkg.dependencies[name];
+  pkg.dsh.profile.bundles = pkg.dsh.profile.bundles.filter((b) => b !== name);
+  fs.rmSync(dir, { recursive: true, force: true });
+} else {
+  const version = spec.slice(name.length + 1);
+  pkg.dependencies[name] = version;
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version, dsh: { bundle: {} } }));
+  if (!pkg.dsh.profile.bundles.includes(name)) pkg.dsh.profile.bundles.push(name);
+}
+fs.writeFileSync(pkgPath, JSON.stringify(pkg));
+`;
+
+describe('applyEnvironment ownership and recovery', () => {
+  let tempHome: string;
+  let paths: EnvironmentPaths;
+  let previousDshCli: string | undefined;
+  const options: ApplyOptions = { probeHmr: async () => ({ state: 'off' }), hmrSettleMs: 0 };
+
+  const plugin = (alias: string, pkg = alias, patch = false) =>
+    `      ${alias}:\n        package: "${pkg}"\n        source: { type: npm, version: "1.0.0" }\n` +
+    (patch ? `        patches:\n          - id: ${alias}\n            config: { a: 1 }\n` : '');
+  const declare = (...plugins: string[]) =>
+    fs.writeFileSync(
+      paths.manifestFile,
+      `apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins:${plugins.length > 0 ? `\n${plugins.join('')}` : ' {}\n'}`
+    );
+  const owned = (): string[] =>
+    Object.keys((JSON.parse(fs.readFileSync(paths.stateFile, 'utf8')) as { ownership?: { web?: object } }).ownership?.web ?? {}).sort();
+  const dryRun = () => applyEnvironment(paths, { ...options, dryRun: true });
+
+  beforeEach(() => {
+    previousDshCli = process.env.DSH_CLI;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-apply-ownership-'));
+    paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.mkdirSync(paths.managerDir, { recursive: true });
+    const profileDir = path.join(tempHome, 'profiles', 'web');
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({ name: 'p', dependencies: {}, dsh: { profile: { bundles: [] } } }));
+    const fakeDsh = path.join(tempHome, 'fake-dsh.mjs');
+    fs.writeFileSync(fakeDsh, FAKE_DSH);
+    process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+  });
+
+  afterEach(() => {
+    delete process.env.FAIL_ON;
+    delete process.env.FAKE_DSH_VERSION;
+    if (previousDshCli === undefined) delete process.env.DSH_CLI;
+    else process.env.DSH_CLI = previousDshCli;
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('owns a plugin it installed even when a later operation of the same apply fails', async () => {
+    declare(plugin('aa'), plugin('bb'));
+    process.env.FAIL_ON = 'bb';
+    await expect(applyEnvironment(paths, options)).rejects.toThrow(/exited with code 7/);
+    expect(owned()).toEqual(['aa']);
+
+    delete process.env.FAIL_ON;
+    await applyEnvironment(paths, options);
+    expect(owned()).toEqual(['aa', 'bb']);
+
+    declare(plugin('bb'));
+    const plan = await dryRun();
+    expect(plan.plan.operations.map((op) => `${op.kind}:${op.package}`)).toEqual(['remove:aa']);
+    expect(plan.plan.unmanaged).toEqual([]);
+  });
+
+  it('leaves the manifest and envctl skills alone when apply fails, restoring only lock and state', async () => {
+    declare(plugin('aa'));
+    fs.mkdirSync(path.join(paths.skillsDir, 'myskill'), { recursive: true });
+    fs.writeFileSync(path.join(paths.skillsDir, 'myskill', 'SKILL.md'), 'v1');
+    fs.writeFileSync(paths.stateFile, JSON.stringify({ apiVersion: 'dshenv-state/v1', lastApplied: 'before', appliedLockHash: '', profiles: {} }));
+    const stateBefore = fs.readFileSync(paths.stateFile, 'utf8');
+
+    await expect(
+      applyEnvironment(paths, {
+        ...options,
+        // Stands in for a DSH install that runs for minutes while the user keeps editing envctl files.
+        executor: async () => {
+          fs.appendFileSync(paths.manifestFile, '# edited while apply ran\n');
+          fs.writeFileSync(path.join(paths.skillsDir, 'myskill', 'SKILL.md'), 'v2');
+          fs.mkdirSync(path.join(paths.skillsDir, 'newskill'));
+          fs.writeFileSync(paths.stateFile, '{"broken": true}');
+          fs.writeFileSync(paths.lockFile, '{"broken": true}');
+          return { success: false, error: 'pnpm failed' };
+        }
+      })
+    ).rejects.toThrow(/pnpm failed/);
+
+    expect(fs.readFileSync(paths.manifestFile, 'utf8')).toContain('# edited while apply ran');
+    expect(fs.readFileSync(path.join(paths.skillsDir, 'myskill', 'SKILL.md'), 'utf8')).toBe('v2');
+    expect(fs.existsSync(path.join(paths.skillsDir, 'newskill'))).toBe(true);
+    expect(fs.readFileSync(paths.stateFile, 'utf8')).toBe(stateBefore);
+    expect(fs.existsSync(paths.lockFile)).toBe(false);
+  });
+
+  it('reports a failed restore instead of hiding it', async () => {
+    declare(plugin('aa'));
+    const error = await applyEnvironment(paths, {
+      ...options,
+      executor: async () => {
+        // state.json can no longer be replaced by a file.
+        fs.mkdirSync(path.join(paths.stateFile, 'blocker'), { recursive: true });
+        return { success: false, error: 'pnpm failed' };
+      }
+    }).then(
+      () => { throw new Error('apply should fail'); },
+      (err: Error) => err
+    );
+    expect(error.message).toMatch(/pnpm failed/);
+    expect(error.message).toMatch(/restoring lock\.json and state\.json from snapshot .+ also failed/);
+    expect(error.message).toMatch(/dshenv rollback/);
+  });
+
+  it('swaps the package behind an alias in one apply, whatever the package names sort as', async () => {
+    fs.writeFileSync(path.join(tempHome, 'profiles', 'web', 'cordis.patch.yml'), '[]\n');
+    declare(plugin('foo', 'zz-old', true));
+    await applyEnvironment(paths, options);
+
+    declare(plugin('foo', 'aa-new', true));
+    const result = await applyEnvironment(paths, options);
+    expect(result.applied).toBe(true);
+    expect(fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'cordis.patch.yml'), 'utf8')).toContain('plugin=foo');
+    expect(owned()).toEqual(['aa-new']);
+    expect((await dryRun()).plan.hasChanges).toBe(false);
+  });
+
+  it('keeps ownership of plugins a rolled-back apply installed, since they stay installed', async () => {
+    declare(plugin('aa'));
+    await applyEnvironment(paths, options);
+    declare(plugin('aa'), plugin('bb'));
+    const second = await applyEnvironment(paths, options);
+
+    await rollbackEnvironment(paths, { operationId: second.operationId });
+    expect(owned()).toEqual(['aa', 'bb']);
+
+    declare(plugin('aa'));
+    const plan = await dryRun();
+    expect(plan.plan.operations.map((op) => `${op.kind}:${op.package}`)).toEqual(['remove:bb']);
+  });
+
+  it('honors allowUntestedVersion from the manifest', async () => {
+    process.env.FAKE_DSH_VERSION = '0.9.0';
+    fs.writeFileSync(
+      paths.manifestFile,
+      `apiVersion: dshenv/v1\nenvironment:\n  harness:\n    allowUntestedVersion: true\nprofiles:\n  web:\n    plugins:\n${plugin('aa')}`
+    );
+    const result = await applyEnvironment(paths, options);
+    expect(result.applied).toBe(true);
+  });
+});
