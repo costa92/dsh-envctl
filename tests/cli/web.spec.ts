@@ -162,4 +162,25 @@ describe('CLI web', () => {
     expect(JSON.parse(fs.readFileSync(path.join(tempHome, 'args.json'), 'utf8'))).toEqual(['--profile', 'web', '--no-open', '--port', '3090']);
     expect((await run(['web', 'start', '-p', 'web', '--port', 'x'])).stderr).toMatch(/--port must be an integer from 0 to 65535/);
   });
+  it('refuses a profile name that would leave the profiles or run directory', async () => {
+    serving();
+    fs.mkdirSync(path.join(tempHome, 'outside', 'x'), { recursive: true });
+    fs.writeFileSync(path.join(tempHome, 'outside', 'x', 'package.json'), '{}');
+    fs.writeFileSync(path.join(tempHome, 'keep.json'), '{}');
+    for (const args of [['web', 'start', '-p', '../outside/x'], ['web', 'stop', '-p', '../../keep'], ['web', 'start', '-p', '..']]) {
+      const out = await run(args);
+      expect(out.code).toBe(3);
+      expect(out.stderr).toMatch(/Invalid profile name/);
+    }
+    expect(fs.existsSync(path.join(tempHome, 'keep.json'))).toBe(true);
+  });
+
+  it('starts one dsh web when two starts race, and the other reports it running', async () => {
+    fakeDsh(`setTimeout(() => console.log('dsh web: ${fake.url}'), 300); setInterval(() => {}, 1000);`);
+    const results = await Promise.all([run(['web', 'start', '-p', 'web']), run(['web', 'start', '-p', 'web'])]);
+    expect(results.map((result) => result.code)).toEqual([0, 0]);
+    expect(results.map((result) => result.stdout.split(' ')[0]).sort()).toEqual(['Started', 'dsh']);
+    const { pid } = record();
+    expect(results.every((result) => result.stdout.includes(`pid ${pid})`))).toBe(true);
+  });
 });

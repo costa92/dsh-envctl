@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -55,13 +54,34 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 // Stops dsh web and everything it started, and returns once they are all gone.
 export async function stopProcessGroup(pid: number): Promise<void> {
   for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
-    signalGroup(pid, signal);
+    if (POSIX) {
+      signalGroup(pid, signal);
+    } else {
+      // Windows has no process groups; taskkill /T takes the whole tree (cmd.exe shim, node, MCP servers).
+      await execa('taskkill', ['/pid', String(pid), '/T', ...(signal === 'SIGKILL' ? ['/F'] : [])], { reject: false });
+    }
     const deadline = Date.now() + STOP_GRACE_MS;
     while (groupAlive(pid) && Date.now() < deadline) {
       await sleep(POLL_MS);
     }
     if (!groupAlive(pid)) return;
   }
+}
+
+// Ctrl-C ends dshenv without running async cleanup, and a detached dsh web would outlive it: stop it here,
+// then let the signal end dshenv as it would have. Returns a function that removes the handlers.
+export function stopOnInterrupt(cleanup: () => void): () => void {
+  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const handler = (signal: NodeJS.Signals): void => {
+    dispose();
+    cleanup();
+    process.kill(process.pid, signal);
+  };
+  const dispose = (): void => {
+    for (const signal of signals) process.off(signal, handler);
+  };
+  for (const signal of signals) process.on(signal, handler);
+  return dispose;
 }
 
 // Whether the dsh web dshenv launched for the profile still runs under this pid; a reused pid is not it.
@@ -86,15 +106,21 @@ function firstErrorLine(output: string): string | undefined {
     .find((line) => line.length > 0 && !line.startsWith('$ ') && !line.includes('ELIFECYCLE'));
 }
 
-function spawnDshWeb(profile: string, command: CommandSpec, options: LaunchDshWebOptions): ChildProcess {
+function spawnDshWeb(profile: string, command: CommandSpec, options: LaunchDshWebOptions) {
   fs.mkdirSync(path.dirname(options.logFile), { recursive: true, mode: 0o700 });
-  const log = fs.openSync(options.logFile, 'w', 0o600);
+  // execa types a file descriptor only as a literal above the standard ones; a newly opened file never gets 0-2.
+  const log = fs.openSync(options.logFile, 'w', 0o600) as 3;
   try {
-    return spawn(command.file, [...command.args, '--profile', profile, '--no-open', '--port', String(options.port ?? 0)], {
+    // execa runs Windows command shims such as the dsh.cmd npm installs; cleanup: false lets dsh web outlive dshenv.
+    return execa(command.file, [...command.args, '--profile', profile, '--no-open', '--port', String(options.port ?? 0)], {
       cwd: command.cwd,
       env: { ...process.env, DSH_HOME: options.dshHome },
-      stdio: ['ignore', log, log],
+      stdin: 'ignore',
+      stdout: log,
+      stderr: log,
       detached: POSIX,
+      cleanup: false,
+      reject: false,
       windowsHide: true
     });
   } finally {
@@ -109,16 +135,25 @@ export async function launchDshWeb(profile: string, options: LaunchDshWebOptions
   if (!command) {
     throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
   }
-  const timeoutMs = options.timeoutMs ?? DSH_WEB_START_TIMEOUT_MS;
   const child = spawnDshWeb(profile, command, options);
+  // Nothing else knows about this dsh web until the caller has its pid and URL.
+  const dispose = stopOnInterrupt(() => {
+    if (child.pid !== undefined) signalGroup(child.pid, 'SIGTERM');
+  });
+  try {
+    return await awaitUrl(profile, child, options);
+  } finally {
+    dispose();
+  }
+}
+
+async function awaitUrl(profile: string, child: ReturnType<typeof spawnDshWeb>, options: LaunchDshWebOptions): Promise<LaunchedDshWeb> {
+  const timeoutMs = options.timeoutMs ?? DSH_WEB_START_TIMEOUT_MS;
   let exit: string | undefined;
-  child.on('exit', (code) => {
-    exit ??= `it exited with code ${String(code)}`;
+  void child.then((result) => {
+    exit = result.exitCode === undefined && result.code ? `failed to start dsh (${result.code})` : `it exited with code ${String(result.exitCode)}`;
   });
-  child.on('error', (error: NodeJS.ErrnoException) => {
-    exit ??= `failed to start dsh (${error.code ?? 'spawn error'})`;
-  });
-  child.unref();
+  child.nodeChildProcess.unref();
 
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -142,17 +177,27 @@ export async function launchDshWeb(profile: string, options: LaunchDshWebOptions
 // A dsh web for one check: its log lives in a temporary directory that stop() removes.
 export async function startDshWeb(profile: string, options: Omit<LaunchDshWebOptions, 'logFile'>): Promise<StartedDshWeb> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-web-'));
+  const removeDir = () => fs.rmSync(dir, { recursive: true, force: true });
+  let pid: number | undefined;
+  // launchDshWeb stops dsh web if interrupted while it starts; this also covers the check and the log directory.
+  const dispose = stopOnInterrupt(() => {
+    if (pid !== undefined) signalGroup(pid, 'SIGTERM');
+    removeDir();
+  });
   try {
-    const { pid, url } = await launchDshWeb(profile, { ...options, logFile: path.join(dir, 'dsh-web.log') });
+    const launched = await launchDshWeb(profile, { ...options, logFile: path.join(dir, 'dsh-web.log') });
+    pid = launched.pid;
     return {
-      url,
+      url: launched.url,
       stop: async () => {
-        await stopProcessGroup(pid);
-        fs.rmSync(dir, { recursive: true, force: true });
+        await stopProcessGroup(launched.pid);
+        dispose();
+        removeDir();
       }
     };
   } catch (error) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    dispose();
+    removeDir();
     throw error;
   }
 }

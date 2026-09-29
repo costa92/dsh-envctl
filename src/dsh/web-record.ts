@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
+import { parseDshWebUrl } from './web-client.js';
 
 // What `dshenv web start` left running. The URL is the login credential, so the file is readable by the owner only.
 export interface DshWebRecord {
@@ -29,8 +30,18 @@ function isRecord(value: unknown, profile: string): value is DshWebRecord {
     (record.pid ?? 0) > 0 &&
     typeof record.url === 'string' &&
     typeof record.logFile === 'string' &&
-    typeof record.startedAt === 'string'
+    typeof record.startedAt === 'string' &&
+    validUrl(record.url)
   );
+}
+
+function validUrl(url: string): boolean {
+  try {
+    parseDshWebUrl(url);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // A missing or unreadable record means dshenv started nothing for the profile.
