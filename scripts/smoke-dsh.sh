@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Smoke-test dshenv against a given npm DSH version in an isolated DSH_HOME.
 # Usage: scripts/smoke-dsh.sh <dsh-version> [work-dir]
+# SMOKE_ALLOW_PLUGIN_EXEMPTION=true grants DSH's exact-version exemption when the plugin's peer range stops before this DSH.
 set -uo pipefail
 
 version="${1:?usage: scripts/smoke-dsh.sh <dsh-version> [work-dir]}"
@@ -9,6 +10,8 @@ plugin="${SMOKE_PLUGIN:-@nanmicoder/dsh-agent-teams@0.1.21}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 dshenv=(node "$root/bin/dshenv.js")
 failed=0
+# A step's own output goes to its log; fd 3 reaches the report directly.
+exec 3>&1
 
 step() {
   local name="$1" expected="$2"
@@ -45,11 +48,28 @@ case "$gate" in
 esac
 run=("${dshenv[@]}" "${allow[@]}")
 
+# DSH refuses a plugin whose peer range stops before it and prints the exact command that accepts the risk. Only that
+# refusal is answered, in this throwaway DSH_HOME, so a new DSH is still smoke-tested before the plugin catches up.
+apply_granting_exemption() {
+  "${run[@]}" apply --yes >"$work/apply.log" 2>&1 && return 0
+  local grant
+  grant="$(grep -o 'dsh plugin --profile [^ ]* allow-version [^ ]* --dsh-version [^ ]* --accept-risk' "$work/apply.log" | head -1)"
+  if [ "${SMOKE_ALLOW_PLUGIN_EXEMPTION:-false}" != true ] || [ -z "$grant" ]; then
+    cat "$work/apply.log"
+    return 1
+  fi
+  local args runtime="${grant##*--dsh-version }"
+  read -r -a args <<<"${grant#dsh }"
+  "$DSH_CLI" "${args[@]}" || return 1
+  echo "WARN  $plugin does not declare DSH ${runtime%% *}; granted exact-version exemption for the smoke" >&3
+  "${run[@]}" apply --yes
+}
+
 step "doctor reports capabilities" 0 "${run[@]}" doctor --json
 cp "$work/last.log" "$work/doctor.json"
 step "init" 0 "${run[@]}" init
 step "declare $plugin" 0 "${run[@]}" install "$plugin" --profile web --as smoke
-step "apply install" 0 "${run[@]}" apply --yes
+step "apply install" 0 apply_granting_exemption
 step "plan clean after install" 0 "${run[@]}" plan
 step "dsh loads the plugin layer" 0 bash -c '"$DSH_CLI" --profile web --dump-config | grep -q "${1%@*}"' _ "$plugin"
 step "declare disable" 0 "${run[@]}" disable smoke --profile web
