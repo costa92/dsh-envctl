@@ -160,15 +160,13 @@ describe('release workflow', () => {
     expect(runs.slice(0, 4)).toEqual(['pnpm install --frozen-lockfile', 'pnpm typecheck', 'pnpm test', 'pnpm build']);
   });
 
-  it('publishes the packed tarball through npm trusted publishing, with no token, before creating the GitHub release', () => {
+  it('publishes the packed tarball with provenance, through trusted publishing or NPM_TOKEN, before creating the GitHub release', () => {
     const steps = allSteps(release);
     const setupNode = steps.find((step) => step.uses?.startsWith('actions/setup-node@'));
     expect(setupNode?.with?.['registry-url']).toBe('https://registry.npmjs.org');
-    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish ./dist/*.tgz --access public --loglevel verbose');
+    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish ./dist/*.tgz --access public --provenance --loglevel verbose');
     expect(publish).toBeGreaterThan(-1);
-    expect(steps[publish].env).toBeUndefined();
-    expect(JSON.stringify(release)).not.toContain('NPM_TOKEN');
-    expect(JSON.stringify(release)).not.toContain('NODE_AUTH_TOKEN');
+    expect(steps[publish].env).toEqual({ NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' });
     // Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
     const upgrade = steps.findIndex((step) => step.run?.trim() === 'npm install -g npm@^11.5.1');
     expect(upgrade).toBeGreaterThan(-1);
