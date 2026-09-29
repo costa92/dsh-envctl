@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { runCli } from '../../src/cli.js';
+import { isLocalPathSpec } from '../../src/commands/plugins.js';
 import { loadManifest } from '../../src/manifest/files.js';
 
 describe('Convenience Plugin CLI Commands', () => {
@@ -101,5 +102,23 @@ describe('Convenience Plugin CLI Commands', () => {
 
     const manifest = loadManifest(fs.readFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'utf8'));
     expect(manifest.profiles.web.plugins['agent-teams']).toBeUndefined();
+  });
+});
+
+describe('isLocalPathSpec', () => {
+  it('reads Windows paths as local on Windows only, and never an npm or git spec', () => {
+    for (const spec of ['C:\\src\\plugin', 'D:/src/plugin', '\\\\server\\share\\plugin', '.\\plugin', '..\\plugin', './plugin', '/src/plugin', 'file:plugin']) {
+      expect(isLocalPathSpec(spec, path.win32)).toBe(true);
+    }
+    for (const spec of ['./plugin', '../plugin', '/src/plugin', 'file:plugin']) {
+      expect(isLocalPathSpec(spec, path.posix)).toBe(true);
+    }
+    for (const spec of ['C:\\src\\plugin', '.\\plugin']) {
+      expect(isLocalPathSpec(spec, path.posix)).toBe(false);
+    }
+    for (const spec of ['@scope/pkg@1.0.0', 'pkg@1.0.0', 'github:owner/repo', 'in-box:@scope/pkg']) {
+      expect(isLocalPathSpec(spec, path.win32)).toBe(false);
+      expect(isLocalPathSpec(spec, path.posix)).toBe(false);
+    }
   });
 });

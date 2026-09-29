@@ -39,6 +39,12 @@ export interface PluginCommands {
   installPlugin: (opts: { dshHome?: string; overlay?: string | false }, request: InstallPluginRequest) => Promise<InstallPluginResult>;
 }
 
+// Windows paths (C:\src, \\server\share, .\src) are local there; npm and git specs never parse as absolute paths.
+export function isLocalPathSpec(spec: string, pathApi: path.PlatformPath = path): boolean {
+  const relative = pathApi === path.win32 ? /^\.\.?[\\/]/ : /^\.\.?\//;
+  return spec.startsWith('file:') || pathApi.isAbsolute(spec) || relative.test(spec);
+}
+
 export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   const { program, writeOut } = ctx;
 
@@ -61,7 +67,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       };
     }
 
-    if (spec.startsWith('./') || spec.startsWith('../') || spec.startsWith('/') || spec.startsWith('file:')) {
+    if (isLocalPathSpec(spec)) {
       const localPath = spec.startsWith('file:') ? spec.slice(5) : spec;
       const resolved = path.resolve(localPath);
       const baseName = path.basename(resolved);

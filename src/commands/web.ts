@@ -8,6 +8,7 @@ import { acquireFileLock } from '../io/lock.js';
 import { listWebRecords, readWebRecord, removeWebRecord, webLogFile, writeWebRecord, type DshWebRecord } from '../dsh/web-record.js';
 import { parseDshWebUrl } from '../dsh/web-client.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
+import { assertProfileName } from '../manifest/schema.js';
 import { resolveCliOverlay, resolveCliPaths, type CommandContext } from './context.js';
 
 interface CliOpts {
@@ -17,19 +18,9 @@ interface CliOpts {
   json?: boolean;
 }
 
-const PROFILE_NAME = /^[-A-Za-z0-9._]+$/;
-
-// The name becomes a directory under profiles/ and a file under envctl/run/, so it must stay inside both.
-function webProfileOption(value: string): string {
-  if (!PROFILE_NAME.test(value) || value === '.' || value === '..') {
-    throw new ValidationError(`Invalid profile name: ${value}`);
-  }
-  return value;
-}
-
 // dsh creates a profile it is started with, which starting or checking dsh web must not do.
 export function assertProfileExists(paths: EnvironmentPaths, profile: string): void {
-  webProfileOption(profile);
+  assertProfileName(profile);
   if (!fs.existsSync(path.join(paths.profilesDir, profile, 'package.json'))) {
     throw new ValidationError(`Profile '${profile}' does not exist; start DSH with --profile ${profile} once`);
   }
@@ -96,7 +87,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('start')
     .description('Start dsh web for a profile in the background and print its URL')
-    .requiredOption('-p, --profile <name>', 'profile to serve', webProfileOption)
+    .requiredOption('-p, --profile <name>', 'profile to serve', assertProfileName)
     .option('--port <port>', 'port to listen on; 0 picks a free one', '0')
     .action(async (cmdOpts: { profile: string; port: string }) => {
       const opts = program.opts<CliOpts>();
@@ -144,7 +135,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('stop')
     .description('Stop the dsh web that dshenv web start left running for a profile, with everything it started')
-    .requiredOption('-p, --profile <name>', 'profile whose dsh web to stop', webProfileOption)
+    .requiredOption('-p, --profile <name>', 'profile whose dsh web to stop', assertProfileName)
     .action(async (cmdOpts: { profile: string }) => {
       const opts = program.opts<CliOpts>();
       const paths = resolveCliPaths(opts);

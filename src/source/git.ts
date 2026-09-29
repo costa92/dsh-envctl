@@ -39,8 +39,9 @@ export function managedGitSourceDir(
 }
 
 export function packageNameFromGitUrl(url: string): string {
-  const trimmed = url.replace(/\.git$/i, '').replace(/\/+$/, '');
-  const segment = trimmed.split('/').filter(Boolean).pop();
+  // A local repository on Windows is a path with backslashes.
+  const trimmed = url.replace(/[\\/]+$/, '').replace(/\.git$/i, '');
+  const segment = trimmed.split(/[\\/]/).filter(Boolean).pop();
   if (!segment) {
     throw new ValidationError(`Cannot derive package name from git URL: ${url}`);
   }

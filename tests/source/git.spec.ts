@@ -115,4 +115,9 @@ describe('Managed Git Source Lifecycle', () => {
     expect(dir).toBe(path.resolve('/tmp/dsh/envctl/sources/web/@scope_my-plugin'));
     expect(packageNameFromGitUrl('https://github.com/ex/my-plugin.git')).toBe('my-plugin');
   });
+
+  it('names a clone of a Windows path after its last directory', () => {
+    expect(packageNameFromGitUrl('C:\\Users\\me\\upstream\\demo-repo')).toBe('demo-repo');
+    expect(packageNameFromGitUrl('C:\\Users\\me\\upstream\\demo-repo.git\\')).toBe('demo-repo');
+  });
 });
