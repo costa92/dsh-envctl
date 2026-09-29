@@ -35,6 +35,8 @@ describe('CLI -p, --profile', () => {
     // A profile DSH created that the manifest does not declare yet.
     fs.mkdirSync(path.join(tempHome, 'profiles', 'headless'), { recursive: true });
     fs.writeFileSync(path.join(tempHome, 'profiles', 'headless', 'package.json'), JSON.stringify({ name: 'dsh-profile-headless' }));
+    // DSH keeps shared packages beside the profiles; a directory without package.json is not a profile.
+    fs.mkdirSync(path.join(tempHome, 'profiles', 'node_modules'), { recursive: true });
   });
 
   afterEach(() => {

@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { assertNotReservedKey, assertProfileName, isValidProfileName } from '../manifest/schema.js';
 import { Option, type Command } from 'commander';
 import { ValidationError } from '../errors.js';
@@ -48,7 +49,7 @@ function knownProfiles(paths: EnvironmentPaths, opts: { overlay?: string | false
   }
   try {
     for (const entry of fs.readdirSync(paths.profilesDir, { withFileTypes: true })) {
-      if (entry.isDirectory() && isValidProfileName(entry.name)) {
+      if (entry.isDirectory() && isValidProfileName(entry.name) && fs.existsSync(path.join(paths.profilesDir, entry.name, 'package.json'))) {
         names.add(entry.name);
       }
     }
