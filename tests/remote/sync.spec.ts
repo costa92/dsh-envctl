@@ -198,6 +198,21 @@ describe('remote sync engine', () => {
     expect(fs.existsSync(path.join(paths.skillsDir, 'wiki'))).toBe(false);
   });
 
+  it('previews skill changes without writing through a symlinked skill directory', async () => {
+    await subscribe();
+    await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v1' }, 'skills');
+    await acceptSync(paths, await prepare({ previous: true }));
+    const outside = path.join(root, 'dotfiles', 'wiki');
+    fs.mkdirSync(path.dirname(outside), { recursive: true });
+    fs.renameSync(path.join(paths.skillsDir, 'wiki'), outside);
+    fs.symlinkSync(outside, path.join(paths.skillsDir, 'wiki'));
+
+    await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': null, 'envctl/skills/wiki/extra.md': 'x' }, 'change skill');
+    await prepare({ previous: true });
+    expect(fs.readdirSync(outside)).toEqual(['SKILL.md']);
+    expect(read(path.join(outside, 'SKILL.md'))).toBe('v1');
+  });
+
   // Windows has no executable bit to keep.
   it.skipIf(process.platform === 'win32')('keeps a team skill script executable', async () => {
     await subscribe();

@@ -158,7 +158,8 @@ async function declaredSkillsAfter(paths: EnvironmentPaths, snapshot: RemoteSnap
   const scratch = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dshenv-sync-skills-'));
   try {
     if (fs.existsSync(paths.skillsDir)) {
-      await fs.promises.cp(paths.skillsDir, scratch, { recursive: true });
+      // Symlinks are left out as copySkillDir leaves them out; copied as links, the preview would write through them.
+      await fs.promises.cp(paths.skillsDir, scratch, { recursive: true, filter: (source) => !fs.lstatSync(source).isSymbolicLink() });
     }
     for (const key of changed) {
       const file = path.join(scratch, ...(skillPathFromKey(key) as string[]));
