@@ -16,7 +16,7 @@ import { loadLock, loadState, serializeState, serializeLock } from '../manifest/
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
-import { createEnvironmentSnapshot, restoreEnvironmentSnapshot, type EnvironmentSnapshot } from '../io/backup.js';
+import { createEnvironmentSnapshot, restoreSnapshotFiles, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { killProcessTree } from '../io/process-tree.js';
@@ -143,6 +143,7 @@ async function executeWithDsh(
   inventory: EnvironmentInventory,
   rollback: ProfileRollback,
   hmrByProfile: ReadonlyMap<string, HmrStatus>,
+  onInstalled: (operation: PlanOperation) => Promise<void>,
   options?: ApplyOptions
 ): Promise<{ success: boolean; error?: string }> {
   assertSupportedPlan(plan);
@@ -167,7 +168,9 @@ async function executeWithDsh(
   }
   if (needsCli && command) {
     const probe = await probeDsh(command);
-    const caps = capabilitiesFor(probe.version, { allowUntested: options?.allowUntested });
+    const caps = capabilitiesFor(probe.version, {
+      allowUntested: options?.allowUntested || manifest.environment?.harness?.allowUntestedVersion
+    });
     if (caps.discovery.status !== 'available') {
       throw new CapabilityError('Unsupported DSH version');
     }
@@ -216,7 +219,11 @@ async function executeWithDsh(
 
     if (operation.kind === 'remove') {
       const undoStart = rollback.undo.length;
-      rollback.undo.push(await clearManagedPatches(paths, operation.profile, operation.alias));
+      // The alias may now name the package replacing this one (removes run first); its patches belong to that entry.
+      const aliasRedeclared = Boolean(manifest.profiles[operation.profile]?.plugins[operation.alias]);
+      if (!aliasRedeclared) {
+        rollback.undo.push(await clearManagedPatches(paths, operation.profile, operation.alias));
+      }
       rollback.undo.push(await writePluginMount(paths, operation.profile, operation.alias, null));
       const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
       rollback.undo.push(async () => {
@@ -247,7 +254,9 @@ async function executeWithDsh(
       // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
       rollback.undo.length = undoStart;
       rollback.keep.push(async () => {
-        await clearManagedPatches(paths, operation.profile, operation.alias);
+        if (!aliasRedeclared) {
+          await clearManagedPatches(paths, operation.profile, operation.alias);
+        }
         await writePluginMount(paths, operation.profile, operation.alias, null);
       });
       continue;
@@ -265,6 +274,9 @@ async function executeWithDsh(
     );
     if (result.exitCode !== 0) {
       return { success: false, error: dshFailure(result, commandTimeoutMs) };
+    }
+    if (operation.kind === 'install') {
+      await onInstalled(operation);
     }
     // Only now is the package on disk to tell whether DSH loads it as a bundle.
     if (installedAsPlainPlugin(paths, operation.profile, operation.package)) {
@@ -386,13 +398,13 @@ function assertNoTeamEntryOverwritten(
 // A plugin apply installed is dshenv's to remove once the manifest drops it, as if it had been adopted.
 function recordInstalledOwnership(
   pruned: EnvironmentState['ownership'],
-  plan: EnvironmentPlan,
+  operations: PlanOperation[],
   manifest: EnvironmentManifest,
   now: string,
   operationId: string
 ): EnvironmentState['ownership'] {
   const ownership = { ...pruned };
-  for (const operation of plan.operations) {
+  for (const operation of operations) {
     const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
     if (operation.kind !== 'install' || !plugin || ownership[operation.profile]?.[plugin.package]) {
       continue;
@@ -575,6 +587,17 @@ async function planAndApply(
 
   let snapshot: EnvironmentSnapshot | null = null;
   const rollback: ProfileRollback = { undo: [], keep: [] };
+  // DSH cannot take an install back, so each one is owned as soon as it succeeds, even if apply then fails or is killed.
+  const installed: PlanOperation[] = [];
+  const recordInstalled = async (): Promise<void> => {
+    const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v1', lastApplied: '', appliedLockHash: '', profiles: {} };
+    const ownership = recordInstalledOwnership(base.ownership, installed, manifest, now, operationId);
+    await writeAtomic(paths.stateFile, serializeState({ ...base, ownership }), 'overwrite');
+  };
+  const onInstalled = async (operation: PlanOperation): Promise<void> => {
+    installed.push(operation);
+    await recordInstalled();
+  };
 
   try {
     // 1. Create snapshot before any modifications
@@ -595,7 +618,7 @@ async function planAndApply(
     // 3. Execute operations via executor (or the DSH CLI adapter)
     const execRes = options?.executor
       ? await options.executor(plan, paths)
-      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, hmrByProfile, options);
+      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, hmrByProfile, onInstalled, options);
     if (!execRes.success) {
       throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
     }
@@ -625,7 +648,7 @@ async function planAndApply(
       lastApplied: now,
       appliedLockHash: lockHash,
       profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),
-      ownership: recordInstalledOwnership(pruneOwnership(state?.ownership, manifest), plan, manifest, now, operationId),
+      ownership: recordInstalledOwnership(pruneOwnership(state?.ownership, manifest), plan.operations, manifest, now, operationId),
       ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {}),
       // Converged, so every declared skill is in DSH exactly as declared.
       ...(Object.keys(verifiedInventory.skills?.declared ?? {}).length > 0 ? { skills: verifiedInventory.skills!.declared } : {})
@@ -661,10 +684,14 @@ async function planAndApply(
       }
     }
 
-    // Rollback if snapshot was created
+    // Apply writes only lock.json and state.json; the manifest and envctl/skills may hold edits made meanwhile.
+    let restoreFailure = '';
     if (snapshot) {
       try {
-        await restoreEnvironmentSnapshot(snapshot, paths);
+        await restoreSnapshotFiles(snapshot, [paths.lockFile, paths.stateFile]);
+        if (installed.length > 0) {
+          await recordInstalled();
+        }
         await appendJournalEntry(paths, {
           operationId,
           type: 'apply-rollback',
@@ -673,15 +700,19 @@ async function planAndApply(
             reason: err instanceof Error ? err.message : String(err)
           }
         });
-      } catch {
-        // preserve original error
+      } catch (restoreErr) {
+        const reason = restoreErr instanceof Error ? restoreErr.message : String(restoreErr);
+        restoreFailure =
+          `; restoring lock.json and state.json from snapshot ${snapshot.snapshotId} also failed (${reason}), ` +
+          `run dshenv rollback ${operationId} --yes`;
       }
     }
 
     if (err instanceof DshError) {
+      err.message += restoreFailure;
       throw err;
     }
     const message = err instanceof Error ? err.message : String(err);
-    throw new DegradedError(`Apply failed: ${message}`);
+    throw new DegradedError(`Apply failed: ${message}${restoreFailure}`);
   }
 }

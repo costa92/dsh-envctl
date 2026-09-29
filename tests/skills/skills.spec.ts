@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
-import { applySkillOperation, planSkills, readSkillInventory } from '../../src/skills/skills.js';
+import { applySkillOperation, planSkills, readSkillInventory, replaceSkillDir } from '../../src/skills/skills.js';
 
 describe('planSkills', () => {
   it('installs a declared skill DSH lacks and updates one whose content differs', () => {
@@ -80,5 +80,46 @@ describe('skill files', () => {
     await applySkillOperation(paths, { kind: 'remove', name: 'wiki', reason: '' }, trash);
     expect(fs.existsSync(path.join(paths.dshSkillsDir, 'wiki'))).toBe(false);
     expect(fs.readFileSync(path.join(trash, 'skills', 'wiki', 'SKILL.md'), 'utf8')).toBe('v1');
+  });
+});
+
+describe('replaceSkillDir failures', () => {
+  let dir: string;
+  const source = () => path.join(dir, 'source');
+  const target = () => path.join(dir, 'dsh-skills', 'wiki');
+  const trash = () => path.join(dir, 'trash', 'wiki');
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-skill-replace-'));
+    fs.mkdirSync(source());
+    fs.writeFileSync(path.join(source(), 'SKILL.md'), 'new');
+    fs.mkdirSync(target(), { recursive: true });
+    fs.writeFileSync(path.join(target(), 'SKILL.md'), 'old');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('leaves no staging copy in DSH skills when copying fails', async () => {
+    vi.spyOn(fs.promises, 'cp').mockImplementationOnce(async (_from, to) => {
+      fs.mkdirSync(String(to));
+      throw new Error('ENOSPC');
+    });
+    await expect(replaceSkillDir(source(), target(), trash())).rejects.toThrow(/ENOSPC/);
+    expect(fs.readdirSync(path.dirname(target()))).toEqual(['wiki']);
+    expect(fs.readFileSync(path.join(target(), 'SKILL.md'), 'utf8')).toBe('old');
+  });
+
+  it('puts the old skill back when the new copy cannot take its place', async () => {
+    const rename = fs.promises.rename.bind(fs.promises);
+    vi.spyOn(fs.promises, 'rename')
+      .mockImplementationOnce(rename)
+      .mockRejectedValueOnce(new Error('EXDEV'))
+      .mockImplementation(rename);
+    await expect(replaceSkillDir(source(), target(), trash())).rejects.toThrow(/EXDEV/);
+    expect(fs.readdirSync(path.dirname(target()))).toEqual(['wiki']);
+    expect(fs.readFileSync(path.join(target(), 'SKILL.md'), 'utf8')).toBe('old');
   });
 });

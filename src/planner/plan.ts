@@ -222,7 +222,8 @@ export function buildPlan(
       }
 
       // A plugin may need several operations; apply requires convergence in a single run.
-      const isInstalled = Boolean(installed?.installed);
+      // A bundle entry without a dependency reads as in-box, which proves nothing about a package declared from elsewhere.
+      const isInstalled = Boolean(installed?.installed) && !(installed?.sourceType === 'in-box' && pluginManifest.source.type !== 'in-box');
       const currentVersion = installed?.version;
       const currentEnabled = isInstalled ? (installed?.enabled ?? true) : undefined;
 
@@ -385,6 +386,16 @@ export function buildPlan(
       }
     }
 
+    // DSH creates a profile only when it installs a plugin into it; without one, in-box plugins have nowhere to go.
+    if (!profInv && !operations.some((op) => op.profile === profName && op.kind === 'install')) {
+      const reason = `Profile '${profName}' does not exist yet; start DSH with --profile ${profName} once, or declare a plugin to install in it`;
+      for (const [index, op] of operations.entries()) {
+        if (op.profile === profName && op.kind !== 'blocked') {
+          operations[index] = { ...op, kind: 'blocked', reason, blockedReason: reason };
+        }
+      }
+    }
+
     const profileOperation = planProfilePatches(profName, profManifest.patches ?? [], profInv, operations);
     if (profileOperation) {
       operations.push(profileOperation);
@@ -447,10 +458,14 @@ export function buildPlan(
     .sort((a, b) => a.profile.localeCompare(b.profile));
 
   // Sort operations deterministically: profile -> package -> kind; profile patches go last, after the installs that create the profile.
+  // Removes run first, as they clear their alias's patches and mount, which a new package under that alias may already use;
+  // installs run next, as they create a profile that an in-box enable of another package writes to.
   operations.sort((a, b) => {
     if (a.profile !== b.profile) return a.profile.localeCompare(b.profile);
     const profileLevel = Number(a.alias === PROFILE_PATCHES_ALIAS) - Number(b.alias === PROFILE_PATCHES_ALIAS);
     if (profileLevel !== 0) return profileLevel;
+    const stage = (op: PlanOperation): number => (op.kind === 'remove' ? 0 : op.kind === 'install' ? 1 : 2);
+    if (stage(a) !== stage(b)) return stage(a) - stage(b);
     if (a.package !== b.package) return a.package.localeCompare(b.package);
     return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
   });

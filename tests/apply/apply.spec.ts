@@ -371,20 +371,20 @@ fs.rmSync(packageDir, { recursive: true, force: true });
     expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeUndefined();
   });
 
-  it('should restore management files when apply execution fails', async () => {
+  it('should restore the lock file when apply execution fails', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-    const original = fs.readFileSync(paths.manifestFile, 'utf8');
+    const original = fs.readFileSync(paths.lockFile, 'utf8');
 
     await expect(
       applyEnvironment(paths, {
         executor: async () => {
-          fs.writeFileSync(paths.manifestFile, 'corrupted\n');
+          fs.writeFileSync(paths.lockFile, 'corrupted\n');
           return { success: false, error: 'injected failure' };
         }
       })
     ).rejects.toThrow(/injected failure/);
 
-    expect(fs.readFileSync(paths.manifestFile, 'utf8')).toBe(original);
+    expect(fs.readFileSync(paths.lockFile, 'utf8')).toBe(original);
   });
 
   it('should write managed patches during apply configure', async () => {
