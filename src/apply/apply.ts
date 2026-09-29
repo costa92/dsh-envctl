@@ -16,10 +16,12 @@ import { loadLock, loadState, serializeState, serializeLock } from '../manifest/
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
+import { stopOnInterrupt } from '../io/interrupt.js';
 import { createEnvironmentSnapshot, restoreSnapshotFiles, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { writeAtomic } from '../io/atomic-file.js';
 import { awaitWithTreeTimeout } from '../io/process-tree.js';
+import { releaseProfileLockOfStopped } from '../io/profile-lock.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { DshError, ValidationError, DegradedError, CapabilityError } from '../errors.js';
 import { probeDsh, resolveDshCommand, type CommandSpec } from '../dsh/command.js';
@@ -73,18 +75,30 @@ function dshFailure(result: { exitCode?: number; timedOut?: boolean; stdout?: un
 
 async function runDshPluginCommand(
   command: CommandSpec,
+  profile: string,
   args: string[],
   paths: EnvironmentPaths,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal
 ): Promise<{ exitCode?: number; timedOut: boolean; stdout?: unknown; stderr?: unknown }> {
-  const subprocess = execa(command.file, [...command.args, ...args], {
+  const subprocess = execa(command.file, [...command.args, 'plugin', '--profile', profile, ...args], {
     cwd: command.cwd,
     env: { ...process.env, DSH_HOME: paths.home },
     shell: false,
     reject: false
   });
-  const { result, timedOut } = await awaitWithTreeTimeout(subprocess, timeoutMs);
+  const { result, timedOut, killed } = await awaitWithTreeTimeout(subprocess, timeoutMs, signal);
+  if (killed.length > 0) {
+    await releaseProfileLockOfStopped(path.join(paths.profilesDir, profile, 'package.json'), killed);
+  }
   return { exitCode: result.exitCode, timedOut, stdout: result.stdout, stderr: result.stderr };
+}
+
+// Stops apply between steps once dshenv is interrupted, so the failure path rolls back what it did so far.
+function assertNotInterrupted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DegradedError('Apply was interrupted');
+  }
 }
 
 interface ProfileRollback {
@@ -133,6 +147,7 @@ async function executeWithDsh(
   rollback: ProfileRollback,
   hmrByProfile: ReadonlyMap<string, HmrStatus>,
   onInstalled: (operation: PlanOperation) => Promise<void>,
+  signal: AbortSignal | undefined,
   options?: ApplyOptions
 ): Promise<{ success: boolean; error?: string }> {
   assertSupportedPlan(plan);
@@ -175,6 +190,7 @@ async function executeWithDsh(
     });
   };
   for (const operation of plan.operations) {
+    assertNotInterrupted(signal);
     if ((operation.kind === 'enable' || operation.kind === 'disable') && inventory.profiles[operation.profile]?.plugins[operation.package]?.bundle === false) {
       await setPlainPluginEnabled(operation, operation.kind === 'enable');
       continue;
@@ -229,15 +245,18 @@ async function executeWithDsh(
       const installed = inventory.profiles[operation.profile]?.plugins[operation.package];
       const wasMounted = installed?.bundle === false && installed.enabled === true;
       if ((previousIndex !== -1 || wasMounted) && hmrByProfile.get(operation.profile)?.state === 'on') {
-        await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS);
+        await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS, undefined, { signal }).catch(() => assertNotInterrupted(signal));
       }
       const removeResult = await runDshPluginCommand(
         command,
-        ['plugin', '--profile', operation.profile, 'remove', operation.package],
+        operation.profile,
+        ['remove', operation.package],
         paths,
-        commandTimeoutMs
+        commandTimeoutMs,
+        signal
       );
       if (removeResult.exitCode !== 0) {
+        assertNotInterrupted(signal);
         return { success: false, error: dshFailure(removeResult, commandTimeoutMs) };
       }
       // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
@@ -257,11 +276,15 @@ async function executeWithDsh(
 
     const result = await runDshPluginCommand(
       command,
-      ['plugin', '--profile', operation.profile, 'add', packageSpec(manifest, lock, operation)],
+      operation.profile,
+      ['add', packageSpec(manifest, lock, operation)],
       paths,
-      commandTimeoutMs
+      commandTimeoutMs,
+      signal
     );
     if (result.exitCode !== 0) {
+      // Killed because of the interrupt: report that, not the exit code it caused.
+      assertNotInterrupted(signal);
       return { success: false, error: dshFailure(result, commandTimeoutMs) };
     }
     if (operation.kind === 'install') {
@@ -494,16 +517,38 @@ export async function applyEnvironment(
   }
   // Plan only after locking so rollback/purge cannot change the files between plan and execution.
   const lockHandle = await acquireEnvironmentLock(paths);
+  // On Ctrl-C, apply stops DSH and rolls back through its failure path; the interrupt waits for that and the lock release.
+  const interrupt = new AbortController();
+  let settled!: () => void;
+  const done = new Promise<void>((resolve) => (settled = resolve));
+  const dispose = stopOnInterrupt(async () => {
+    interrupt.abort();
+    await done;
+  });
+  let outcome: { result: ApplyResult } | { error: unknown };
   try {
-    return await planAndApply(paths, options);
+    outcome = { result: await planAndApply(paths, options, interrupt.signal) };
+  } catch (error) {
+    outcome = { error };
   } finally {
     await lockHandle.release();
+    dispose();
+    settled();
   }
+  if (interrupt.signal.aborted) {
+    // The signal ends dshenv once the cleanup above returns; reporting the rollback as a failure would only race it.
+    await new Promise(() => {});
+  }
+  if ('error' in outcome) {
+    throw outcome.error;
+  }
+  return outcome.result;
 }
 
 async function planAndApply(
   paths: EnvironmentPaths,
-  options?: ApplyOptions
+  options?: ApplyOptions,
+  signal?: AbortSignal
 ): Promise<ApplyResult> {
   if (!fs.existsSync(paths.manifestFile)) {
     throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
@@ -607,11 +652,12 @@ async function planAndApply(
     // 3. Execute operations via executor (or the DSH CLI adapter)
     const execRes = options?.executor
       ? await options.executor(plan, paths)
-      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, hmrByProfile, onInstalled, options);
+      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, hmrByProfile, onInstalled, signal, options);
     if (!execRes.success) {
       throw new DegradedError(`Apply execution failed: ${execRes.error ?? 'Unknown executor error'}`);
     }
     // Replaced and removed skills go to trash rather than away, since DSH may hold edits nobody pulled.
+    assertNotInterrupted(signal);
     const trashRoot = path.join(paths.trashDir, operationId);
     for (const operation of plan.skillOperations) {
       rollback.undo.push(await applySkillOperation(paths, operation, trashRoot));

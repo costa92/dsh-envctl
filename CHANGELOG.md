@@ -28,6 +28,7 @@
 ### 修复
 
 - `apply` 每装成功一个插件就记入所有权，中途失败或被中断时已装的插件不再变成未受管；`rollback` 保留由 `apply` 安装、仍在 Profile 中的插件的所有权。
+- `apply` 被 Ctrl-C、`SIGTERM` 或 `SIGHUP` 中断时，先结束正在运行的 DSH 插件命令，撤销本次改动并恢复 `lock.json` 与 `state.json`，释放 `dshenv.lock` 和被结束的 DSH 留下的 `package.json.lock`，再按原信号退出；此前中断会跳过回滚，并可能留下需要手工删除的 Profile 锁。等待期间再按一次 Ctrl-C 立即退出。插件命令超时被结束时同样会释放它留下的 Profile 锁。
 - 同一 Profile 内先执行卸载再执行安装，同一别名换成另一个包时，卸载旧包不再清掉新包刚写入的 patch 与挂载。
 - Profile 中只出现在 bundle 列表、没有安装的包，按清单声明的 npm、Git 或本地来源安装，不再被当作已同步。
 - 不存在且本次计划也不会创建的 Profile，其中的 in-box 插件操作在 `plan` 阶段标为 blocked，不再到 `apply` 建完快照后才报错。

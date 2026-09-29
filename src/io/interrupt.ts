@@ -1,0 +1,43 @@
+// Ctrl-C ends dshenv without running async cleanup, so a detached dsh web would outlive it and an apply would stop
+// halfway. One handler runs every registered cleanup to the end and then lets the signal end dshenv as it would have;
+// a second Ctrl-C meanwhile ends dshenv at once.
+const INTERRUPTS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+const interruptCleanups = new Set<() => Promise<void>>();
+let interrupting = false;
+
+function exitBy(signal: NodeJS.Signals): void {
+  for (const name of INTERRUPTS) process.off(name, onInterrupt);
+  process.kill(process.pid, signal);
+}
+
+// The handler stays registered while the cleanups run: execa's exit hook re-raises the signal as soon as it is the
+// last listener, which would end dshenv before any cleanup finished.
+function onInterrupt(signal: NodeJS.Signals): void {
+  if (interrupting) {
+    exitBy(signal);
+    return;
+  }
+  interrupting = true;
+  const cleanups = [...interruptCleanups];
+  interruptCleanups.clear();
+  void Promise.allSettled(cleanups.map((cleanup) => cleanup())).then(() => exitBy(signal));
+}
+
+// Whether an interrupt is being handled; the signal, not the caller, ends dshenv then.
+export function isInterrupting(): boolean {
+  return interrupting;
+}
+
+// Registers a cleanup to run if dshenv is interrupted; the returned function unregisters it.
+export function stopOnInterrupt(cleanup: () => Promise<void>): () => void {
+  if (interruptCleanups.size === 0 && !interrupting) {
+    for (const name of INTERRUPTS) process.on(name, onInterrupt);
+  }
+  interruptCleanups.add(cleanup);
+  return () => {
+    interruptCleanups.delete(cleanup);
+    if (interruptCleanups.size === 0 && !interrupting) {
+      for (const name of INTERRUPTS) process.off(name, onInterrupt);
+    }
+  };
+}

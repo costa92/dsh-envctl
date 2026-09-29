@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { withProfilePackageLock } from '../../src/io/profile-lock.js';
+import { releaseProfileLockOfStopped, withProfilePackageLock } from '../../src/io/profile-lock.js';
 
 describe('withProfilePackageLock', () => {
   let dir: string;
@@ -83,5 +83,21 @@ describe('withProfilePackageLock', () => {
     );
     expect(ran).toBe(false);
     expect(fs.readFileSync(lockPath, 'utf8')).toBe('999999\n');
+  });
+
+  it('removes a lock left by a process dshenv stopped, and no other', async () => {
+    // 999999 stands for a stopped process: no pid that high is running.
+    fs.writeFileSync(lockPath, '999999\n');
+    await releaseProfileLockOfStopped(packageJson, [123, 999999]);
+    expect(fs.existsSync(lockPath)).toBe(false);
+
+    fs.writeFileSync(lockPath, '999999\n');
+    await releaseProfileLockOfStopped(packageJson, [123]);
+    expect(fs.existsSync(lockPath)).toBe(true);
+
+    // A holder that still runs is left alone even if dshenv signalled it.
+    fs.writeFileSync(lockPath, `${process.pid}\n`);
+    await releaseProfileLockOfStopped(packageJson, [process.pid]);
+    expect(fs.existsSync(lockPath)).toBe(true);
   });
 });
