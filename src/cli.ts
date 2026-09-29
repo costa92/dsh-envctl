@@ -12,6 +12,7 @@ import { registerOverlayCommands } from './commands/overlay.js';
 import { registerNewCommand } from './commands/new.js';
 import { registerRemoteCommands } from './commands/remote.js';
 import { registerRuntimeCommand } from './commands/runtime.js';
+import { registerWebCommands } from './commands/web.js';
 import { registerSelfUpdateCommand } from './commands/self-update.js';
 import { registerPullCommand } from './commands/pull.js';
 import { registerToolsCommands } from './commands/tools.js';
@@ -68,6 +69,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   registerNewCommand(ctx, plugins);
   registerRemoteCommands(ctx);
   registerRuntimeCommand(ctx);
+  registerWebCommands(ctx);
   registerPullCommand(ctx);
   registerToolsCommands(ctx);
   registerSelfUpdateCommand(ctx, { version, packageRoot, run: io?.selfUpdateRunner });

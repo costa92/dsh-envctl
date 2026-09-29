@@ -143,6 +143,11 @@ fi
 stop_web
 step "runtime --start starts its own dsh web and reports the plugin loaded" 0 "${run[@]}" runtime --profile web --start
 step "runtime --start leaves no dsh web running" 0 bash -c "! pgrep -f -- '[-]-profile web --no-open --port 0' >/dev/null"
+step "web start leaves dsh web running in the background" 0 "${run[@]}" web start --profile web
+step "runtime uses the dsh web that web start left running" 0 env -u DSHENV_DSH_URL "${run[@]}" runtime --profile web
+step "web status reports it running" 0 bash -c '"$@" web status | grep -q "^web  running  pid "' _ "${run[@]}"
+step "web stop stops it" 0 "${run[@]}" web stop --profile web
+step "web stop leaves no dsh web running" 0 bash -c "! pgrep -f -- '[-]-profile web --no-open --port 0' >/dev/null"
 
 # 6. Rollback restores the manifest files; apply converges again.
 step "rollback dry-run" 0 "${run[@]}" rollback --dry-run

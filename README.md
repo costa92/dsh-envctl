@@ -321,7 +321,8 @@ export DSHENV_DSH_URL='http://127.0.0.1:3080/?token=...'   # dsh web 启动时�
 dshenv runtime --profile web
 ```
 
-- 没有在运行的 `dsh web` 时，`dshenv runtime --profile web --start` 会自己启动一个（`dsh --profile web --no-open --port 0`），核对完即停止；不读取 `DSHENV_DSH_URL`，Profile 须已存在。
+- 没有设置 `DSHENV_DSH_URL` 时，使用 `dshenv web start` 为该 Profile 启动并仍在运行的 dsh web（见第 24 节）。
+- 也可以用 `dshenv runtime --profile web --start` 临时启动一个（`dsh --profile web --no-open --port 0`），核对完即停止；它不读取 `DSHENV_DSH_URL`，Profile 须已存在。
 - 地址只从环境变量 `DSHENV_DSH_URL` 读取。它等同于登录凭据，dshenv 不会输出或记录其中的 token；默认只连本机，连其他主机需加 `--allow-remote`。
 - 只适用于 `dsh web`；headless、sdk、acp 运行不开 web 服务，无法核对（`--start` 会报 `did not start dsh web`）。
 - 每个插件的结果：`loaded`、`unloaded`（符合清单），`loading`（热加载进行中，也覆盖 `apply` 之后 DSH 还未热加载的瞬间；若持续为 `loading`，说明热加载没有生效，需重启 DSH；带 `is waiting for services it injects` 时，是插件依赖的 service 还没有任何插件提供，检查是否漏装或停用了提供它的插件），`unverifiable`（包没有可核对的插件行），`missing`、`failed`、`not-loaded`、`still-loaded`（与清单不符）。
@@ -414,6 +415,23 @@ dshenv apply --yes                                         # 写进 DSH
 - 目标与 `tools list` 显示的一致：先找 `--preset` 指定的预设（不指定时用 DSH 当前的默认预设），其中没有该工具时改 profile 级那一行；只有别的预设里有时报错，提示加 `--preset`。
 - overlay 已声明同一个 id 的条目时，写 base 会被它覆盖而不生效，因此会拒绝，请改用 `--layer overlay`。
 - 不在 Profile 组合里的工具（如默认未装的 `tool-lsp`、`tool-terminal`）不能用 `enable` 打开，需先安装对应的包。
+
+
+### 24. `dshenv web`
+
+在后台启动、停止和查看 dsh web，不必占着一个终端：
+
+```bash
+dshenv web start -p web            # 后台启动，打印浏览器地址；--port 3080 指定端口，默认随机空闲端口
+dshenv web status                  # 列出 dshenv 启动的 dsh web：运行状态、pid、地址（不含 token）
+dshenv runtime -p web              # 没设 DSHENV_DSH_URL 时自动连这个 dsh web
+dshenv web stop -p web             # 停止它以及它启动的子进程（如 stdio MCP 服务），等全部退出后返回
+```
+
+- 启动命令为 `dsh --profile <P> --no-open --port <端口>`，DSH CLI 的选择与其他命令相同（`DSH_CLI`、`--harness-source`、`environment.harness.sourceDir`、`PATH`）。dsh web 在独立的进程组中运行，dshenv 退出或关闭终端后继续运行。
+- 地址（含登录 token）与 pid 记在 `envctl/run/<profile>.json`，输出写到 `envctl/run/<profile>.log`，两者权限均为 `0600`；不在快照、同步与团队仓库范围内。`start` 打印一次地址，`status` 从不打印 token。
+- 已在运行时 `start` 只报告现有的那个；它自己退出后，`status` 显示 `not running`，再次 `start` 会启动新的。`stop` 只停止 pid 与命令行都对得上的进程，被系统复用的 pid 不会被误停。
+- Profile 必须已存在（DSH 会自动创建不存在的 Profile）；不带 web 应用的 Profile（headless、acp 等）会报 `did not start dsh web`，60 秒内没有打印地址也会停止并报错。
 
 ---
 

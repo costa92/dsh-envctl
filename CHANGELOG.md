@@ -6,6 +6,7 @@
 
 ### 新增
 
+- `dshenv web start|stop|status`：在后台启动 dsh web（独立进程组，dshenv 退出后继续运行）并打印浏览器地址，停止时连同它启动的子进程一起停止；地址与 pid 记在权限为 `0600` 的 `envctl/run/<profile>.json`，`runtime` 在没有设置 `DSHENV_DSH_URL` 时自动使用它。
 - `dshenv runtime --start`：没有在运行的 `dsh web` 时自己启动一个（随机端口、不开浏览器、不打印 token），核对完即停止它和它启动的子进程；不带 web 应用的 Profile 报出 DSH 自己的错误。
 
 ## 0.3.0 - 2026-09-28
