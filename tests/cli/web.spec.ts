@@ -37,6 +37,8 @@ describe('CLI web', () => {
       return false;
     }
   };
+  // Windows has no process groups; there the fake dsh web is node itself, with nothing under it.
+  const killDsh = (pid: number) => process.kill(process.platform === 'win32' ? pid : -pid, 'SIGKILL');
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const withEnv = async (name: string, value: string, fn: () => Promise<void>) => {
     const previous = process.env[name];
@@ -77,7 +79,7 @@ describe('CLI web', () => {
   afterEach(async () => {
     if (fs.existsSync(recordFile())) {
       try {
-        process.kill(-record().pid, 'SIGKILL');
+        killDsh(record().pid);
       } catch {
         // Already stopped.
       }
@@ -98,7 +100,8 @@ describe('CLI web', () => {
     expect(started.stdout).toContain(`  URL: ${fake.url}\n`);
     expect(started.stdout).toContain(`  Log: ${path.join(tempHome, 'envctl', 'run', 'web.log')}\n`);
     expect(started.stdout).toContain('Stop it with: dshenv web stop -p web\n');
-    expect(fs.statSync(recordFile()).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX permission bits.
+    if (process.platform !== 'win32') expect(fs.statSync(recordFile()).mode & 0o777).toBe(0o600);
     expect(alive(record().pid)).toBe(true);
 
     const again = await run(['web', 'start', '-p', 'web']);
@@ -141,7 +144,7 @@ describe('CLI web', () => {
     serving();
     await run(['web', 'start', '-p', 'web']);
     const { pid } = record();
-    process.kill(-pid, 'SIGKILL');
+    killDsh(pid);
     while (alive(pid)) await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect((await run(['web', 'status'])).stdout).toBe(`web  not running  pid ${pid}\n`);
@@ -211,7 +214,7 @@ describe('CLI web', () => {
     serving();
     await run(['web', 'start', '-p', 'web']);
     const stale = record();
-    process.kill(-stale.pid, 'SIGKILL');
+    killDsh(stale.pid);
     while (alive(stale.pid)) await sleep(20);
     // Whatever gets the pid next, in a process group of its own like dsh web's.
     const other = execa(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore', reject: false });
@@ -219,8 +222,18 @@ describe('CLI web', () => {
     fs.writeFileSync(recordFile(), JSON.stringify({ ...stale, pid: otherPid }));
     try {
       await withEnv('PATH', path.join(tempHome, 'no-bin'), async () => {
-        expect((await run(['web', 'status'])).stdout).toBe(`web  not running  pid ${otherPid}\n`);
-        expect((await run(['web', 'stop', '-p', 'web'])).stdout).toBe('No dsh web started by dshenv is running for profile web.\n');
+        if (process.platform === 'linux') {
+          // /proc still tells when the process started.
+          expect((await run(['web', 'status'])).stdout).toBe(`web  not running  pid ${otherPid}\n`);
+          expect((await run(['web', 'stop', '-p', 'web'])).stdout).toBe('No dsh web started by dshenv is running for profile web.\n');
+        } else {
+          // Without ps (or PowerShell) nothing tells when it started, so dshenv cannot rule out that it is dsh web.
+          expect((await run(['web', 'status'])).stdout).toBe(`web  unknown (cannot tell whether the pid is still this dsh web)  pid ${otherPid}\n`);
+          const stop = await run(['web', 'stop', '-p', 'web']);
+          expect(stop.code).toBe(1);
+          expect(stop.stderr).toMatch(new RegExp(`Cannot tell whether pid ${otherPid} is still the dsh web`));
+          expect(fs.existsSync(recordFile())).toBe(true);
+        }
       });
       expect(alive(otherPid)).toBe(true);
     } finally {
@@ -229,7 +242,8 @@ describe('CLI web', () => {
     }
   });
 
-  it('treats what a crashed dsh web left behind as not running, and clears it before starting anew', async () => {
+  // Leftovers are told by the process group dsh web leads, which Windows does not have.
+  it.skipIf(process.platform === 'win32')('treats what a crashed dsh web left behind as not running, and clears it before starting anew', async () => {
     const childPidFile = path.join(tempHome, 'child-pid');
     fakeDsh(`import { spawn } from 'node:child_process';
 import fs from 'node:fs';

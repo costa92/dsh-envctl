@@ -131,10 +131,13 @@ describe('launchDshWeb', () => {
     try {
       expect(web.url).toBe('http://127.0.0.1:4567/?token=abc');
       expect(fs.readFileSync(logFile, 'utf8')).toContain('ready');
-      expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
-      // Its own process group and session: it does not stop with the terminal or process that launched it.
-      expect(Number((await execa('ps', ['-o', 'pgid=', '-p', String(web.pid)])).stdout.trim())).toBe(web.pid);
-      expect((await execa('ps', ['-o', 'args=', '-p', String(web.pid)])).stdout).toContain('--profile web --no-open --port 3090');
+      // Windows has neither POSIX permission bits nor process groups (nor ps).
+      if (process.platform !== 'win32') {
+        expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
+        // Its own process group and session: it does not stop with the terminal or process that launched it.
+        expect(Number((await execa('ps', ['-o', 'pgid=', '-p', String(web.pid)])).stdout.trim())).toBe(web.pid);
+        expect((await execa('ps', ['-o', 'args=', '-p', String(web.pid)])).stdout).toContain('--profile web --no-open --port 3090');
+      }
 
       expect(await dshWebState(web.pid, web.leaderStart)).toBe('running');
       // A process that got the pid later started at another time.
@@ -147,7 +150,8 @@ describe('launchDshWeb', () => {
 });
 
 // Ctrl-C ends dshenv without running async cleanup, so startDshWeb must stop the detached dsh web itself.
-describe('startDshWeb when dshenv is interrupted', () => {
+// Windows cannot deliver SIGINT to another process (Node's kill ends it outright), so there is nothing to test there.
+describe.skipIf(process.platform === 'win32')('startDshWeb when dshenv is interrupted', () => {
   let dir: string;
 
   beforeEach(() => {
