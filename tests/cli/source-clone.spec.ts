@@ -86,6 +86,21 @@ describe('CLI source clone --profile', () => {
     }
   });
 
+  it('still takes the ref as a second positional argument', async () => {
+    await runCli(['source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome]);
+    fs.writeFileSync(path.join(upstream, 'extra.txt'), 'second');
+    await execa('git', ['add', '.'], { cwd: upstream });
+    await execa('git', ['commit', '-m', 'second'], { cwd: upstream });
+    const newHead = (await execa('git', ['rev-parse', 'HEAD'], { cwd: upstream })).stdout.trim();
+    const branch = (await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: upstream })).stdout.trim();
+    const cloneDir = path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin');
+
+    const code = await runCli(['source', 'pull', cloneDir, `origin/${branch}`, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome]);
+    expect(code).toBe(0);
+    const gitLock = loadLock(fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8')).profiles.web.plugins.demo.source;
+    expect(gitLock.type === 'git' && gitLock.commit).toBe(newHead);
+  });
+
   it('should report the only managed clone via source status --profile', async () => {
     await runCli([
       'source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome

@@ -13,6 +13,9 @@ export default function setup(): () => void {
   process.env.PATH = `${binDir}${path.delimiter}${process.env.PATH ?? ''}`;
   const originalDshCli = process.env.DSH_CLI;
   delete process.env.DSH_CLI;
+  // A default profile exported in the developer's shell would fill in every -p the tests leave out.
+  const originalProfile = process.env.DSHENV_PROFILE;
+  delete process.env.DSHENV_PROFILE;
   // Commits made in tests must not depend on the developer's git identity or on signing being set up.
   const gitConfig = Object.entries({ 'user.name': 'dshenv-test', 'user.email': 'test@example.invalid', 'commit.gpgsign': 'false', 'tag.gpgsign': 'false' });
   process.env.GIT_CONFIG_COUNT = String(gitConfig.length);
@@ -22,6 +25,7 @@ export default function setup(): () => void {
   });
   return () => {
     if (originalDshCli !== undefined) process.env.DSH_CLI = originalDshCli;
+    if (originalProfile !== undefined) process.env.DSHENV_PROFILE = originalProfile;
     fs.rmSync(binDir, { recursive: true, force: true });
   };
 }

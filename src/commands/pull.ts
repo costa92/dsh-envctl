@@ -1,6 +1,6 @@
 import { ValidationError } from '../errors.js';
 import { pullProfilePatches, type PullResult } from '../profile-patches/pull.js';
-import { resolveCliPaths, resolveCliOverlay, profileOption, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 
 export function renderPullResult(result: PullResult): string {
   if (result.changes.length === 0 && !result.skills) {
@@ -35,7 +35,7 @@ export function registerPullCommand(ctx: CommandContext): void {
   program
     .command('pull')
     .description('Take patch entries and loose skills changed in DSH into the manifest')
-    .option('-p, --profile <name>', 'only this profile', profileOption)
+    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
     .option('--prefer <side>', 'when both DSH and the manifest changed since the last apply: dsh or manifest')
     .option('--dry-run', 'show what would be taken over without writing')
     .action(async (cmdOpts) => {

@@ -10,7 +10,7 @@ import { ValidationError } from '../errors.js';
 import type { CaptureDocument } from '../domain.js';
 import { assertNotRemoteOwned } from '../remote/ownership.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write.js';
-import { resolveCliPaths, resolveCliOverlay, profileOption, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 import { pullProfilePatches } from '../profile-patches/pull.js';
 import { renderPullResult } from './pull.js';
 
@@ -35,7 +35,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
     .command('capture')
     .description('Capture existing DSH environment into reviewable candidate manifest')
     .option('-o, --output <file>', 'output candidate manifest file')
-    .option('--profile <name>', 'capture a single profile', profileOption)
+    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);

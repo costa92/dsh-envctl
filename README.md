@@ -115,6 +115,19 @@ DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容�
 
 ## 命令参考
 
+### 选择 Profile（`-p`）
+
+`-p, --profile <name>` 是 DSH Profile 的名字，即 `profiles/<name>/` 的目录名和清单 `profiles:` 下的键。所有命令用同一套规则：
+
+- 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`runtime` 在清单只声明一个 Profile 时仍直接用它。
+- 按 Profile 过滤的命令（`list`、`pull`、`capture`、`overlay show`、`restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效。
+- `source`、`new` 的 `-p` 表示把克隆或新建的包登记到该 Profile，不写就不登记。
+
+```bash
+export DSHENV_PROFILE=web      # 之后 dshenv web start、dshenv runtime 等可以省略 -p
+dshenv disable agent-teams     # 等同于 dshenv disable agent-teams -p web
+```
+
 ### 1. `dshenv doctor`
 探测 DSH 运行时能力并检查环境就绪状态。
 
@@ -270,6 +283,7 @@ dshenv update agent-teams --profile web --to 0.1.22
 
 ```bash
 dshenv config get agent-teams --profile web
+dshenv config get agent-teams taskPlanning --profile web   # 只读一个字段
 dshenv config validate agent-teams --profile web
 dshenv config set agent-teams taskPlanning captain --profile web
 ```
@@ -430,7 +444,7 @@ dshenv apply --yes                                         # 写进 DSH
 
 ```bash
 dshenv web start -p web            # 后台启动，打印浏览器地址；--port 3080 指定端口，默认随机空闲端口
-dshenv web status                  # 列出 dshenv 启动的 dsh web：运行状态、pid、地址（不含 token）
+dshenv web status                  # 列出 dshenv 启动的 dsh web：运行状态、pid、地址（不含 token）；-p 只看一个 Profile
 dshenv runtime -p web              # 没设 DSHENV_DSH_URL 时自动连这个 dsh web
 dshenv web stop -p web             # 停止它以及它启动的子进程（如 stdio MCP 服务），等全部退出后返回
 ```

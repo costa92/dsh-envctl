@@ -131,6 +131,9 @@ describe('CLI web', () => {
     const json = JSON.parse((await run(['web', 'status', '--json'])).stdout);
     expect(json).toEqual({ webs: [expect.objectContaining({ profile: 'web', pid, running: true, endpoint: fake.origin.replace('http://', '') })] });
     expect(JSON.stringify(json)).not.toContain('SECRET-TOKEN-123');
+    expect((await run(['web', 'status', '-p', 'web'])).stdout).toBe(status.stdout);
+    expect((await run(['web', 'status', '-p', 'other'])).stdout).toBe('No dsh web started by dshenv for profile other.\n');
+    expect(JSON.parse((await run(['web', 'status', '-p', 'other', '--json'])).stdout)).toEqual({ webs: [] });
 
     const stopped = await run(['web', 'stop', '-p', 'web']);
     expect(stopped.code).toBe(0);

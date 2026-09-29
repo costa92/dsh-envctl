@@ -212,7 +212,7 @@ describe('CLI runtime', () => {
     await serve({ bundles: [agentTeamsBundle()], plugins: [agentTeamsEntry('active')] });
     const out = await run(['runtime']);
     expect(out.code).toBe(3);
-    expect(out.stderr).toMatch(/several profiles \(web, cli\); pass --profile/);
+    expect(out.stderr).toMatch(/Missing -p, --profile <name>: choose one of cli, web, or set DSHENV_PROFILE/);
     expect((await run(['runtime', '--profile', 'web'])).code).toBe(0);
   });
 
