@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execa } from 'execa';
 import { ValidationError, DshError } from '../errors.js';
+import { isValidProfileName } from '../manifest/schema.js';
 
 export interface GitWorkingTreeStatus {
   isGitRepo: boolean;
@@ -23,7 +24,7 @@ export function managedGitSourceDir(
   profileName: string,
   packageName: string
 ): string {
-  if (!/^[-A-Za-z0-9._]+$/.test(profileName)) {
+  if (!isValidProfileName(profileName)) {
     throw new ValidationError(`Invalid profile name: ${profileName}`);
   }
   const safePackage = packageName.replaceAll('/', '_').replaceAll('\\', '_');
@@ -106,6 +107,13 @@ export async function inspectGitWorkingTree(
   }
 }
 
+// git reads an argument starting with '-' as an option, wherever it stands.
+function assertNotOptionLike(kind: string, value: string): void {
+  if (value.startsWith('-')) {
+    throw new ValidationError(`${kind} must not start with -: ${value}`);
+  }
+}
+
 export async function cloneManagedGit(
   url: string,
   targetDir: string,
@@ -115,14 +123,14 @@ export async function cloneManagedGit(
     throw new ValidationError(`Target directory must be absolute: ${targetDir}`);
   }
 
-  await fs.promises.mkdir(path.dirname(targetDir), { recursive: true });
-
-  const cloneArgs = ['clone', url, targetDir];
+  assertNotOptionLike('Git URL', url);
   if (ref) {
-    cloneArgs.push('--branch', ref);
+    assertNotOptionLike('Git ref', ref);
   }
 
-  await execa('git', cloneArgs, { shell: false, timeout: 60000 });
+  await fs.promises.mkdir(path.dirname(targetDir), { recursive: true });
+
+  await execa('git', ['clone', ...(ref ? ['--branch', ref] : []), '--', url, targetDir], { shell: false, timeout: 60000 });
 
   const commitRes = await execa('git', ['rev-parse', 'HEAD'], {
     cwd: targetDir,
@@ -137,6 +145,7 @@ export async function safeFastForwardManagedGit(
   repoDir: string,
   targetCommitOrRef: string
 ): Promise<{ previousCommit: string; newCommit: string }> {
+  assertNotOptionLike('Git ref', targetCommitOrRef);
   const status = await inspectGitWorkingTree(repoDir);
   if (!status.isGitRepo) {
     throw new ValidationError(`Directory is not a git repository: ${repoDir}`);
