@@ -14,6 +14,8 @@ interface Step {
   run?: string;
   with?: Record<string, unknown>;
   env?: Record<string, string>;
+  if?: string;
+  'continue-on-error'?: boolean;
 }
 interface Workflow {
   on?: unknown;
@@ -153,25 +155,58 @@ describe('release workflow', () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  it('runs on v* tags with permission to create releases and an OIDC token for trusted publishing, after the same quality gates as CI', () => {
-    expect(release.on).toEqual({ push: { tags: ['v*'] } });
+  it('runs on v* tags, and by hand as a publish check, with permission to create releases and an OIDC token for trusted publishing, after the same quality gates as CI', () => {
+    expect(release.on).toEqual({ push: { tags: ['v*'] }, workflow_dispatch: null });
     expect(release.permissions).toEqual({ contents: 'write', 'id-token': 'write' });
     const runs = allSteps(release).flatMap((step) => (step.run && !step.id ? [step.run.trim()] : []));
     expect(runs.slice(0, 4)).toEqual(['pnpm install --frozen-lockfile', 'pnpm typecheck', 'pnpm test', 'pnpm build']);
+    for (const id of ['verify-tag', 'notes']) {
+      expect(allSteps(release).find((step) => step.id === id)?.if).toBe("github.event_name == 'push'");
+    }
   });
 
-  it('publishes the packed tarball with provenance, through trusted publishing or NPM_TOKEN, before creating the GitHub release', () => {
+  it('publishes a tag through trusted publishing first and with NPM_TOKEN only when that fails, before creating the GitHub release', () => {
     const steps = allSteps(release);
     const setupNode = steps.find((step) => step.uses?.startsWith('actions/setup-node@'));
     expect(setupNode?.with?.['registry-url']).toBe('https://registry.npmjs.org');
-    const publish = steps.findIndex((step) => step.run?.trim() === 'npm publish ./dist/*.tgz --access public --provenance --loglevel verbose');
-    expect(publish).toBeGreaterThan(-1);
-    expect(steps[publish].env).toEqual({ NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' });
+    const oidc = steps.findIndex((step) => step.id === 'publish-oidc');
+    expect(steps[oidc]).toMatchObject({ if: "github.event_name == 'push'", 'continue-on-error': true });
+    expect(steps[oidc].run?.trim()).toBe('npm publish ./dist/*.tgz --access public --loglevel verbose');
+    expect(steps[oidc].env).toBeUndefined();
+    const token = steps.findIndex((step) => step.id === 'publish-token');
+    expect(steps[token].if).toBe("github.event_name == 'push' && steps.publish-oidc.outcome == 'failure'");
+    expect(steps[token].env).toEqual({ NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' });
+    expect(steps[token].run).toContain('::warning::');
+    expect(steps[token].run).toContain('npm publish ./dist/*.tgz --access public --provenance --loglevel verbose');
     // Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
     const upgrade = steps.findIndex((step) => step.run?.trim() === 'npm install -g npm@^11.5.1');
     expect(upgrade).toBeGreaterThan(-1);
-    expect(upgrade).toBeLessThan(publish);
-    expect(publish).toBeLessThan(steps.findIndex((step) => step.run?.startsWith('gh release create')));
+    expect(upgrade).toBeLessThan(oidc);
+    expect(oidc).toBeLessThan(token);
+    const create = steps.findIndex((step) => step.run?.startsWith('gh release create'));
+    expect(token).toBeLessThan(create);
+    expect(steps[create].if).toBe("github.event_name == 'push'");
+  });
+
+  it('checks by hand, without publishing, that trusted publishing gets a token and NPM_TOKEN still works', async () => {
+    const steps = allSteps(release);
+    const check = steps.find((step) => step.id === 'check-oidc')!;
+    expect(check.if).toBe("github.event_name == 'workflow_dispatch'");
+    expect(check.run).toContain('npm publish ./dist/*.tgz --dry-run --force --access public --loglevel verbose');
+    const whoami = steps.find((step) => step.id === 'check-token')!;
+    expect(whoami).toMatchObject({ if: "github.event_name == 'workflow_dispatch' && !cancelled()", env: { NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' } });
+    expect(whoami.run?.trim()).toBe('npm whoami');
+
+    const bin = path.join(workDir, 'bin');
+    fs.mkdirSync(bin);
+    const fakeNpm = (log: string) => fs.writeFileSync(path.join(bin, 'npm'), `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(log)} >&2\n`, { mode: 0o755 });
+    const env = { PATH: `${bin}:${process.env.PATH}` };
+    fakeNpm('npm verbose oidc Successfully retrieved and set token');
+    expect((await runStep('check-oidc', env, workDir)).exitCode).toBe(0);
+    fakeNpm('npm verbose oidc Failed token exchange request with body message: OIDC token exchange error - package not found');
+    const failed = await runStep('check-oidc', env, workDir);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stdout).toContain('::error::npm trusted publishing did not get a token: npm verbose oidc Failed token exchange');
   });
 
   it('accepts only the tag that matches the package.json version', async () => {
