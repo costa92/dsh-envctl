@@ -68,20 +68,33 @@ export async function stopProcessGroup(pid: number): Promise<void> {
   }
 }
 
-// Ctrl-C ends dshenv without running async cleanup, and a detached dsh web would outlive it: stop it here,
-// then let the signal end dshenv as it would have. Returns a function that removes the handlers.
-export function stopOnInterrupt(cleanup: () => void): () => void {
-  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-  const handler = (signal: NodeJS.Signals): void => {
-    dispose();
-    cleanup();
-    process.kill(process.pid, signal);
+// Ctrl-C ends dshenv without running async cleanup, and a detached dsh web would outlive it. One handler runs
+// every registered cleanup to the end (SIGTERM, then SIGKILL) and then lets the signal end dshenv as it would have;
+// a second Ctrl-C meanwhile ends dshenv at once.
+const INTERRUPTS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+const interruptCleanups = new Set<() => Promise<void>>();
+let interrupting = false;
+
+function onInterrupt(signal: NodeJS.Signals): void {
+  interrupting = true;
+  for (const name of INTERRUPTS) process.off(name, onInterrupt);
+  const cleanups = [...interruptCleanups];
+  interruptCleanups.clear();
+  void Promise.allSettled(cleanups.map((cleanup) => cleanup())).then(() => process.kill(process.pid, signal));
+}
+
+// Registers a cleanup to run if dshenv is interrupted; the returned function unregisters it.
+export function stopOnInterrupt(cleanup: () => Promise<void>): () => void {
+  if (interruptCleanups.size === 0) {
+    for (const name of INTERRUPTS) process.on(name, onInterrupt);
+  }
+  interruptCleanups.add(cleanup);
+  return () => {
+    interruptCleanups.delete(cleanup);
+    if (interruptCleanups.size === 0) {
+      for (const name of INTERRUPTS) process.off(name, onInterrupt);
+    }
   };
-  const dispose = (): void => {
-    for (const signal of signals) process.off(signal, handler);
-  };
-  for (const signal of signals) process.on(signal, handler);
-  return dispose;
 }
 
 // Whether the dsh web dshenv launched for the profile still runs under this pid; a reused pid is not it.
@@ -137,8 +150,8 @@ export async function launchDshWeb(profile: string, options: LaunchDshWebOptions
   }
   const child = spawnDshWeb(profile, command, options);
   // Nothing else knows about this dsh web until the caller has its pid and URL.
-  const dispose = stopOnInterrupt(() => {
-    if (child.pid !== undefined) signalGroup(child.pid, 'SIGTERM');
+  const dispose = stopOnInterrupt(async () => {
+    if (child.pid !== undefined) await stopProcessGroup(child.pid);
   });
   try {
     return await awaitUrl(profile, child, options);
@@ -157,6 +170,8 @@ async function awaitUrl(profile: string, child: ReturnType<typeof spawnDshWeb>, 
 
   const deadline = Date.now() + timeoutMs;
   for (;;) {
+    // The cleanup is stopping this dsh web; its exit is not a failure to report, the signal ends dshenv.
+    if (interrupting) await new Promise(() => {});
     const output = fs.readFileSync(options.logFile, 'utf8');
     const url = URL_PATTERN.exec(output)?.[0];
     if (url && child.pid !== undefined) {
@@ -180,8 +195,8 @@ export async function startDshWeb(profile: string, options: Omit<LaunchDshWebOpt
   const removeDir = () => fs.rmSync(dir, { recursive: true, force: true });
   let pid: number | undefined;
   // launchDshWeb stops dsh web if interrupted while it starts; this also covers the check and the log directory.
-  const dispose = stopOnInterrupt(() => {
-    if (pid !== undefined) signalGroup(pid, 'SIGTERM');
+  const dispose = stopOnInterrupt(async () => {
+    if (pid !== undefined) await stopProcessGroup(pid);
     removeDir();
   });
   try {
