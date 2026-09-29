@@ -129,3 +129,56 @@ describe('launchDshWeb', () => {
     expect(await dshWebRunning(web.pid, 'web')).toBe(false);
   });
 });
+
+// Ctrl-C ends dshenv without running async cleanup, so startDshWeb must stop the detached dsh web itself.
+describe('startDshWeb when dshenv is interrupted', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-web-interrupt-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const interrupt = async (urlDelayMs: number, waitFor: 'pid' | 'started') => {
+    const pidFile = path.join(dir, 'pid');
+    const fake = path.join(dir, 'fake-dsh.mjs');
+    fs.writeFileSync(fake, `import fs from 'node:fs';
+fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+setTimeout(() => console.log('dsh web: http://127.0.0.1:4567/?token=abc'), ${urlDelayMs});
+setInterval(() => {}, 1000);`);
+    const driver = path.join(dir, 'driver.mts');
+    fs.writeFileSync(driver, `import { startDshWeb } from ${JSON.stringify(path.resolve('src/dsh/web-server.ts'))};
+await startDshWeb('web', { command: { file: process.execPath, args: [${JSON.stringify(fake)}] }, dshHome: ${JSON.stringify(dir)} });
+console.log('started');
+setInterval(() => {}, 1000);`);
+    const tmp = path.join(dir, 'tmp');
+    fs.mkdirSync(tmp);
+    const dshenv = execa(process.execPath, ['--import', 'tsx/esm', driver], { reject: false, env: { TMPDIR: tmp } });
+    if (waitFor === 'started') {
+      await new Promise<void>((resolve) => dshenv.stdout?.once('data', () => resolve()));
+    } else {
+      while (!fs.existsSync(pidFile)) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const dsh = Number(fs.readFileSync(pidFile, 'utf8'));
+    expect(alive(dsh)).toBe(true);
+    dshenv.kill('SIGINT');
+    const result = await dshenv;
+    expect(result.signal).toBe('SIGINT');
+    const stopDeadline = Date.now() + 10_000;
+    while (alive(dsh) && Date.now() < stopDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(alive(dsh)).toBe(false);
+    // Its log, which can hold the login URL, goes too.
+    expect(fs.readdirSync(tmp).filter((name) => name.startsWith('dshenv-web-'))).toEqual([]);
+  };
+
+  it('stops dsh web when interrupted while it is starting', async () => {
+    await interrupt(60_000, 'pid');
+  }, 30_000);
+
+  it('stops dsh web when interrupted while the check runs', async () => {
+    await interrupt(0, 'started');
+  }, 30_000);
+});

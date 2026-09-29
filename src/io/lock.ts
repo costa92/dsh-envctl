@@ -97,9 +97,12 @@ export async function acquireEnvironmentLock(
   paths: EnvironmentPaths,
   timeoutMs = 5000
 ): Promise<LockHandle> {
-  const lockDir = paths.managerDir;
-  await fs.promises.mkdir(lockDir, { recursive: true });
-  const lockFilePath = path.join(lockDir, 'dshenv.lock');
+  await fs.promises.mkdir(paths.managerDir, { recursive: true });
+  return acquireFileLock(path.join(paths.managerDir, 'dshenv.lock'), 'Environment lock', timeoutMs);
+}
+
+// A lock held by a dshenv process through lockFilePath; one whose holder died is taken over.
+export async function acquireFileLock(lockFilePath: string, label: string, timeoutMs: number): Promise<LockHandle> {
   const guardPath = `${lockFilePath}.reclaim`;
 
   const lockContent = JSON.stringify({
@@ -112,7 +115,7 @@ export async function acquireEnvironmentLock(
   while (!(await tryCreateLock(lockFilePath, guardPath, lockContent))) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
-      throw new DshError(`Environment lock is already held at ${lockFilePath}${await staleGuardHint(guardPath)}`, 1);
+      throw new DshError(`${label} is already held at ${lockFilePath}${await staleGuardHint(guardPath)}`, 1);
     }
     await new Promise((resolve) => setTimeout(resolve, Math.min(LOCK_RETRY_MS, remaining)));
   }
