@@ -5,6 +5,7 @@ import {
   parseRuntimePlugins,
   runtimeExitCode,
   RESTART_HINT,
+  LOADED_RESTART_HINT,
   type DeclaredPlugin,
   type FiberPhase,
   type RuntimeBundle,
@@ -202,11 +203,14 @@ describe('restart hint', () => {
     expect(one(declared({ restartRequired: true }), [bundle({ enabled: false })], []).hint).toBe(RESTART_HINT);
   });
 
-  it.each([
-    ['loaded', declared({ restartRequired: true }), [bundle()], [entry('active')]],
-    ['unverifiable', declared({ restartRequired: true }), [bundle({ rows: [] })], []]
-  ])('adds the hint for %s when a restart is owed', (_name, plugin, bundles, plugins) => {
-    expect(one(plugin, bundles, plugins).hint).toBe(RESTART_HINT);
+  it('adds the hint for unverifiable when a restart is owed', () => {
+    expect(one(declared({ restartRequired: true }), [bundle({ rows: [] })], []).hint).toBe(RESTART_HINT);
+  });
+
+  // Loaded yet owed a restart: DSH may already have restarted, so the hint must not contradict the result.
+  it('asks only to clear the flag when a plugin owed a restart is loaded', () => {
+    expect(one(declared({ restartRequired: true }), [bundle()], [entry('active')]).hint).toBe(LOADED_RESTART_HINT);
+    expect(LOADED_RESTART_HINT).toBe('if DSH restarted after the last apply, run dshenv mark-restarted to clear the restart flag');
   });
 
   it('leaves out the hint for unloaded', () => {

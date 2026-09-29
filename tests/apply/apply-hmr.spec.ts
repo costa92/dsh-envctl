@@ -337,7 +337,8 @@ process.stdout.write("- id: hmr\\n  name: '@deepseek-ai/dsh-hmr'\\n  disabled: !
     manifest(declared(true));
     const marker = path.join(tempHome, 'dsh-was-called');
     const fakeDsh = path.join(tempHome, 'must-not-run.mjs');
-    fs.writeFileSync(fakeDsh, `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)}, 'called');`);
+    // The preview may still ask DSH for its version; only --dump-config would need the profile.
+    fs.writeFileSync(fakeDsh, `import fs from 'node:fs'; if (process.argv.includes('--dump-config')) fs.writeFileSync(${JSON.stringify(marker)}, 'called');`);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
 
     const result = await applyEnvironment(paths, { dryRun: true });

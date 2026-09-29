@@ -161,6 +161,19 @@ function gitCommitBlock(declared: string | undefined, locked: string | undefined
   return undefined;
 }
 
+// The base and app bundles DSH selects when it creates a profile; leaving them undeclared is the normal case.
+const DSH_BUILT_IN_BUNDLES: ReadonlySet<string> = new Set([
+  '@deepseek-ai/dsh-base',
+  '@deepseek-ai/dsh-web-app',
+  '@deepseek-ai/dsh-headless',
+  '@deepseek-ai/dsh-acp-app',
+  '@deepseek-ai/dsh-sdk-app'
+]);
+
+function isDshBuiltIn(plugin: { name: string; sourceType?: string }): boolean {
+  return plugin.sourceType === 'in-box' && DSH_BUILT_IN_BUNDLES.has(plugin.name);
+}
+
 export function buildPlan(
   manifest: EnvironmentManifest | null,
   lock: EnvironmentLock | null,
@@ -176,7 +189,9 @@ export function buildPlan(
     // No manifest, inventory plugins are unmanaged
     for (const [profName, profInv] of Object.entries(inventory.profiles)) {
       for (const pkgName of Object.keys(profInv.plugins)) {
-        unmanaged.push({ profile: profName, package: pkgName });
+        if (!isDshBuiltIn(profInv.plugins[pkgName])) {
+          unmanaged.push({ profile: profName, package: pkgName });
+        }
       }
     }
     return {
@@ -426,6 +441,9 @@ export function buildPlan(
 
     for (const pkgName of Object.keys(profInv.plugins)) {
       if (expectedPackages.has(pkgName)) {
+        continue;
+      }
+      if (isDshBuiltIn(profInv.plugins[pkgName])) {
         continue;
       }
       const owned = state?.ownership?.[profName]?.[pkgName];

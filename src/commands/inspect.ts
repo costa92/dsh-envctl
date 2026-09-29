@@ -3,9 +3,9 @@ import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { loadLock, loadState } from '../manifest/files.js';
 import { buildPlan, buildStatus, planExitCode } from '../planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from '../output/render.js';
-import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, type RuntimeCapabilityEvidence } from '../dsh/index.js';
+import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, unsupportedDshVersionMessage, type RuntimeCapabilityEvidence } from '../dsh/index.js';
 import { readLocalSourceDigests } from '../source/local.js';
-import { ValidationError, CapabilityError } from '../errors.js';
+import { ValidationError, CapabilityError, START_HINT } from '../errors.js';
 import type { EnvironmentLock, EnvironmentManifest, EnvironmentState } from '../domain.js';
 import { loadEffectiveManifest, overlaySwitchWarning, readOverlay } from '../overlay/effective.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
@@ -81,6 +81,8 @@ export function registerInspectCommands(ctx: CommandContext): void {
 
       if (fs.existsSync(paths.manifestFile)) {
         manifest = onlyProfile(loadEffectiveManifest(paths, selection).manifest, cmdOpts.profile);
+      } else {
+        writeErr(`No manifest at ${paths.manifestFile}; ${START_HINT}\n`);
       }
       if (fs.existsSync(paths.lockFile)) {
         const content = fs.readFileSync(paths.lockFile, 'utf8');
@@ -165,7 +167,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
       const caps = capabilitiesFor(probeResult.version, compatOpts);
 
       if (caps.discovery.status !== 'available') {
-        throw new CapabilityError('Unsupported DSH version');
+        throw new CapabilityError(unsupportedDshVersionMessage(probeResult.version));
       }
 
       const evidence: RuntimeCapabilityEvidence = dshCmd.cwd

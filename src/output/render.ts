@@ -16,7 +16,7 @@ function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: R
   return required ? ` (restart required: ${describeRestartReason(required)})` : '';
 }
 
-export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): string {
+export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary, heading = 'Planned operations:'): string {
   const lines: string[] = [];
 
   const pinned = (plan.pinnedPresets ?? []).length > 0
@@ -34,7 +34,7 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary): str
   }
 
   if (plan.operations.length > 0) {
-    lines.push('Planned operations:');
+    lines.push(heading);
     for (const op of plan.operations) {
       const symbol = getOpSymbol(op.kind);
       let details = '';

@@ -103,7 +103,8 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
 
     const code = await runCli(['apply', '--dry-run', '--dsh-home', tempHome], io);
     expect(code).toBe(2);
-    expect(stdout).toContain('[DRY-RUN]');
+    expect(stdout).toMatch(/^\[DRY-RUN\] Planned operations:\n/);
+    expect(stdout.match(/Planned operations:/g)).toHaveLength(1);
     expect(stdout).toContain('@nanmicoder/dsh-agent-teams');
   });
 
@@ -118,6 +119,9 @@ fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: p
     const code = await runCli(['apply', '--yes', '--dsh-home', tempHome], io);
     expect(code).toBe(0);
     expect(stdout).toContain('Successfully applied');
+    // What ran, not what was planned.
+    expect(stdout).toContain('Applied operations:\n  + [web] @nanmicoder/dsh-agent-teams');
+    expect(stdout).not.toContain('Planned operations');
     const profile = JSON.parse(fs.readFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), 'utf8'));
     expect(profile.dependencies).toEqual({ '@nanmicoder/dsh-agent-teams': '0.1.21' });
   });
