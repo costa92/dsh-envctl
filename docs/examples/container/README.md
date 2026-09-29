@@ -34,7 +34,7 @@ docker run --rm --network dsh-net -p 127.0.0.1:3080:3080 -e DEEPSEEK_API_KEY my-
 DSHENV_SRC=/path/to/dshenv DEEPSEEK_API_KEY=... docker compose up --build
 ```
 
-镜像从源码构建 dshenv（因此可以使用未发布的改动），`--build-context dshenv=...`（或 compose 的 `DSHENV_SRC`）必须指向一份 dshenv 源码检出，构建阶段会从中打包安装。
+镜像从源码构建 dshenv（因此可以使用未发布的改动），`--build-context dshenv=...`（或 compose 的 `DSHENV_SRC`）必须指向一份 dshenv 源码检出，构建阶段会从中打包安装。只用已发布版本时，建议检出对应的 tag（如 `git -C /path/to/dshenv checkout v0.3.0`），不要直接用 `master`；也可以把 `Dockerfile` 的 `dshenv-build` 阶段换成 `npm install -g @costa92/dshenv@<版本>`。
 
 启动后在 `docker logs <容器名>`（或 `docker compose logs dsh`）里找 `dsh web: http://127.0.0.1:3080/?token=...` 链接完成首次认证：
 
@@ -48,7 +48,7 @@ DSHENV_SRC=/path/to/dshenv DEEPSEEK_API_KEY=... docker compose up --build
 
 | 参数 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `DSH_VERSION` | `0.1.7-rc.2` | npm 上的 `latest` 仍是 `0.1.5` 系列，不可用 |
+| `DSH_VERSION` | `0.1.7-rc.2` | 已验证的版本（2026-09-29 也是 npm 上的 `latest`）；换版本前先按 [DSH 新版本兼容验证](../../DSH版本升级.md) 验证 |
 | `PNPM_VERSION` | `10.30.3` | 与仓库 CI 一致 |
 | `NODE_VERSION` | `22` | 基础镜像 `node:${NODE_VERSION}-slim` |
 | `DSHENV_OVERLAY` | 空 | 非空时对应 `envctl/overlays/<name>.yaml`，构建期 `apply`/`plan` 会带上 `--overlay`；为空时带 `--no-overlay`，不读 `envctl/overlay-selection.json` |

@@ -16,8 +16,8 @@ on:
     - cron: '0 2 * * *'
 
 env:
-  # dshenv is built from source here; pin this to a costa92/dshenv commit you have reviewed.
-  DSHENV_REF: master
+  # The published npm version to run; bump it after reading the CHANGELOG.
+  DSHENV_VERSION: 0.3.0
 
 jobs:
   validate:
@@ -25,24 +25,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: costa92/dshenv
-          ref: ${{ env.DSHENV_REF }}
-          path: .dshenv-tool
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.30.3
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Build dshenv
-        working-directory: .dshenv-tool
-        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Install dshenv
+        run: npm install -g "@costa92/dshenv@${DSHENV_VERSION}"
       - name: Validate the base manifest and every overlay
         id: validate
         env:
-          DSHENV: node ${{ github.workspace }}/.dshenv-tool/bin/dshenv.js
+          DSHENV: dshenv
           CONFIG_HOME: ${{ github.workspace }}
         run: |
           set -euo pipefail
@@ -60,24 +51,14 @@ jobs:
     # A runner registered on the machine whose DSH environment should be checked, labelled "dsh".
     runs-on: [self-hosted, dsh]
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: costa92/dshenv
-          ref: ${{ env.DSHENV_REF }}
-          path: .dshenv-tool
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.30.3
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Build dshenv
-        working-directory: .dshenv-tool
-        run: pnpm install --frozen-lockfile && pnpm build
+      # Installed per run so the runner's global packages stay untouched; npx reuses the npm cache.
       - name: Fail when the environment drifted from its manifest
         id: drift
         env:
-          DSHENV: node ${{ github.workspace }}/.dshenv-tool/bin/dshenv.js
+          DSHENV: npx --yes @costa92/dshenv@${{ env.DSHENV_VERSION }}
         run: |
           set -uo pipefail
           # dshenv plan exits 0 when in sync, 2 on drift, 3 on an invalid manifest,
