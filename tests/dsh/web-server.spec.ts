@@ -1,0 +1,100 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { startDshWeb } from '../../src/dsh/web-server.js';
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+describe('startDshWeb', () => {
+  let dir: string;
+  const fakeDsh = (body: string) => {
+    const file = path.join(dir, 'fake-dsh.mjs');
+    fs.writeFileSync(file, `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(path.join(dir, 'pid'))}, String(process.pid));\n${body}`);
+    return { file: process.execPath, args: [file] };
+  };
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-web-server-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('starts dsh web for the profile on a free port, reads the URL it prints, and stops it', async () => {
+    const command = fakeDsh(`
+fs.writeFileSync(${JSON.stringify(path.join(dir, 'call.json'))}, JSON.stringify({ args: process.argv.slice(2), home: process.env.DSH_HOME }));
+console.log('starting');
+setTimeout(() => console.log('dsh web: http://127.0.0.1:4567/?token=abc-DEF_1'), 100);
+setInterval(() => {}, 1000);
+`);
+    const web = await startDshWeb('web', { command, dshHome: '/tmp/some-home', timeoutMs: 10_000 });
+    expect(web.url).toBe('http://127.0.0.1:4567/?token=abc-DEF_1');
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'call.json'), 'utf8'))).toEqual({
+      args: ['--profile', 'web', '--no-open', '--port', '0'],
+      home: '/tmp/some-home'
+    });
+    const pid = Number(fs.readFileSync(path.join(dir, 'pid'), 'utf8'));
+    expect(alive(pid)).toBe(true);
+    await web.stop();
+    expect(alive(pid)).toBe(false);
+  });
+
+  it('waits for everything DSH started to stop, not just DSH itself', async () => {
+    const childPid = path.join(dir, 'child-pid');
+    const command = fakeDsh(`
+import { spawn } from 'node:child_process';
+// Like an MCP server DSH starts: it takes a moment to exit on SIGTERM, after DSH itself is gone.
+const pidFile = ${JSON.stringify(path.join(dir, 'child-pid'))};
+spawn(process.execPath, ['-e', \`process.on('SIGTERM', () => setTimeout(() => process.exit(0), 500)); require('fs').writeFileSync(\${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)\`], { stdio: 'ignore' });
+const ready = setInterval(() => {
+  if (fs.existsSync(pidFile)) {
+    clearInterval(ready);
+    console.log('dsh web: http://127.0.0.1:4567/?token=abc');
+  }
+}, 20);
+setInterval(() => {}, 1000);
+`);
+    const web = await startDshWeb('web', { command, dshHome: dir, timeoutMs: 10_000 });
+    const grandchild = Number(fs.readFileSync(childPid, 'utf8'));
+    expect(alive(grandchild)).toBe(true);
+    await web.stop();
+    expect(alive(grandchild)).toBe(false);
+  });
+
+  it('reports the first error line when DSH exits before serving, as a profile without a web app does', async () => {
+    const command = fakeDsh(`console.error("error: unknown option '--no-open'"); process.exit(1);`);
+    await expect(startDshWeb('headless', { command, dshHome: dir, timeoutMs: 10_000 })).rejects.toThrow(
+      /dsh --profile headless did not start dsh web: error: unknown option '--no-open'/
+    );
+  });
+
+  it('skips the script line and the ELIFECYCLE line pnpm wraps around a source checkout error', async () => {
+    const command = fakeDsh(`
+console.error('$ node --import tsx/esm apps/cli/src/bin.ts --profile headless --no-open --port 0');
+console.error("error: unknown option '--no-open'");
+console.error('[ELIFECYCLE] Command failed with exit code 1.');
+process.exit(1);
+`);
+    const failure = startDshWeb('headless', { command, dshHome: dir, timeoutMs: 10_000 });
+    await expect(failure).rejects.toThrow(/did not start dsh web: error: unknown option '--no-open'$/);
+  });
+
+  it('gives up and stops DSH when no URL appears in time', async () => {
+    const command = fakeDsh(`setInterval(() => {}, 1000);`);
+    await expect(startDshWeb('web', { command, dshHome: dir, timeoutMs: 500 })).rejects.toThrow(/did not print a dsh web URL within 500 ms/);
+    expect(alive(Number(fs.readFileSync(path.join(dir, 'pid'), 'utf8')))).toBe(false);
+  });
+
+  it('refuses when no DSH CLI was found', async () => {
+    await expect(startDshWeb('web', { command: null, dshHome: dir })).rejects.toThrow(/DSH CLI was not found/);
+  });
+});

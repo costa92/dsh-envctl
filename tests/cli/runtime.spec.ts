@@ -239,4 +239,73 @@ describe('CLI runtime', () => {
     expect(out.code).toBe(0);
     expect(out.stdout).toBe('No plugins declared for profile web.\n');
   });
+  describe('--start', () => {
+    let previousDshCli: string | undefined;
+    const pidFile = () => path.join(tempHome, 'dsh.pid');
+    const alive = (pid: number): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    // Stands in for dsh web: prints the fake server's URL like DSH does, then serves until stopped.
+    const fakeDsh = (body: string): void => {
+      const file = path.join(tempHome, 'fake-dsh.mjs');
+      fs.writeFileSync(file, `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(pidFile())}, String(process.pid));\n${body}`);
+      process.env.DSH_CLI = JSON.stringify([process.execPath, file]);
+    };
+
+    beforeEach(() => {
+      previousDshCli = process.env.DSH_CLI;
+    });
+
+    afterEach(() => {
+      if (previousDshCli === undefined) delete process.env.DSH_CLI;
+      else process.env.DSH_CLI = previousDshCli;
+    });
+
+    it('starts dsh web for the profile, checks it, and stops it, without printing the token', async () => {
+      fake = await startFakeDshWeb({ bundles: [agentTeamsBundle()], plugins: [agentTeamsEntry('active')] });
+      fakeDsh(`console.log('dsh web: ${fake.url}'); setInterval(() => {}, 1000);`);
+      const out = await run(['runtime', '--profile', 'web', '--start']);
+      expect(out.code).toBe(0);
+      expect(out.stdout).toContain(`  loaded  agent-teams  ${PKG}\n`);
+      expect(alive(Number(fs.readFileSync(pidFile(), 'utf8')))).toBe(false);
+      expectNoSecrets(out);
+    });
+
+    it('stops the started dsh web when the check fails too', async () => {
+      fake = await startFakeDshWeb({ bundles: [agentTeamsBundle()], plugins: [agentTeamsEntry('active')], loginStatus: 401 });
+      fakeDsh(`console.log('dsh web: ${fake.url}'); setInterval(() => {}, 1000);`);
+      const out = await run(['runtime', '--profile', 'web', '--start']);
+      expect(out.code).toBe(1);
+      expect(alive(Number(fs.readFileSync(pidFile(), 'utf8')))).toBe(false);
+      expectNoSecrets(out);
+    });
+
+    it('explains a profile that does not serve dsh web', async () => {
+      fakeDsh(`console.error("error: unknown option '--no-open'"); process.exit(1);`);
+      const out = await run(['runtime', '--profile', 'web', '--start']);
+      expect(out.code).toBe(1);
+      expect(out.stderr).toMatch(/dsh --profile web did not start dsh web: error: unknown option '--no-open'/);
+    });
+
+    it('does not start DSH for a profile that does not exist yet, which DSH would create', async () => {
+      fakeDsh('process.exit(0);');
+      writeManifest(`${webProfile()}  cli:\n    plugins: {}\n`);
+      const out = await run(['runtime', '--profile', 'cli', '--start']);
+      expect(out.code).toBe(3);
+      expect(out.stderr).toMatch(/Profile 'cli' does not exist; start DSH with --profile cli once/);
+      expect(fs.existsSync(pidFile())).toBe(false);
+    });
+
+    it('refuses --allow-remote with --start, which only talks to the dsh web it started on this machine', async () => {
+      process.env.DSHENV_DSH_URL = 'http://10.0.0.5:3080/?token=SECRET-TOKEN-123';
+      const out = await run(['runtime', '--profile', 'web', '--start', '--allow-remote']);
+      expect(out.code).toBe(3);
+      expect(out.stderr).toMatch(/--start and --allow-remote cannot be combined/);
+    });
+  });
 });

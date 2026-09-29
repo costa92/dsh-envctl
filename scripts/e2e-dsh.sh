@@ -141,6 +141,8 @@ if [ -n "$url" ]; then
   step "runtime reports the plugin loaded" 0 runtime_ok
 fi
 stop_web
+step "runtime --start starts its own dsh web and reports the plugin loaded" 0 "${run[@]}" runtime --profile web --start
+step "runtime --start leaves no dsh web running" 0 bash -c "! pgrep -f -- '[-]-profile web --no-open --port 0' >/dev/null"
 
 # 6. Rollback restores the manifest files; apply converges again.
 step "rollback dry-run" 0 "${run[@]}" rollback --dry-run

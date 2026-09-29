@@ -7,7 +7,9 @@ import { DshError, ValidationError } from '../errors.js';
 import { loadState } from '../manifest/files.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import { renderRuntimeReport } from '../output/render.js';
-import { callDshWeb, DSH_URL_ENV, loginDshWeb, parseDshWebUrl } from '../dsh/web-client.js';
+import { callDshWeb, DSH_URL_ENV, loginDshWeb, parseDshWebUrl, type DshWebTarget } from '../dsh/web-client.js';
+import { startDshWeb } from '../dsh/web-server.js';
+import { resolveDshCommand } from '../dsh/command.js';
 import {
   checkRuntime,
   parseRuntimeBundles,
@@ -73,40 +75,66 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
     .description(`Ask a running dsh web (${DSH_URL_ENV}) whether the declared plugins are loaded`)
     .option('-p, --profile <name>', 'profile to check', profileOption)
     .option('--allow-remote', 'allow sending the dsh web token to a non-loopback host')
-    .action(async (cmdOpts: { profile?: string; allowRemote?: boolean }) => {
+    .option('--start', `start dsh web for the profile, check it and stop it again, instead of using ${DSH_URL_ENV}`)
+    .action(async (cmdOpts: { profile?: string; allowRemote?: boolean; start?: boolean }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
       const profile = selectProfile(manifest, cmdOpts.profile);
-      const target = parseDshWebUrl(process.env[DSH_URL_ENV], { allowRemote: Boolean(cmdOpts.allowRemote) });
-
-      const session = await loginDshWeb(target);
-      const bundles = parseRuntimeBundles(await callDshWeb(session, 'pluginManager', 'listBundles'), target.endpoint);
-      const plugins = parseRuntimePlugins(await callDshWeb(session, 'pluginManager', 'listPlugins'), target.endpoint);
-
-      const entries = Object.entries(manifest.profiles[profile]?.plugins ?? {});
-      const installed = (await readEnvironmentInventory(paths)).profiles[profile]?.plugins ?? {};
-      // A mounted plugin is in no bundle, so listBundles cannot show it.
-      const enabledPackages = entries
-        .filter(([, plugin]) => plugin.enabled !== false && installed[plugin.package]?.bundle !== false)
-        .map(([, plugin]) => plugin.package);
-      assertSameProfile(paths, profile, enabledPackages, bundles, target.endpoint);
-
-      const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
-      const declared: DeclaredPlugin[] = entries.map(([alias, plugin]) => ({
-        alias,
-        package: plugin.package,
-        enabled: plugin.enabled !== false,
-        restartRequired: state?.profiles[profile]?.plugins[plugin.package]?.status === 'restart-required',
-        ...(installed[plugin.package]?.bundle === false ? { mounted: true } : {})
-      }));
-      const results = checkRuntime(declared, bundles, plugins);
-
-      if (opts.json) {
-        writeOut(JSON.stringify({ profile, endpoint: target.endpoint, results }, null, 2) + '\n');
-      } else {
-        writeOut(renderRuntimeReport(profile, target.endpoint, results));
+      if (!cmdOpts.start) {
+        await checkProfile(paths, manifest, profile, parseDshWebUrl(process.env[DSH_URL_ENV], { allowRemote: Boolean(cmdOpts.allowRemote) }), opts.json);
+        return;
       }
-      setExitCode(runtimeExitCode(results));
+      if (cmdOpts.allowRemote) {
+        throw new ValidationError('--start and --allow-remote cannot be combined: --start checks the dsh web it starts on this machine');
+      }
+      // dsh creates a missing profile, which a check must not do.
+      if (!fs.existsSync(path.join(paths.profilesDir, profile, 'package.json'))) {
+        throw new ValidationError(`Profile '${profile}' does not exist; start DSH with --profile ${profile} once`);
+      }
+      const command = resolveDshCommand({ cliHarnessSource: opts.harnessSource, manifestHarnessSource: manifest.environment?.harness?.sourceDir });
+      const web = await startDshWeb(profile, { command, dshHome: paths.home });
+      try {
+        await checkProfile(paths, manifest, profile, parseDshWebUrl(web.url), opts.json);
+      } finally {
+        await web.stop();
+      }
     });
+
+  async function checkProfile(
+    paths: EnvironmentPaths,
+    manifest: EnvironmentManifest,
+    profile: string,
+    target: DshWebTarget,
+    json: boolean | undefined
+  ): Promise<void> {
+    const session = await loginDshWeb(target);
+    const bundles = parseRuntimeBundles(await callDshWeb(session, 'pluginManager', 'listBundles'), target.endpoint);
+    const plugins = parseRuntimePlugins(await callDshWeb(session, 'pluginManager', 'listPlugins'), target.endpoint);
+
+    const entries = Object.entries(manifest.profiles[profile]?.plugins ?? {});
+    const installed = (await readEnvironmentInventory(paths)).profiles[profile]?.plugins ?? {};
+    // A mounted plugin is in no bundle, so listBundles cannot show it.
+    const enabledPackages = entries
+      .filter(([, plugin]) => plugin.enabled !== false && installed[plugin.package]?.bundle !== false)
+      .map(([, plugin]) => plugin.package);
+    assertSameProfile(paths, profile, enabledPackages, bundles, target.endpoint);
+
+    const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
+    const declared: DeclaredPlugin[] = entries.map(([alias, plugin]) => ({
+      alias,
+      package: plugin.package,
+      enabled: plugin.enabled !== false,
+      restartRequired: state?.profiles[profile]?.plugins[plugin.package]?.status === 'restart-required',
+      ...(installed[plugin.package]?.bundle === false ? { mounted: true } : {})
+    }));
+    const results = checkRuntime(declared, bundles, plugins);
+
+    if (json) {
+      writeOut(JSON.stringify({ profile, endpoint: target.endpoint, results }, null, 2) + '\n');
+    } else {
+      writeOut(renderRuntimeReport(profile, target.endpoint, results));
+    }
+    setExitCode(runtimeExitCode(results));
+  }
 }
