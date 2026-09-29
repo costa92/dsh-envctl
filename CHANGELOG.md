@@ -30,6 +30,14 @@
 - `config get` 同时给位置参数和 `--path`、`source pull` 同时给位置 ref 和 `--ref` 时以退出码 3 报冲突；`config get` 读不存在的键时以退出码 3 报错（`--json` 下是标准错误 JSON，不再输出 `undefined`）。
 - 缺 `-p` 时列出的 Profile 读不到清单或 overlay 时，直接报出真实错误，不再说 `no profile exists yet`。
 - `adopt --help` 不再显示 `--layer`（它只写 base，传入 `--layer base` 仍可用）。
+- 不带 id 的 `rollback` 跳过失败的 `apply` 留下的快照（它们已经自己恢复过，恢复它们什么也不会改变），恢复到最近一次真正改动过文件的操作之前，输出写明恢复的是哪次操作之前的状态、跳过了哪些。
+- `apply` 的快照包含当时生效的 overlay 文件，回滚到它会连同用 `--layer overlay` 改过的 overlay 一起恢复。
+- `apply` 某一步失败时，错误信息写明失败的步骤（`[web] install cc (cc), step 2 of 2`）、本次 operation id、仍留在 Profile 里的已装插件，以及回到上一次成功 apply 所用清单的命令 `dshenv rollback <id> --yes`。
+- DSH 版本不受支持时，`doctor` 与 `apply` 报出检测到的版本（只显示数字部分，prerelease 标签可能带凭据，显示为 `-*`）、支持的版本，并提示 `DSH_CLI` 与 `--allow-untested-dsh`；`apply --dry-run` 也做同样的版本检查（无法询问 DSH 时仍显示计划）。
+- DSH 创建 Profile 时自带的 bundle（`@deepseek-ai/dsh-base`、`dsh-web-app`、`dsh-headless`、`dsh-acp-app`、`dsh-sdk-app`）没有写进清单时不再算作 `unmanaged`，新环境不会一上来就显示 `Environment Status: unmanaged`。
+- 缺少清单时，所有需要清单的命令都提示 `run dshenv init to start one, or dshenv capture … then dshenv adopt …`；`status` 在 stderr 给出同样的提示。`init` 成功后给出下一步，重复 `init` 报 `dshenv is already initialized`；`adopt` 没有可接管的插件时说 `Nothing to adopt`，并以 `Next: dshenv plan` 结尾。
+- `apply --dry-run` 不再重复打印 `Planned operations:` 标题；`apply --yes` 成功后标题改为 `Applied operations:`。
+- `runtime` 对已加载但仍记为需要重启的插件，提示改为 `if DSH restarted after the last apply, run dshenv restarted to clear the restart flag`，不再同时显示 loaded 与“重启 DSH”。
 
 ## 0.3.1 - 2026-09-29
 

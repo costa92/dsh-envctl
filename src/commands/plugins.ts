@@ -256,7 +256,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   ): Promise<InstallPluginResult> {
     const paths = resolveCliPaths(opts);
     const { profile } = request;
-    const { selection, overlay } = resolveWrite(opts, paths, request.layer, '. Run dshenv init first.');
+    const { selection, overlay } = resolveWrite(opts, paths, request.layer);
     assertKnownProfile(paths, opts, profile, request.newProfile);
     await checkNpmSpec(opts, parsePluginSpec(request.spec, request.alias, request.packageName));
 

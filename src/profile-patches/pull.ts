@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { EnvironmentManifest, EnvironmentOverlay, ProfilePatch } from '../domain.js';
-import { ValidationError } from '../errors.js';
+import { ValidationError, missingManifestError } from '../errors.js';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { loadManifest, loadState, serializeManifest, serializeState } from '../manifest/files.js';
 import * as path from 'node:path';
@@ -127,7 +127,7 @@ export async function pullProfilePatches(paths: EnvironmentPaths, options: PullO
 
 async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Promise<PullResult> {
   if (!fs.existsSync(paths.manifestFile)) {
-    throw new ValidationError(`Manifest file not found: ${paths.manifestFile}`);
+    throw missingManifestError(paths.manifestFile);
   }
   const base = loadManifest(fs.readFileSync(paths.manifestFile, 'utf8'));
   const selectedName = options.selection?.name ?? null;

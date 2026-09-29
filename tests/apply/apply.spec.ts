@@ -260,7 +260,12 @@ process.exit(0);
 `);
     process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
-    await expect(applyEnvironment(paths)).rejects.toThrow(/Unsupported DSH version/);
+    await expect(applyEnvironment(paths)).rejects.toThrow(
+      'Unsupported DSH version 0.1.70: dshenv supports DSH 0.1.7 (e.g. 0.1.7-rc.2). Point DSH_CLI at a supported DSH, or pass --allow-untested-dsh to use this one anyway.'
+    );
+    // A preview checks the version too, so it does not promise a plan the real apply then refuses.
+    await expect(applyEnvironment(paths, { dryRun: true })).rejects.toThrow(/^Unsupported DSH version 0\.1\.70:/);
+    await expect(applyEnvironment(paths, { dryRun: true, allowUntested: true })).resolves.toMatchObject({ dryRun: true });
   });
 
   it('should enable an installed plugin by updating dsh.profile.bundles without invoking DSH CLI', async () => {
