@@ -24,9 +24,12 @@ interface Workflow {
     string,
     {
       steps: Step[];
-      strategy?: { matrix?: { node?: unknown[]; include?: Array<Record<string, unknown>> } };
+      strategy?: { matrix?: { node?: unknown[]; os?: unknown[]; include?: Array<Record<string, unknown>> } };
       'continue-on-error'?: unknown;
       if?: string;
+      needs?: string;
+      permissions?: Record<string, string>;
+      'timeout-minutes'?: number;
     }
   >;
 }
@@ -41,14 +44,17 @@ const compat = readWorkflow('.github/workflows/compat.yml');
 const VERIFIED_DSH = '0.1.7-rc.2';
 const packageJson = JSON.parse(fs.readFileSync(path.join(projectDir, 'package.json'), 'utf8')) as {
   version: string;
+  packageManager: string;
   scripts: Record<string, string>;
 };
+const repositoryWorkflows = { ci, release, e2e, compat };
 
 const allSteps = (workflow: Workflow) => Object.values(workflow.jobs).flatMap((job) => job.steps);
 const pnpmVersions = (workflow: Workflow) =>
   allSteps(workflow)
     .filter((step) => step.uses?.startsWith('pnpm/action-setup@'))
     .map((step) => String(step.with?.version));
+const runs = (steps: Step[]) => steps.flatMap((step) => (step.run && !step.id ? [step.run.trim()] : []));
 const stepScript = (workflow: Workflow, id: string): string => {
   const step = allSteps(workflow).find((candidate) => candidate.id === id);
   if (!step?.run) throw new Error(`No run step with id ${id}`);
@@ -56,19 +62,41 @@ const stepScript = (workflow: Workflow, id: string): string => {
 };
 
 describe('repository CI workflow', () => {
-  it('runs every quality gate from package.json on a frozen lockfile', () => {
-    const runs = allSteps(ci).flatMap((step) => (step.run ? [step.run.trim()] : []));
-    expect(runs).toEqual(['pnpm install --frozen-lockfile', 'pnpm typecheck', 'pnpm test', 'pnpm build']);
-    for (const run of runs.slice(1)) {
+  it('runs every quality gate from package.json on a frozen lockfile, on Linux, Windows and macOS', () => {
+    expect(Object.keys(ci.jobs)).toEqual(['check', 'check-os']);
+    for (const job of Object.values(ci.jobs)) {
+      expect(runs(job.steps)).toEqual(['pnpm install --frozen-lockfile', 'pnpm typecheck', 'pnpm test', 'pnpm build']);
+      expect(job['timeout-minutes']).toBeGreaterThan(0);
+    }
+    for (const run of runs(ci.jobs.check.steps).slice(1)) {
       expect(packageJson.scripts).toHaveProperty(run.split(' ')[1]);
+    }
+    expect(ci.jobs['check-os'].strategy?.matrix?.os).toEqual(['windows-latest', 'macos-latest']);
+    expect(ci.permissions).toEqual({ contents: 'read' });
+  });
+
+  it('pins one exact pnpm version, shared with the example and package.json, and covers both supported Node majors', async () => {
+    const versions = [...pnpmVersions(ci), ...pnpmVersions(example), ...pnpmVersions(release), ...pnpmVersions(e2e), ...pnpmVersions(compat)];
+    expect(new Set(versions).size).toBe(1);
+    expect(versions[0]).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(packageJson.packageManager).toBe(`pnpm@${versions[0]}`);
+    // The required checks on master are named after this matrix.
+    expect(ci.jobs.check.strategy?.matrix?.node).toEqual([22, 24]);
+  });
+
+  it.each(Object.entries(repositoryWorkflows))('%s pins every action to a commit and keeps no credentials in the checkout', (_name, workflow) => {
+    for (const step of allSteps(workflow).filter((candidate) => candidate.uses)) {
+      expect(step.uses).toMatch(/^[\w-]+\/[\w-]+@[0-9a-f]{40}$/);
+      if (step.uses?.startsWith('actions/checkout@')) {
+        expect(step.with?.['persist-credentials']).toBe(false);
+      }
     }
   });
 
-  it('pins one exact pnpm version, shared with the example, and covers both supported Node majors', async () => {
-    const versions = [...pnpmVersions(ci), ...pnpmVersions(example), ...pnpmVersions(release)];
-    expect(new Set(versions).size).toBe(1);
-    expect(versions[0]).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(ci.jobs.check.strategy?.matrix?.node).toEqual([22, 24]);
+  it.each(Object.entries(repositoryWorkflows))('%s never splices a workflow input into a shell script', (_name, workflow) => {
+    for (const step of allSteps(workflow)) {
+      expect(step.run ?? '').not.toMatch(/\$\{\{\s*(inputs|github\.event)\./);
+    }
   });
 });
 
@@ -155,18 +183,62 @@ describe('release workflow', () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  it('runs on v* tags, and by hand as a publish check, with permission to create releases and an OIDC token for trusted publishing, after the same quality gates as CI', () => {
+  it('runs on v* tags, and by hand as a publish check, building and testing with read-only permissions after the same quality gates as CI', () => {
     expect(release.on).toEqual({ push: { tags: ['v*'] }, workflow_dispatch: null });
-    expect(release.permissions).toEqual({ contents: 'write', 'id-token': 'write' });
-    const runs = allSteps(release).flatMap((step) => (step.run && !step.id ? [step.run.trim()] : []));
-    expect(runs.slice(0, 4)).toEqual(['pnpm install --frozen-lockfile', 'pnpm typecheck', 'pnpm test', 'pnpm build']);
+    expect(release.permissions).toEqual({ contents: 'read' });
+    expect(Object.keys(release.jobs)).toEqual(['build', 'publish']);
+    const build = release.jobs.build;
+    expect(build.permissions).toBeUndefined();
+    expect(runs(build.steps)).toEqual([
+      'pnpm install --frozen-lockfile',
+      'pnpm typecheck',
+      'pnpm test',
+      'pnpm build',
+      'pnpm pack --pack-destination dist'
+    ]);
     for (const id of ['verify-tag', 'notes']) {
-      expect(allSteps(release).find((step) => step.id === id)?.if).toBe("github.event_name == 'push'");
+      expect(build.steps.find((step) => step.id === id)?.if).toBe("github.event_name == 'push'");
     }
+    // The smoke check runs on the packed tarball, and only what passed it is handed to publish.
+    const smoke = build.steps.findIndex((step) => step.id === 'smoke');
+    const upload = build.steps.findIndex((step) => step.uses?.startsWith('actions/upload-artifact@'));
+    expect(smoke).toBeGreaterThan(build.steps.findIndex((step) => step.run?.startsWith('pnpm pack')));
+    expect(upload).toBeGreaterThan(smoke);
+    expect(build.steps[upload].with).toMatchObject({ name: 'package', path: 'dist/*.tgz\nrelease-notes.md\n' });
+  });
+
+  it('gives publishing rights only to a job that publishes the built tarball without checking out or installing anything', () => {
+    const publish = release.jobs.publish;
+    expect(publish.needs).toBe('build');
+    expect(publish.permissions).toEqual({ contents: 'write', 'id-token': 'write' });
+    expect(publish.steps.map((step) => step.uses?.split('@')[0]).filter(Boolean)).toEqual(['actions/download-artifact', 'actions/setup-node']);
+    expect(publish.steps.find((step) => step.uses?.startsWith('actions/download-artifact@'))?.with).toEqual({ name: 'package' });
+    expect(publish.steps.some((step) => /\bpnpm\b/.test(step.run ?? ''))).toBe(false);
+  });
+
+  it('smoke-tests the packed tarball by installing it and running dshenv', async () => {
+    const dist = path.join(workDir, 'dist');
+    fs.mkdirSync(dist);
+    fs.writeFileSync(path.join(dist, 'costa92-dshenv-1.2.3.tgz'), '');
+    fs.writeFileSync(path.join(workDir, 'package.json'), JSON.stringify({ version: '1.2.3' }));
+    const bin = path.join(workDir, 'bin');
+    fs.mkdirSync(bin);
+    // Stands in for npm install --prefix <dir> <tarball>: installs a dshenv that reports $FAKE_VERSION.
+    fs.writeFileSync(
+      path.join(bin, 'npm'),
+      `#!/bin/sh\nprefix="$3"\nmkdir -p "$prefix/node_modules/.bin"\nprintf '#!/bin/sh\\ncase "$1" in --version) echo %s ;; --help) exit "$FAKE_HELP_EXIT" ;; esac\\n' "$FAKE_VERSION" >"$prefix/node_modules/.bin/dshenv"\nchmod +x "$prefix/node_modules/.bin/dshenv"\necho "$@" >"$prefix/args"\n`,
+      { mode: 0o755 }
+    );
+    const env = { PATH: `${bin}:${process.env.PATH}`, FAKE_HELP_EXIT: '0', TMPDIR: workDir };
+    expect((await runStep('smoke', { ...env, FAKE_VERSION: '1.2.3' }, workDir)).exitCode).toBe(0);
+    const wrong = await runStep('smoke', { ...env, FAKE_VERSION: '0.0.1' }, workDir);
+    expect(wrong.exitCode).toBe(1);
+    expect(wrong.stderr).toContain("The packed dshenv reports version '0.0.1', expected 1.2.3");
+    expect((await runStep('smoke', { ...env, FAKE_VERSION: '1.2.3', FAKE_HELP_EXIT: '1' }, workDir)).exitCode).not.toBe(0);
   });
 
   it('publishes a tag through trusted publishing first and with NPM_TOKEN only when that fails, before creating the GitHub release', () => {
-    const steps = allSteps(release);
+    const steps = release.jobs.publish.steps;
     const setupNode = steps.find((step) => step.uses?.startsWith('actions/setup-node@'));
     expect(setupNode?.with?.['registry-url']).toBe('https://registry.npmjs.org');
     const oidc = steps.findIndex((step) => step.id === 'publish-oidc');
@@ -178,9 +250,11 @@ describe('release workflow', () => {
     expect(steps[token].env).toEqual({ NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' });
     expect(steps[token].run).toContain('::warning::');
     expect(steps[token].run).toContain('npm publish ./dist/*.tgz --access public --provenance --loglevel verbose');
-    // Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
-    const upgrade = steps.findIndex((step) => step.run?.trim() === 'npm install -g npm@^11.5.1');
+    // Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10. An exact version, not a range.
+    const upgrade = steps.findIndex((step) => /^npm install -g npm@11\.\d+\.\d+$/.test(step.run?.trim() ?? ''));
     expect(upgrade).toBeGreaterThan(-1);
+    const [minor, patch] = steps[upgrade].run!.trim().split('@11.')[1].split('.').map(Number);
+    expect(minor > 5 || (minor === 5 && patch >= 1)).toBe(true);
     expect(upgrade).toBeLessThan(oidc);
     expect(oidc).toBeLessThan(token);
     const create = steps.findIndex((step) => step.run?.startsWith('gh release create'));
@@ -239,8 +313,9 @@ describe('real DSH workflows', () => {
   it('runs the end-to-end script against the verified DSH on pushes and pull requests, apart from CI', () => {
     expect(Object.keys(e2e.on as object).sort()).toEqual(['pull_request', 'push', 'workflow_dispatch']);
     expect(Object.keys(e2e.jobs)).toEqual(['e2e']);
-    const run = allSteps(e2e).find((step) => step.run?.includes('scripts/e2e-dsh.sh'))?.run ?? '';
-    expect(run).toContain(`inputs.dsh_version || '${VERIFIED_DSH}'`);
+    const step = allSteps(e2e).find((candidate) => candidate.run?.includes('scripts/e2e-dsh.sh'));
+    expect(step?.run).toBe('scripts/e2e-dsh.sh "$DSH_VERSION" "$RUNNER_TEMP/e2e"');
+    expect(step?.env?.DSH_VERSION).toBe(`\${{ inputs.dsh_version || '${VERIFIED_DSH}' }}`);
     expect(allSteps(ci).some((step) => step.run?.includes('e2e-dsh'))).toBe(false);
   });
 

@@ -7,15 +7,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  # npm trusted publishing authenticates with the workflow's OIDC token and signs provenance with it.
-  id-token: write
+  contents: read
 
 jobs:
-  release:
+  # Installs, tests and packs with read-only permissions: nothing a dependency runs here can publish.
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - id: verify-tag
         if: github.event_name == 'push'
         run: |
@@ -33,22 +35,59 @@ jobs:
             echo "CHANGELOG.md has no section for $version" >&2
             exit 1
           fi
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 10.30.3
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
       # The tarball ships the built lib/, so installing it needs no build step.
       - run: pnpm pack --pack-destination dist
+      # What npm would install, run once: a tarball missing a file fails here, before anything is published.
+      - id: smoke
+        run: |
+          tarball="$(ls "$PWD"/dist/*.tgz)"
+          prefix="$(mktemp -d)"
+          npm install --prefix "$prefix" --no-audit --no-fund "$tarball"
+          version="$(node -p 'require("./package.json").version')"
+          installed="$("$prefix/node_modules/.bin/dshenv" --version)"
+          if [ "$installed" != "$version" ]; then
+            echo "The packed dshenv reports version '$installed', expected $version" >&2
+            exit 1
+          fi
+          "$prefix/node_modules/.bin/dshenv" --help >/dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package
+          path: |
+            dist/*.tgz
+            release-notes.md
+          if-no-files-found: error
+
+  # Publishes the tarball the build job packed; it checks out and installs nothing.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      # npm trusted publishing authenticates with the workflow's OIDC token and signs provenance with it.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: package
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
       # Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
-      - run: npm install -g npm@^11.5.1
+      - run: npm install -g npm@11.20.0
       # The trusted publisher on npmjs.com is bound to this file name, so the check has to run here.
       # --force skips the already-published check; --dry-run still exchanges the OIDC token but uploads nothing.
       - id: check-oidc
@@ -77,7 +116,8 @@ jobs:
           npm publish ./dist/*.tgz --access public --provenance --loglevel verbose
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # No checkout in this job, so gh names the repository itself.
       - if: github.event_name == 'push'
-        run: gh release create "$GITHUB_REF_NAME" dist/*.tgz --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+        run: gh release create "$GITHUB_REF_NAME" dist/*.tgz --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}
