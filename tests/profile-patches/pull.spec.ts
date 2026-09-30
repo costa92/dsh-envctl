@@ -6,7 +6,7 @@ import * as YAML from 'yaml';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 import { pullProfilePatches } from '../../src/profile-patches/pull.js';
 import { applyEnvironment } from '../../src/apply/apply.js';
-import { loadManifest, parseOverlay } from '../../src/manifest/files.js';
+import { loadLock, loadManifest, loadState, parseOverlay } from '../../src/manifest/files.js';
 import { readSelectionFile } from '../../src/overlay/selection.js';
 import { readProfilePatchState } from '../../src/profile-patches/entries.js';
 import { rollbackEnvironment } from '../../src/rollback/rollback.js';
@@ -170,6 +170,122 @@ describe('pullProfilePatches', () => {
     expect(base().profiles).toEqual({});
     expect(fs.existsSync(path.join(paths.overlaysDir, 'local.yaml'))).toBe(false);
     expect(readSelectionFile(paths)).toBeNull();
+  });
+
+  describe('plugins', () => {
+    const profileDir = () => path.join(tempHome, 'profiles', 'web');
+    const lock = () => loadLock(fs.readFileSync(paths.lockFile, 'utf8'));
+    const writeJson = (file: string, value: unknown) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(value));
+    };
+    const setProfile = (dependencies: Record<string, string>, bundles: string[]) =>
+      writeJson(path.join(profileDir(), 'package.json'), { dependencies, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', ...bundles] } } });
+    const installNpm = (name: string, version: string) =>
+      writeJson(path.join(profileDir(), 'node_modules', ...name.split('/'), 'package.json'), { name, version, dsh: { bundle: {} } });
+    const linkLocal = (name: string): string => {
+      const source = path.join(tempHome, 'src', name);
+      writeJson(path.join(source, 'package.json'), { name, version: '0.1.0', dsh: { bundle: {} } });
+      fs.mkdirSync(path.join(profileDir(), 'node_modules'), { recursive: true });
+      fs.symlinkSync(source, path.join(profileDir(), 'node_modules', name), 'junction');
+      return source;
+    };
+
+    beforeEach(() => {
+      fs.writeFileSync(patchFile(), '[]\n');
+    });
+
+    it('takes an npm plugin into the base manifest and locks it so plan has nothing to reinstall', async () => {
+      setProfile({ '@acme/dsh-notes': '1.2.3' }, ['@acme/dsh-notes']);
+      installNpm('@acme/dsh-notes', '1.2.3');
+
+      const result = await pull();
+      expect(result.plugins).toEqual([{ profile: 'web', alias: 'notes', package: '@acme/dsh-notes', sourceType: 'npm', enabled: true, layer: 'base' }]);
+      expect(base().profiles.web.plugins).toEqual({ notes: { package: '@acme/dsh-notes', enabled: true, source: { type: 'npm', version: '1.2.3' } } });
+      expect(lock().profiles.web.plugins.notes).toEqual({ package: '@acme/dsh-notes', source: { type: 'npm', resolvedVersion: '1.2.3' } });
+      expect(fs.existsSync(path.join(paths.overlaysDir, 'local.yaml'))).toBe(false);
+      const plan = await planOperations();
+      expect(plan.operations).toEqual([]);
+      expect(plan.unmanaged).toEqual([]);
+      expect((await pull()).plugins).toBeUndefined();
+    });
+
+    it('takes a local-link plugin into a local overlay it creates and selects, with the digest plan checks', async () => {
+      const source = linkLocal('dsh-im-hellotalk');
+      setProfile({ 'dsh-im-hellotalk': `link:${source}` }, ['dsh-im-hellotalk']);
+
+      const result = await pull();
+      expect(result.plugins).toEqual([
+        { profile: 'web', alias: 'im-hellotalk', package: 'dsh-im-hellotalk', sourceType: 'local-link', enabled: true, layer: 'overlay', overlayName: 'local' }
+      ]);
+      expect(result.overlayCreated).toBe('local');
+      expect(base().profiles.web).toBeUndefined();
+      expect(overlay().profiles?.web?.plugins).toEqual({
+        'im-hellotalk': { package: 'dsh-im-hellotalk', enabled: true, source: { type: 'local-link', path: source } }
+      });
+      expect(readSelectionFile(paths)).toBe('local');
+      expect(lock().profiles.web.plugins['im-hellotalk'].source).toMatchObject({ type: 'local-link', path: source, digest: expect.any(String) });
+      const plan = await planOperations();
+      expect(plan.operations).toEqual([]);
+      expect(plan.unmanaged).toEqual([]);
+    });
+
+    it('takes a plugin DSH loads only through an insert row as disabled, with the row as a patch entry', async () => {
+      setProfile({ '@acme/dsh-notes': '1.2.3' }, []);
+      installNpm('@acme/dsh-notes', '1.2.3');
+      const insert = { insert: [{ id: 'notes', name: '@acme/dsh-notes' }] };
+      fs.writeFileSync(patchFile(), YAML.stringify([insert]));
+
+      const result = await pull();
+      expect(result.plugins).toMatchObject([{ alias: 'notes', enabled: false, layer: 'base' }]);
+      expect(base().profiles.web).toEqual({
+        plugins: { notes: { package: '@acme/dsh-notes', enabled: false, source: { type: 'npm', version: '1.2.3' } } },
+        patches: [insert]
+      });
+      expect((await planOperations()).operations).toEqual([]);
+    });
+
+    it('writes nothing on a dry run', async () => {
+      setProfile({ '@acme/dsh-notes': '1.2.3' }, ['@acme/dsh-notes']);
+      installNpm('@acme/dsh-notes', '1.2.3');
+      const result = await pull({ dryRun: true });
+      expect(result.plugins).toHaveLength(1);
+      expect(base().profiles).toEqual({});
+      expect(fs.existsSync(paths.lockFile)).toBe(false);
+      expect(fs.existsSync(paths.stateFile)).toBe(false);
+    });
+
+    it('takes only the profile given', async () => {
+      setProfile({ '@acme/dsh-notes': '1.2.3' }, ['@acme/dsh-notes']);
+      installNpm('@acme/dsh-notes', '1.2.3');
+      const other = path.join(tempHome, 'profiles', 'cli');
+      writeJson(path.join(other, 'package.json'), { dependencies: { '@acme/dsh-todo': '2.0.0' }, dsh: { profile: { bundles: ['@acme/dsh-todo'] } } });
+      writeJson(path.join(other, 'node_modules', '@acme', 'dsh-todo', 'package.json'), { name: '@acme/dsh-todo', version: '2.0.0', dsh: { bundle: {} } });
+
+      const result = await pull({ profiles: ['cli'] });
+      expect(result.plugins?.map((plugin) => plugin.profile)).toEqual(['cli']);
+      expect(Object.keys(base().profiles)).toEqual(['cli']);
+    });
+
+    it('refuses a local-link plugin under --no-overlay', async () => {
+      const source = linkLocal('dsh-im-hellotalk');
+      setProfile({ 'dsh-im-hellotalk': `link:${source}` }, ['dsh-im-hellotalk']);
+      await expect(pull({ allowOverlayCreation: false })).rejects.toThrow(/dsh-im-hellotalk.*machine-local path.*overlay/);
+      expect(base().profiles).toEqual({});
+      expect(fs.existsSync(paths.lockFile)).toBe(false);
+    });
+
+    it('records ownership as adopt does and is undone by rollback', async () => {
+      setProfile({ '@acme/dsh-notes': '1.2.3' }, ['@acme/dsh-notes']);
+      installNpm('@acme/dsh-notes', '1.2.3');
+      const result = await pull();
+      const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
+      expect(state.ownership?.web?.['@acme/dsh-notes']).toMatchObject({ alias: 'notes', sourceType: 'npm', lockedVersion: '1.2.3', adoptedBy: result.operationId });
+
+      await rollbackEnvironment(paths, { operationId: result.operationId });
+      expect(base().profiles).toEqual({});
+      expect(fs.existsSync(paths.lockFile)).toBe(false);
+    });
   });
 
   describe('skills', () => {

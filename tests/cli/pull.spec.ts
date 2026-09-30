@@ -66,6 +66,40 @@ describe('CLI pull', () => {
     expect((await run(['pull'])).stdout).toContain('Nothing to pull');
   });
 
+  it('takes a plugin plan reports as unmanaged, a local link into the overlay', async () => {
+    const profileDir = path.join(tempHome, 'profiles', 'web');
+    const source = path.join(tempHome, 'src', 'dsh-im-hellotalk');
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify({ name: 'dsh-im-hellotalk', version: '0.1.0', dsh: { bundle: {} } }));
+    fs.mkdirSync(path.join(profileDir, 'node_modules'));
+    fs.symlinkSync(source, path.join(profileDir, 'node_modules', 'dsh-im-hellotalk'), 'junction');
+    fs.writeFileSync(
+      path.join(profileDir, 'package.json'),
+      JSON.stringify({ dependencies: { 'dsh-im-hellotalk': `link:${source}` }, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dsh-im-hellotalk'] } } })
+    );
+    fs.writeFileSync(patchFile(), '[]\n');
+    await run(['init']);
+
+    expect((await run(['plan'])).stdout).toContain("Unmanaged plugins (not in manifest; run 'dshenv pull' to manage them):\n  ? [web] dsh-im-hellotalk");
+    const refused = await run(['pull', '--no-overlay']);
+    expect(refused.code).toBe(3);
+    expect(refused.stderr).toMatch(/Plugin 'dsh-im-hellotalk' of profile 'web' has a machine-local path/);
+
+    const preview = await run(['pull', '--dry-run']);
+    expect(preview.code).toBe(2);
+    expect(preview.stdout).toContain("[web] from DSH: + plugin im-hellotalk (overlay 'local')");
+    expect(fs.existsSync(path.join(tempHome, 'envctl', 'overlays', 'local.yaml'))).toBe(false);
+
+    const pulled = await run(['pull', '--json']);
+    expect(pulled.code).toBe(0);
+    expect(JSON.parse(pulled.stdout).plugins).toEqual([
+      { profile: 'web', alias: 'im-hellotalk', package: 'dsh-im-hellotalk', sourceType: 'local-link', enabled: true, layer: 'overlay', overlayName: 'local' }
+    ]);
+    const after = await run(['plan']);
+    expect(after.code).toBe(0);
+    expect(after.stdout).not.toMatch(/Planned operations|Unmanaged plugins/);
+  });
+
   it('rejects an unknown --prefer and machine-local entries under --no-overlay', async () => {
     await run(['init']);
     expect((await run(['pull', '--prefer', 'both'])).code).toBe(3);

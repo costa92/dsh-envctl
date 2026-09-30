@@ -450,7 +450,7 @@ dshenv remote remove --yes                                   # 取消订阅，�
 
 ### 22. `dshenv pull`
 
-把 DSH 里改动的设置收进清单，是 `apply` 的反方向。你在 DSH 界面里改模型、语言等设置时，DSH 会改写 Profile 的 `cordis.patch.yml`；`plan` 会在 `Patch entries not in the manifest` 下列出受管块之外的条目，或提示受管块在 DSH 里被改过。
+把 DSH 里改动的设置和装进 Profile 的插件收进清单，是 `apply` 的反方向。你在 DSH 界面里改模型、语言等设置时，DSH 会改写 Profile 的 `cordis.patch.yml`；`plan` 会在 `Patch entries not in the manifest` 下列出受管块之外的条目，或提示受管块在 DSH 里被改过。
 
 ```bash
 dshenv pull --dry-run        # 预览，有变更时退出码 2
@@ -462,9 +462,10 @@ dshenv pull --prefer dsh     # DSH 与清单都改过时，以 DSH 为准（--pr
 - 条目写进清单的 `profiles.<profile>.patches`，原样保留 `id`、`name`、`config`、`disabled`、`insert` 与 `!!js` 表达式（清单里记作 `{ __jsExpr: ... }`）。
 - 含本机绝对路径（如技能目录）的条目写进当前 overlay；没有选中 overlay 时新建并选中 `local`。带 `--no-overlay` 时遇到这类条目会拒绝。订阅了团队 remote 时基础清单只读，全部条目写进本机 overlay。
 - 自上次 `apply` 以来 DSH 与清单都改过时拒绝执行，需用 `--prefer` 指定以哪一边为准。
+- `plan` 在 `Unmanaged plugins` 下列出的插件（装在 Profile 里、清单没有声明）也一并接管，描述方式与 `capture` 相同（别名、来源、版本；只靠 `insert` 加载、不在 bundles 里的记为 `enabled: false`），并像 `adopt` 一样写入 lock 与所有权记录，之后 `plan` 不会要求重装。`local-link`/`local-file` 插件按含本机路径条目的规则写进 overlay（`local-link` 同时记下源码 digest），其余写进基础清单；团队 remote 拥有基础清单时写进 overlay。`adopt` 之后的那次 `pull` 不接管插件。
 - 写入前先建快照，`dshenv rollback <快照 id> --yes` 可撤销（id 见 `--json` 输出的 `snapshotId`）。
 - `$DSH_HOME/skills` 下的 loose skill 也一并处理：目录复制到 `envctl/skills/<名字>`，DSH 里删掉的技能从清单里删除。`apply` 反向复制，被覆盖或删除的 DSH 副本移进 `envctl/trash`（`gc` 清理）；`plan` 在 `Planned skill changes` 与 `Skills not in the manifest` 下列出技能。`envctl/skills` 可以放进团队配置仓库，随 `remote`/`sync` 同步；团队拥有的技能在 DSH 里改动后 `pull` 会拒绝。Git 标记为可执行的文件同步后保持可执行；变化按内容判断，只改可执行位、内容不变的提交不会同步，需要连同内容一起改。
-- `--json` 输出 `{dryRun, changes: [{profile, from, added, changed, removed, base, overlay, overlayName?}], skills?: {added, changed, removed}, overlayCreated?, operationId?, snapshotId?}`。
+- `--json` 输出 `{dryRun, changes: [{profile, from, added, changed, removed, base, overlay, overlayName?}], skills?: {added, changed, removed}, plugins?: [{profile, alias, package, sourceType, enabled, layer, overlayName?}], warnings?, overlayCreated?, operationId?, snapshotId?}`；`warnings` 列出无法接管的插件（如 npm 版本不是确定版本）。
 
 ### 23. `dshenv tools`
 

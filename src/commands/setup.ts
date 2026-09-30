@@ -130,7 +130,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
       let patches: Awaited<ReturnType<typeof pullProfilePatches>> | null = null;
       try {
         patches = summary.profiles.length > 0
-          ? await pullProfilePatches(paths, { profiles: summary.profiles, selection, allowOverlayCreation: opts.overlay !== false })
+          ? await pullProfilePatches(paths, { profiles: summary.profiles, selection, allowOverlayCreation: opts.overlay !== false, plugins: false })
           : null;
       } catch (err) {
         // The adoption is already written; only the pull remains, so say so rather than suggest adopt failed.

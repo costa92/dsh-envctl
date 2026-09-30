@@ -70,7 +70,7 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary, head
 
   if (plan.unmanaged.length > 0) {
     lines.push('');
-    lines.push('Unmanaged plugins (not in manifest):');
+    lines.push("Unmanaged plugins (not in manifest; run 'dshenv pull' to manage them):");
     for (const u of plan.unmanaged) {
       lines.push(`  ? [${u.profile}] ${u.package}`);
     }
