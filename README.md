@@ -219,7 +219,7 @@ dshenv apply --dry-run
 dshenv apply --yes
 ```
 
-不带 `--yes` 的 `apply` 与 `--dry-run` 相同：展示计划、有变更时退出码 2，并在 stderr 提示加 `--yes` 重跑。`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 同样如此：不带 `--yes` 只预览，有待执行的内容时退出码 2，没有时退出码 0。
+不带 `--yes` 的 `apply` 与 `--dry-run` 相同：展示计划、有变更时退出码 2，并在 stderr 提示加 `--yes` 重跑。`pull`、`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 同样如此：不带 `--yes` 只预览，有待执行的内容时退出码 2，没有时退出码 0。
 
 当前执行计划中的 `install/update/enable/disable/remove/configure`。`configure` 只写入 Profile `cordis.patch.yml` 的受管块。没有所有权记录的实际插件只标为 `unmanaged`，不会卸载。
 
@@ -455,10 +455,10 @@ dshenv remote remove --yes                                   # 取消订阅，�
 把 DSH 里改动的设置和装进 Profile 的插件收进清单，是 `apply` 的反方向。你在 DSH 界面里改模型、语言等设置时，DSH 会改写 Profile 的 `cordis.patch.yml`；`plan` 会在 `Patch entries not in the manifest` 下列出受管块之外的条目，或提示受管块在 DSH 里被改过。
 
 ```bash
-dshenv pull --dry-run        # 预览，有变更时退出码 2
-dshenv pull                  # 收进清单，并把这些条目整理进 dshenv 的受管块
-dshenv pull --profile web    # 只处理一个 Profile
-dshenv pull --prefer dsh     # DSH 与清单都改过时，以 DSH 为准（--prefer manifest 以清单为准）
+dshenv pull                        # 预览，有变更时退出码 2（与 --dry-run 相同）
+dshenv pull --yes                  # 收进清单，并把这些条目整理进 dshenv 的受管块
+dshenv pull --yes --profile web    # 只处理一个 Profile
+dshenv pull --yes --prefer dsh     # DSH 与清单都改过时，以 DSH 为准（--prefer manifest 以清单为准）
 ```
 
 - 条目写进清单的 `profiles.<profile>.patches`，原样保留 `id`、`name`、`config`、`disabled`、`insert` 与 `!!js` 表达式（清单里记作 `{ __jsExpr: ... }`）。
@@ -541,7 +541,7 @@ dshenv remove agent-teams -p web
 | :--- | :--- |
 | `0` | 成功 / 环境与清单完全同步（Clean） |
 | `1` | 意外失败（如 Git、npm 或网络错误） |
-| `2` | 存在有效变更计划（Drifted，`plan`/`status`/`apply --dry-run`）；不带 `--yes` 的 `apply`、`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 预览有待执行的内容；`runtime` 有插件仍在加载；`self-update --check` 有可安装的版本；`pull --dry-run` 有可收进的变更 |
+| `2` | 存在有效变更计划（Drifted，`plan`/`status`/`apply --dry-run`）；不带 `--yes` 的 `apply`、`pull`、`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 预览有待执行的内容；`runtime` 有插件仍在加载；`self-update --check` 有可安装的版本 |
 | `3` | 用法错误（缺参数、未知选项或命令）或输入、清单格式校验失败（ValidationError）；`--json` 时以 `{"error": {...}}` 输出 |
 | `4` | DSH 运行时能力不支持或未找到（CapabilityError） |
 | `5` | 环境降级或运行时响应异常（DegradedError） |

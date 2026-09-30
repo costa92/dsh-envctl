@@ -252,7 +252,8 @@ EOF
 step "plan reports the entries DSH wrote" 0 bash -c '"$@" plan | grep -q "? \[web\] locale, skill-filesystem"' _ "${run[@]}"
 step "plan reports the loose skill" 0 bash -c '"$@" plan | grep -q "? e2e-loose"' _ "${run[@]}"
 step "pull dry-run" 2 "${run[@]}" pull --dry-run
-step "pull" 0 "${run[@]}" pull
+step "pull previews without --yes" 2 "${run[@]}" pull
+step "pull" 0 "${run[@]}" pull --yes
 step "manifest declares the shared entry" 0 grep -q "preference: zh" "$envctl/manifest.yaml"
 step "local overlay holds the machine-local entry" 0 grep -q "$work/skills" "$envctl/overlays/local.yaml"
 step "envctl/skills holds the loose skill" 0 test -f "$envctl/skills/e2e-loose/SKILL.md"
@@ -260,7 +261,7 @@ step "plan clean after pull" 0 "${run[@]}" plan
 step "dsh composes the pulled settings" 0 bash -c '"$DSH_CLI" --profile web --dump-config | grep -q "$1"' _ "$work/skills"
 sed -i 's/preference: zh/preference: en/' "$patch_file"
 step "plan sees the edit made in DSH" 2 bash -c 'out="$("$@" plan)"; code=$?; grep -q "edited in DSH" <<<"$out" || exit 99; exit "$code"' _ "${run[@]}"
-step "pull the DSH edit" 0 "${run[@]}" pull
+step "pull the DSH edit" 0 "${run[@]}" pull --yes
 step "manifest follows the DSH edit" 0 grep -q "preference: en" "$envctl/manifest.yaml"
 step "plan clean after pulling the edit" 0 "${run[@]}" plan
 sed -i 's/preference: en/preference: fr/' "$patch_file"
@@ -272,7 +273,7 @@ step "plan sees the skill changed in the manifest" 2 "${run[@]}" plan
 step "apply copies the skill into DSH" 0 "${run[@]}" apply --yes
 step "DSH has the manifest's skill" 0 grep -q "manifest edit" "$DSH_HOME/skills/e2e-loose/SKILL.md"
 echo "dsh edit" >>"$DSH_HOME/skills/e2e-loose/SKILL.md"
-step "pull the skill edited in DSH" 0 "${run[@]}" pull
+step "pull the skill edited in DSH" 0 "${run[@]}" pull --yes
 step "envctl/skills follows DSH" 0 grep -q "dsh edit" "$envctl/skills/e2e-loose/SKILL.md"
 step "plan clean after the skill round trip" 0 "${run[@]}" plan
 

@@ -17,7 +17,7 @@ describe('planSkills', () => {
 
   it('points to pull when only DSH changed the skill', () => {
     const { operations } = planSkills({ declared: { a: 'same' }, live: { a: 'edited' } }, { a: 'same' });
-    expect(operations[0].reason).toMatch(/edited in DSH.*dshenv pull.*trash/);
+    expect(operations[0].reason).toMatch(/edited in DSH.*dshenv pull --yes.*trash/);
   });
 
   it('does not point to pull for a team skill edited in DSH, since pull refuses it', () => {

@@ -50,7 +50,7 @@ describe('buildPlan with profile patches', () => {
   it('tells a DSH edit of the block apart and points to pull', () => {
     const edited = { id: 'locale', config: { preference: 'en' } };
     const plan = buildPlan(manifest([locale]), null, inventory({ block: block([edited], digestProfilePatches([locale])), unmanaged: [] }));
-    expect(plan.operations[0].reason).toMatch(/edited in DSH.*dshenv pull/);
+    expect(plan.operations[0].reason).toMatch(/edited in DSH.*dshenv pull --yes/);
   });
 
   it('reports entries outside the managed blocks without planning a change', () => {

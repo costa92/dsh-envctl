@@ -6,6 +6,7 @@
 
 ### 升级须知
 
+- `pull` 与其他改状态的命令一致：不带 `--yes` 只预览（同 `--dry-run`，有待接管的内容时退出码 2，并在 stderr 提示加 `--yes`），脚本里的 `dshenv pull` 需改为 `dshenv pull --yes`。`plan` 等输出里的提示相应改为 `run 'dshenv pull --yes'`。
 - `state.json` 的结构不兼容 0.4.x（`apiVersion` 仍为 `dshenv-state/v1`）：顶层的插件所有权 `ownership` 与 skill 基线 `skills` 移到 `resources` 下，新版本不读旧结构，遇到会报 `Invalid state schema: : Unrecognized keys: "ownership", "skills"` 并以退出码 3 退出，`rollback` 到升级前的快照也会因此失败。升级后先把 `envctl/state.json` 手工改成新结构：
   - `"ownership": { <profile>: { <包名>: {…} } }` 改为 `"resources": { "plugin": { <profile>: { <包名>: {…} } } }`，记录内容不变；
   - `"skills": { <名字>: "<摘要>" }` 改为 `"resources": { "skill": { <名字>: { "digest": "<摘要>" } } }`；
