@@ -296,8 +296,9 @@ dshenv config unset agent-teams taskPlanning --profile web     # 删掉一个键
 ```
 
 - 值按 JSON 解析（`3`、`true`、`{"a":1}`），解析不了时当作字符串；要写字符串 `"3"` 就传 `'"3"'`。
-- DSH 为该插件组合出了配置时，`config set` 只接受其中已有的顶层键，拼错的键会报错并给出相近的键名；确实要写新键时加 `--force`。
-- 读取不存在的键时以退出码 3 报错。
+- DSH 为该插件组合出了配置而其中没有这个顶层键时，`config set` 在 stderr 提示一行（附相近的键名）后照常写入：DSH 只组合出带默认值的键，插件文档里的键可能不在其中。`--force` 不再提示。
+- 读取或删除不存在的键时以退出码 3 报错；只认配置里自己的键，不会读到 `toString` 这类继承来的属性。路径为空，或含 `__proto__`、`prototype`、`constructor` 时以退出码 3 拒绝。
+- `config unset` 在该插件声明的所有 patch 里找这个键；删完后什么都不设的 patch 会一并删掉，不留下 `config: {}`。
 
 ```bash
 ```
@@ -513,7 +514,7 @@ dshenv remove agent-teams -p web
 
 - 别名默认取包名（去掉作用域与 `dsh-plugin-`、`dsh-` 前缀），`--as` 指定。本地来源的包名默认读其 `package.json` 的 `name`（读不到时用目录名），Git 来源默认用仓库名，与实际包名不同时用 `--package` 指定（`source clone --profile` 会读仓库的 `package.json`）；`--package` 只对 Git 与本地来源有效。
 - 同一别名重新 `install` 同一个包只改来源，保留 `patches` 与启用状态；输出会说明从哪个版本（来源）改成了哪个。
-- npm 来源先用 `npm view` 核对包与版本：不存在时以退出码 3 报错并给出最新版本，npm 查询不了（离线等）时只警告。设 `DSHENV_NPM_CHECK=off` 跳过核对。
+- npm 来源（`install` 与 `update --to`）先用 `npm view` 核对：包在而版本不存在时以退出码 3 报错并给出最新版本。npm 看不到这个包（可能是需要凭据的私有包）、拒绝凭据，或查询不了（离线、超过约 5 秒）时只警告，照常写入清单。加 `--no-npm-check` 或设 `DSHENV_NPM_CHECK=off` 跳过核对；`--json` 输出的 `npmCheck` 是 `verified`、`unverified`、`unreachable` 或 `skipped`。包名不合法（例如以 `-` 开头）时直接拒绝，不会交给 npm。
 - `enable`、`disable`、`remove`、`update`、`config` 也接受包名；别名写错时报错会给出相近的别名。
 - 输出统一为「改了清单 + 下一步」，如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`。
 - `remove` 从清单删除该条目；写 overlay 时，base 中已有的插件记为 `remove: true`。`apply` 只卸载有所有权记录的插件（dshenv 安装或 `adopt` 接管的），其他实际存在的插件标为 `unmanaged`，不会卸载。`remove` 只改清单，无需确认；旧脚本里的 `-y`/`--yes` 仍被接受。`uninstall` 是 `remove` 的别名。
