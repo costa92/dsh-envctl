@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
-import { captureEnvironment, initEnvironment } from '../capture/capture.js';
-import { adoptEnvironment } from '../adopt/adopt.js';
+import { captureEnvironment, initEnvironment } from '../import/capture.js';
+import { adoptEnvironment } from '../import/adopt.js';
 import { parseYamlStrict, serializeCaptureDocument } from '../manifest/files.js';
 import { CaptureDocumentSchema } from '../manifest/schema.js';
 import { writeAtomic } from '../io/atomic-file.js';
@@ -13,7 +13,7 @@ import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write
 import { readOverlay } from '../overlay/effective.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 import { Option } from 'commander';
-import { pullProfilePatches } from '../profile-patches/pull.js';
+import { pullProfilePatches } from '../import/pull.js';
 import { renderPullResult } from './pull.js';
 import { reportPreview } from './confirm.js';
 

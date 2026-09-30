@@ -143,3 +143,65 @@ export async function applySkillOperation(paths: EnvironmentPaths, operation: Sk
   const source = operation.kind === 'remove' ? null : path.join(paths.skillsDir, operation.name);
   return replaceSkillDir(source, path.join(paths.dshSkillsDir, operation.name), path.join(trashRoot, 'skills', operation.name));
 }
+
+export interface SkillImportChanges {
+  added: string[];
+  changed: string[];
+  removed: string[];
+}
+
+export interface SkillImportAction {
+  name: string;
+  kind: 'added' | 'changed' | 'removed';
+}
+
+// `owned` holds each skill's digest from when both sides last matched; without one, the manifest copy is the base.
+export function planSkillImport(
+  skills: { declared: Record<string, string>; live: Record<string, string> },
+  owned: Record<string, string>,
+  prefer: 'dsh' | 'manifest' | undefined
+): { actions: SkillImportAction[]; conflicts: string[]; owned: Record<string, string> } {
+  const actions: SkillImportAction[] = [];
+  const conflicts: string[] = [];
+  const nextOwned = { ...owned };
+  for (const name of [...new Set([...Object.keys(skills.declared), ...Object.keys(skills.live)])].sort()) {
+    const declared = skills.declared[name];
+    const live = skills.live[name];
+    const recorded = owned[name];
+    if (live !== undefined && live === declared) {
+      nextOwned[name] = live;
+      continue;
+    }
+    // A declared skill DSH never had is apply's to install, not a deletion to pull.
+    const dshChanged = live !== (recorded ?? declared) && !(live === undefined && recorded === undefined);
+    if (!dshChanged) {
+      continue;
+    }
+    const manifestChanged = recorded !== undefined && declared !== recorded;
+    if (manifestChanged && !prefer) {
+      conflicts.push(name);
+      continue;
+    }
+    if (manifestChanged && prefer === 'manifest') {
+      continue;
+    }
+    actions.push({ name, kind: declared === undefined ? 'added' : live === undefined ? 'removed' : 'changed' });
+    if (live === undefined) {
+      delete nextOwned[name];
+    } else {
+      nextOwned[name] = live;
+    }
+  }
+  return { actions, conflicts, owned: nextOwned };
+}
+
+export function summarizeSkillImport(actions: SkillImportAction[]): SkillImportChanges {
+  const names = (kind: SkillImportAction['kind']) => actions.filter((action) => action.kind === kind).map((action) => action.name);
+  return { added: names('added'), changed: names('changed'), removed: names('removed') };
+}
+
+// Takes the DSH copy of a skill into envctl/skills; the replaced declaration goes to trash.
+export async function importSkill(paths: EnvironmentPaths, action: SkillImportAction, operationId: string): Promise<void> {
+  const live = path.join(paths.dshSkillsDir, action.name);
+  await replaceSkillDir(action.kind === 'removed' ? null : live, path.join(paths.skillsDir, action.name), path.join(paths.trashDir, operationId, 'envctl-skills', action.name));
+}

@@ -23,6 +23,7 @@ import {
 import { writeAtomic } from '../io/atomic-file.js';
 import { ValidationError } from '../errors.js';
 import { withEnvironmentLock } from '../io/lock.js';
+import { freeAlias, pluginOwnershipRecord } from '../resources/plugin.js';
 
 export interface AdoptDetail {
   profile: string;
@@ -78,15 +79,6 @@ function readExisting<T>(kind: string, file: string, load: (content: string) => 
     const message = err instanceof Error ? err.message : String(err);
     throw new ValidationError(`Cannot adopt: the existing ${kind} ${file} is invalid (${message}); fix or move it first`);
   }
-}
-
-// A captured alias can already name another declared package; overwriting that entry would drop it and its patches.
-export function freeAlias(plugins: Record<string, unknown>, alias: string): string {
-  let candidate = alias;
-  for (let counter = 1; Object.hasOwn(plugins, candidate); counter++) {
-    candidate = `${alias}-${counter}`;
-  }
-  return candidate;
 }
 
 export interface AdoptOptions {
@@ -202,26 +194,15 @@ async function adoptUnderLock(
         mergedLock.profiles[profileName].plugins[alias] = lockEntry;
       }
 
-      let lockedVersion: string | undefined;
-      if (plugin.source.type === 'npm') {
-        lockedVersion = plugin.source.version;
-      }
-
-      ownership[profileName][plugin.package] = {
-        package: plugin.package,
-        alias,
-        sourceType: plugin.source.type,
-        lockedVersion,
-        adoptedAt: now,
-        adoptedBy: operationId
-      };
+      const record = pluginOwnershipRecord(plugin.package, alias, plugin.source, now, operationId);
+      ownership[profileName][plugin.package] = record;
 
       details.push({
         profile: profileName,
         alias,
         package: plugin.package,
         sourceType: plugin.source.type,
-        version: lockedVersion,
+        version: record.lockedVersion,
         alreadyAdopted
       });
     }

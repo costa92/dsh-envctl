@@ -1,5 +1,5 @@
 import { ValidationError } from '../errors.js';
-import { pullProfilePatches, type PullResult } from '../profile-patches/pull.js';
+import { pullProfilePatches, type PullResult } from '../import/pull.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 
 export function renderPullResult(result: PullResult): string {
