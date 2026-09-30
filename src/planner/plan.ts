@@ -3,7 +3,7 @@ import type { EnvironmentInventory } from '../inventory/profile-reader.js';
 import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 import { planPlugins } from '../resources/plugin.js';
 import { planProfilePatches } from '../resources/profile-patch.js';
-import { planSkills } from '../resources/skill.js';
+import { ownedSkillDigests, planSkills } from '../resources/skill.js';
 
 export type OperationKind =
   | 'install'
@@ -177,7 +177,7 @@ export function buildPlan(
     return a.package.localeCompare(b.package);
   });
 
-  const skills = inventory.skills ? planSkills(inventory.skills, state?.skills) : { operations: [], unmanaged: [] };
+  const skills = inventory.skills ? planSkills(inventory.skills, ownedSkillDigests(state)) : { operations: [], unmanaged: [] };
   const { pinnedPresets } = patches;
 
   return {

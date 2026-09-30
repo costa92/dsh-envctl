@@ -127,7 +127,7 @@ profiles:
       }
     });
 
-    const owned = loadState(fs.readFileSync(paths.stateFile, 'utf8')).ownership?.web?.['@nanmicoder/dsh-agent-teams'];
+    const owned = loadState(fs.readFileSync(paths.stateFile, 'utf8')).resources?.plugin?.web?.['@nanmicoder/dsh-agent-teams'];
     expect(owned).toMatchObject({ package: '@nanmicoder/dsh-agent-teams', alias: 'agent-teams', sourceType: 'npm', lockedVersion: '0.1.21' });
 
     fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins: {}\n');
@@ -154,7 +154,7 @@ profiles:
     });
     expect(res.plan.operations.map((op) => op.kind)).toContain('update');
 
-    const owned = loadState(fs.readFileSync(paths.stateFile, 'utf8')).ownership?.web?.['@nanmicoder/dsh-agent-teams'];
+    const owned = loadState(fs.readFileSync(paths.stateFile, 'utf8')).resources?.plugin?.web?.['@nanmicoder/dsh-agent-teams'];
     expect(owned).toMatchObject({ alias: 'agent-teams', lockedVersion: '0.1.21', adoptedBy: res.operationId });
 
     fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins: {}\n');
@@ -406,7 +406,7 @@ fs.rmSync(packageDir, { recursive: true, force: true });
     expect(profile.dsh.profile.bundles).not.toContain('@nanmicoder/dsh-agent-teams');
 
     const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
-    expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeUndefined();
+    expect(state.resources?.plugin?.web?.['@nanmicoder/dsh-agent-teams']).toBeUndefined();
   });
 
   it('should restore the lock file when apply execution fails', async () => {

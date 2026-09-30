@@ -105,8 +105,8 @@ console.log('applied');`
     const journal = fs.readFileSync(path.join(paths.logsDir, 'journal.jsonl'), 'utf8');
     expect(journal).toMatch(/"type":"apply-rollback".*interrupted/);
     // What DSH did install stays dshenv's to remove later.
-    const state = JSON.parse(fs.readFileSync(paths.stateFile, 'utf8')) as { ownership?: { web?: object }; lastApplied: string };
-    expect(Object.keys(state.ownership?.web ?? {})).toEqual(['aa']);
+    const state = JSON.parse(fs.readFileSync(paths.stateFile, 'utf8')) as { resources?: { plugin?: { web?: object } }; lastApplied: string };
+    expect(Object.keys(state.resources?.plugin?.web ?? {})).toEqual(['aa']);
     expect(state.lastApplied).toBe('');
 
     const next = await applyEnvironment(paths, { probeHmr: async () => ({ state: 'off' }), hmrSettleMs: 0 });

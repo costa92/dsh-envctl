@@ -41,7 +41,7 @@ describe('apply skills', () => {
 
     expect((await applyEnvironment(paths)).applied).toBe(true);
     expect(fs.readFileSync(dshSkill('wiki'), 'utf8')).toBe('declared');
-    expect(Object.keys(loadState(fs.readFileSync(paths.stateFile, 'utf8')).skills ?? {})).toEqual(['wiki']);
+    expect(Object.keys(loadState(fs.readFileSync(paths.stateFile, 'utf8')).resources?.skill ?? {})).toEqual(['wiki']);
     expect((await plan()).hasChanges).toBe(false);
 
     write(dshSkill('wiki'), 'edited in DSH');
@@ -60,7 +60,7 @@ describe('apply skills', () => {
     write(dshSkill('wiki'), 'declared');
     fs.writeFileSync(paths.stateFile, JSON.stringify({ apiVersion: 'dshenv-state/v1', lastApplied: '2026-01-01T00:00:00.000Z', appliedLockHash: '', profiles: {} }));
     expect((await applyEnvironment(paths)).applied).toBe(false);
-    expect(Object.keys(loadState(fs.readFileSync(paths.stateFile, 'utf8')).skills ?? {})).toEqual(['wiki']);
+    expect(Object.keys(loadState(fs.readFileSync(paths.stateFile, 'utf8')).resources?.skill ?? {})).toEqual(['wiki']);
 
     fs.rmSync(path.join(paths.skillsDir, 'wiki'), { recursive: true });
     expect(skillOps(await plan())).toMatchObject([{ kind: 'remove', name: 'wiki' }]);

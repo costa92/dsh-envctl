@@ -280,7 +280,7 @@ describe('pullProfilePatches', () => {
       installNpm('@acme/dsh-notes', '1.2.3');
       const result = await pull();
       const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
-      expect(state.ownership?.web?.['@acme/dsh-notes']).toMatchObject({ alias: 'notes', sourceType: 'npm', lockedVersion: '1.2.3', adoptedBy: result.operationId });
+      expect(state.resources?.plugin?.web?.['@acme/dsh-notes']).toMatchObject({ alias: 'notes', sourceType: 'npm', lockedVersion: '1.2.3', adoptedBy: result.operationId });
 
       await rollbackEnvironment(paths, { operationId: result.operationId });
       expect(base().profiles).toEqual({});

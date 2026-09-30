@@ -354,7 +354,7 @@ export function planPlugins(
       if (isDshBuiltIn(profInv.plugins[pkgName])) {
         continue;
       }
-      const owned = state?.ownership?.[profName]?.[pkgName];
+      const owned = state?.resources?.plugin?.[profName]?.[pkgName];
       if (owned && profInv.plugins[pkgName].installed) {
         operations.push({
           resource: 'plugin',

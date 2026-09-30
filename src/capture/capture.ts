@@ -228,7 +228,7 @@ export async function initEnvironment(paths: EnvironmentPaths): Promise<void> {
   };
 
   const initialState: EnvironmentState = {
-    apiVersion: 'dshenv-state/v1',
+    apiVersion: 'dshenv-state/v2',
     lastApplied: new Date().toISOString(),
     appliedLockHash: '',
     profiles: {}

@@ -93,10 +93,10 @@ describe('adoptEnvironment', () => {
     expect(fs.existsSync(paths.stateFile)).toBe(true);
 
     const state = loadState(fs.readFileSync(paths.stateFile, 'utf8'));
-    expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams']).toBeDefined();
-    expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].package).toBe('@nanmicoder/dsh-agent-teams');
-    expect(state.ownership?.web?.['@nanmicoder/dsh-agent-teams'].lockedVersion).toBe('0.1.21');
-    expect(state.skills).toEqual({ wiki: 'd1' });
+    expect(state.resources?.plugin?.web?.['@nanmicoder/dsh-agent-teams']).toBeDefined();
+    expect(state.resources?.plugin?.web?.['@nanmicoder/dsh-agent-teams'].package).toBe('@nanmicoder/dsh-agent-teams');
+    expect(state.resources?.plugin?.web?.['@nanmicoder/dsh-agent-teams'].lockedVersion).toBe('0.1.21');
+    expect(state.resources?.skill).toEqual({ wiki: { digest: 'd1' } });
   });
 
   it('puts the manifest and lock back when writing state.json fails', async () => {
@@ -262,7 +262,7 @@ profiles:
     expect(plugins['agent-teams']).toEqual(expect.objectContaining({ package: '@nanmicoder/dsh-agent-teams', patches: [expect.objectContaining({ id: 'agent-teams' })] }));
     expect(plugins['agent-teams-1']).toEqual(expect.objectContaining({ package: '@acme/agent-teams' }));
     expect(summary.details).toEqual([expect.objectContaining({ alias: 'agent-teams-1', package: '@acme/agent-teams' })]);
-    const ownership = loadState(fs.readFileSync(paths.stateFile, 'utf8')).ownership?.web ?? {};
+    const ownership = loadState(fs.readFileSync(paths.stateFile, 'utf8')).resources?.plugin?.web ?? {};
     expect(Object.keys(ownership)).toEqual(['@acme/agent-teams']);
     expect(ownership['@acme/agent-teams'].alias).toBe('agent-teams-1');
   });

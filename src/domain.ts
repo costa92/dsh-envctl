@@ -129,8 +129,23 @@ export interface PluginOwnershipRecord {
   adoptedBy: string;
 }
 
+export interface SkillOwnershipRecord {
+  // The digest both envctl/skills and $DSH_HOME/skills had when they last matched.
+  digest: string;
+}
+
+// What dshenv owns, by resource kind; only an owned resource is removed once the manifest drops it.
+export interface OwnedResources {
+  // profile -> package
+  plugin?: Record<string, Record<string, PluginOwnershipRecord>>;
+  // skill name
+  skill?: Record<string, SkillOwnershipRecord>;
+}
+
+export type PluginOwnership = NonNullable<OwnedResources['plugin']>;
+
 export interface EnvironmentState {
-  apiVersion: 'dshenv-state/v1';
+  apiVersion: 'dshenv-state/v2';
   lastApplied: string;
   appliedLockHash: string;
   profiles: Record<
@@ -139,13 +154,8 @@ export interface EnvironmentState {
       plugins: Record<string, PluginStateEntry>;
     }
   >;
-  ownership?: Record<
-    string,
-    Record<string, PluginOwnershipRecord>
-  >;
   appliedOverlay?: string;
-  // Skills dshenv manages in $DSH_HOME/skills, with the digest both sides had when they last matched.
-  skills?: Record<string, string>;
+  resources?: OwnedResources;
 }
 
 export interface CaptureDocument {

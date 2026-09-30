@@ -51,7 +51,7 @@ function findOwnedPlugin(
   profileName: string,
   pluginRef: string
 ): { alias: string; packageName: string } {
-  const owned = state.ownership?.[profileName] ?? {};
+  const owned = state.resources?.plugin?.[profileName] ?? {};
   for (const [packageName, record] of Object.entries(owned)) {
     if (packageName === pluginRef || record.alias === pluginRef) {
       return { alias: record.alias, packageName };
