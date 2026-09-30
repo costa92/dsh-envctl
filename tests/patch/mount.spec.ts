@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as YAML from 'yaml';
 import { assertPatchFileArray, extractManagedPatches, renderPatchBlock, replacePluginBlocks } from '../../src/patch/patch.js';
-import { readMounts, writeMount } from '../../src/patch/mount.js';
+import { mountedByOtherEntry, readMounts, writeMount } from '../../src/patch/mount.js';
 
 const PKG = '@dsh-external/dsh-session-search';
 const rows = (content: string) => YAML.parse(content) as Array<Record<string, unknown>>;
@@ -39,5 +39,14 @@ describe('plugin mount blocks', () => {
     expect(rows(again).map((row) => row.id ?? 'insert')).toEqual(['insert', 'a', 'b']);
     expect(readMounts(writeMount(mounted, 'web', 'x', null), 'web')).toEqual({});
     expect(rows(writeMount(writeMount('[]\n', 'web', 'x', PKG), 'web', 'x', null))).toEqual([]);
+  });
+
+  it("tells whether a patch entry other than dshenv's own mount row loads the package", () => {
+    const group = `- insert:\n    - id: ingress\n      name: cordis:group\n      disabled: !!js "!ctx.get('x')"\n      config:\n        - id: session-search\n          name: '${PKG}'\n`;
+    expect(mountedByOtherEntry(group, 'web', 'session-search', PKG)).toBe(true);
+    expect(mountedByOtherEntry(writeMount(group, 'web', 'session-search', PKG), 'web', 'session-search', PKG)).toBe(true);
+    expect(mountedByOtherEntry(writeMount('[]\n', 'web', 'session-search', PKG), 'web', 'session-search', PKG)).toBe(false);
+    expect(mountedByOtherEntry('- id: other\n  name: other-pkg\n', 'web', 'session-search', PKG)).toBe(false);
+    expect(mountedByOtherEntry('- [unterminated\n', 'web', 'session-search', PKG)).toBe(false);
   });
 });
