@@ -52,8 +52,10 @@ export function resolvePluginSourcePath(
   pluginName: string,
   explicitSourceRoot?: string
 ): string {
-  const envSourceHome = process.env.DSH_PLUGIN_SOURCE_HOME;
-  const baseRoot = explicitSourceRoot || envSourceHome || '/Users/costalong/code/dsh/plugins';
+  const baseRoot = explicitSourceRoot || process.env.DSH_PLUGIN_SOURCE_HOME;
+  if (!baseRoot) {
+    throw new ValidationError('No plugin source root: pass one or set DSH_PLUGIN_SOURCE_HOME');
+  }
   const sanitizedName = pluginName.includes('/') ? pluginName.split('/')[1] : pluginName;
   return path.resolve(baseRoot, sanitizedName);
 }
