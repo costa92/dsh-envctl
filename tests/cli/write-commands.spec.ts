@@ -75,6 +75,21 @@ describe('CLI manifest write commands', () => {
       }
     });
 
+    it('points update on a Git or local plugin to what moves it instead', async () => {
+      fs.writeFileSync(
+        path.join(tempHome, 'envctl', 'manifest.yaml'),
+        'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins:\n' +
+          '      demo:\n        package: demo\n        source: { type: git, url: "https://example.com/demo.git" }\n' +
+          '      mine:\n        package: mine\n        source: { type: local-link, path: "/tmp/mine" }\n'
+      );
+      const git = await run(['update', 'demo', '--to', '1.0.0', '-p', 'web']);
+      expect(git.code).toBe(3);
+      expect(git.stderr).toContain('update --to currently supports npm sources only (got git); move a Git plugin with dshenv source sync -p web --as demo [--ref <ref>]');
+      const local = await run(['update', 'mine', '--to', '1.0.0', '-p', 'web']);
+      expect(local.code).toBe(3);
+      expect(local.stderr).toContain('update --to currently supports npm sources only (got local-link); plan and apply pick up changes in a local source by themselves');
+    });
+
     it('says an install over an existing alias changed its version', async () => {
       const out = await run(['install', `${PKG}@0.1.22`, '-p', 'web']);
       expect(out.stdout).toBe(`Changed agent-teams in profile 'web' from 0.1.21 to 0.1.22 in the manifest. ${NEXT}\n`);
