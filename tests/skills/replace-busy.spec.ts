@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { replaceSkillDir } from '../../src/skills/skills.js';
+import { replaceSkillDir } from '../../src/resources/skill.js';
 
 // Only Windows refuses to move a directory while a file in it is open (DSH reading a skill, say); POSIX never does.
 describe.runIf(process.platform === 'win32')('replaceSkillDir while a file in the skill is open', () => {

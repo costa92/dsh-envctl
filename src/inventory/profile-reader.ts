@@ -6,7 +6,7 @@ import { PackageNameRegex } from '../manifest/schema.js';
 import { extractManagedPatches, needsPatchFileRepair, type ExtractedPatch } from '../patch/patch.js';
 import { readProfilePatchState, type ProfilePatchState } from '../profile-patches/entries.js';
 import { isBundlePackage, readMounts } from '../patch/mount.js';
-import { readSkillInventory, type SkillInventory } from '../skills/skills.js';
+import { readSkillInventory, type SkillInventory } from '../resources/skill.js';
 
 export interface InstalledPluginInfo {
   name: string;

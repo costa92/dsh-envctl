@@ -4,6 +4,7 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import { readRemoteConfig, skillPathFromKey } from '../remote/schema.js';
 import { calculateSourceDigest } from '../source/local.js';
 import { retryWhileBusy } from '../io/windows-retry.js';
+import type { SkillPlanOperation } from '../planner/plan.js';
 
 // name -> content digest of each skill directory
 export interface SkillInventory {
@@ -15,11 +16,6 @@ export interface SkillInventory {
   remote?: string[];
 }
 
-export interface SkillOperation {
-  kind: 'install' | 'update' | 'remove';
-  name: string;
-  reason: string;
-}
 
 const SkillNameRegex = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 
@@ -53,16 +49,17 @@ export function remoteSkillNames(remoteFiles: Record<string, string>): Set<strin
 export function planSkills(
   skills: SkillInventory,
   owned: Record<string, string> | undefined
-): { operations: SkillOperation[]; unmanaged: string[] } {
-  const operations: SkillOperation[] = [];
+): { operations: SkillPlanOperation[]; unmanaged: string[] } {
+  const operations: SkillPlanOperation[] = [];
   const unmanaged: string[] = [];
   for (const [name, digest] of Object.entries(skills.declared)) {
     const live = skills.live[name];
     if (live === undefined) {
-      operations.push({ kind: 'install', name, reason: 'Skill is declared but not in DSH_HOME/skills' });
+      operations.push({ resource: 'skill', kind: 'install', name, reason: 'Skill is declared but not in DSH_HOME/skills' });
     } else if (live !== digest) {
       const editedInDsh = owned?.[name] === digest;
       operations.push({
+        resource: 'skill',
         kind: 'update',
         name,
         reason: !editedInDsh
@@ -78,7 +75,7 @@ export function planSkills(
       continue;
     }
     if (owned?.[name] !== undefined) {
-      operations.push({ kind: 'remove', name, reason: 'Owned skill is no longer declared; apply moves it to trash' });
+      operations.push({ resource: 'skill', kind: 'remove', name, reason: 'Owned skill is no longer declared; apply moves it to trash' });
     } else {
       unmanaged.push(name);
     }
@@ -132,7 +129,7 @@ export async function replaceSkillDir(source: string | null, target: string, tra
   };
 }
 
-export async function applySkillOperation(paths: EnvironmentPaths, operation: SkillOperation, trashRoot: string): Promise<() => Promise<void>> {
+export async function applySkillOperation(paths: EnvironmentPaths, operation: SkillPlanOperation, trashRoot: string): Promise<() => Promise<void>> {
   const source = operation.kind === 'remove' ? null : path.join(paths.skillsDir, operation.name);
   return replaceSkillDir(source, path.join(paths.dshSkillsDir, operation.name), path.join(trashRoot, 'skills', operation.name));
 }

@@ -1,9 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
-import { execa } from 'execa';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type {
   EnvironmentManifest,
@@ -11,18 +9,18 @@ import type {
   EnvironmentState
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
-import { buildPlan, isProfileOperation, lockedGitCommit, type EnvironmentPlan, type LocalSourceDigests, type PluginOperation } from '../planner/plan.js';
+import { buildPlan, isProfileOperation, type EnvironmentPlan, type LocalSourceDigests, type PluginOperation } from '../planner/plan.js';
+import { applyPluginOperation, planNeedsDshCli, type PluginStepContext } from '../resources/plugin.js';
+import { applyProfilePatchOperation } from '../resources/profile-patch.js';
 import { loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
-import { stopOnInterrupt } from '../io/interrupt.js';
+import { assertNotInterrupted, stopOnInterrupt } from '../io/interrupt.js';
 import { createEnvironmentSnapshot, restoreSnapshotFiles, type EnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { lastSuccessfulApply } from '../rollback/rollback.js';
 import { writeAtomic } from '../io/atomic-file.js';
-import { awaitWithTreeTimeout } from '../io/process-tree.js';
-import { releaseProfileLockOfStopped } from '../io/profile-lock.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { DshError, ValidationError, DegradedError, CapabilityError, missingManifestError } from '../errors.js';
 import { probeDsh, resolveDshCommand, type CommandSpec } from '../dsh/command.js';
@@ -31,10 +29,7 @@ import { capabilitiesFor } from '../dsh/capabilities.js';
 import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { lockEntryId } from '../remote/lock-entries.js';
-import { setProfileBundleEnabled } from './bundles.js';
-import { clearManagedPatches, writeManagedPatches, writePluginMount, writeProfilePatches } from './patches.js';
-import { isBundlePackage } from '../patch/mount.js';
-import { applySkillOperation } from '../skills/skills.js';
+import { applySkillOperation } from '../resources/skill.js';
 import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
 
 // Longer than the ~2 s awaitWriteFinish window of DSH's HMR watcher, so it unloads the plugin before its files go.
@@ -63,95 +58,11 @@ export interface ApplyResult {
   restart?: RestartSummary;
 }
 
-// Only DSH's own `dsh:` lines are shown: the raw pnpm output around them can echo registry URLs and tokens.
-function dshFailure(result: { exitCode?: number; timedOut?: boolean; stdout?: unknown; stderr?: unknown }, timeoutMs: number): string {
-  const diagnostics = [result.stderr, result.stdout]
-    .flatMap((output) => (typeof output === 'string' ? output.split('\n') : []))
-    .filter((line) => line.startsWith('dsh: '))
-    .map((line) => `\n  ${line.trimEnd()}`)
-    .join('');
-  const outcome = result.timedOut ? `timed out after ${timeoutMs} ms` : `exited with code ${String(result.exitCode)}`;
-  return `DSH plugin command ${outcome}${diagnostics}`;
-}
-
-async function runDshPluginCommand(
-  command: CommandSpec,
-  profile: string,
-  args: string[],
-  paths: EnvironmentPaths,
-  timeoutMs: number,
-  signal?: AbortSignal
-): Promise<{ exitCode?: number; timedOut: boolean; stdout?: unknown; stderr?: unknown }> {
-  const subprocess = execa(command.file, [...command.args, 'plugin', '--profile', profile, ...args], {
-    cwd: command.cwd,
-    env: { ...process.env, DSH_HOME: paths.home },
-    shell: false,
-    reject: false
-  });
-  const { result, timedOut, killed } = await awaitWithTreeTimeout(subprocess, timeoutMs, signal);
-  if (killed.length > 0) {
-    await releaseProfileLockOfStopped(path.join(paths.profilesDir, profile, 'package.json'), killed);
-  }
-  return { exitCode: result.exitCode, timedOut, stdout: result.stdout, stderr: result.stderr };
-}
-
-// Stops apply between steps once dshenv is interrupted, so the failure path rolls back what it did so far.
-function assertNotInterrupted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw new DegradedError('Apply was interrupted');
-  }
-}
-
-interface ProfileRollback {
+export interface ProfileRollback {
   // dshenv's own profile edits, undone in reverse order when apply fails.
   undo: Array<() => Promise<void>>;
   // Re-run after undo: edits that belong to a DSH change which cannot be reverted.
   keep: Array<() => Promise<void>>;
-}
-
-function packageSpec(
-  manifest: EnvironmentManifest,
-  lock: EnvironmentLock | null,
-  operation: PluginOperation
-): string {
-  const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
-  if (!plugin) {
-    throw new ValidationError(`Plugin '${operation.alias}' is missing from profile '${operation.profile}'`);
-  }
-
-  const lockedSource = lock?.profiles[operation.profile]?.plugins[operation.alias]?.source;
-  switch (plugin.source.type) {
-    case 'npm':
-      return `${plugin.package}@${plugin.source.version}`;
-    case 'git': {
-      const commit = lockedGitCommit(plugin.source, lockedSource) ?? plugin.source.commit;
-      if (!commit) throw new ValidationError(`Git plugin '${plugin.package}' has no locked commit`);
-      // pnpm reads a bare file:// or non-hosted https:// URL as a local path or tarball, not a Git repository.
-      const url = /^(?:https?|ssh|file):\/\//i.test(plugin.source.url) ? `git+${plugin.source.url}` : plugin.source.url;
-      return `${url}#${commit}`;
-    }
-    case 'local-link':
-      return `link:${plugin.source.path}`;
-    case 'local-file':
-      return `file:${plugin.source.path}`;
-    case 'in-box':
-      return plugin.package;
-  }
-}
-
-function planNeedsDshCli(plan: EnvironmentPlan, inventory: EnvironmentInventory): boolean {
-  return plan.operations.some((operation) => {
-    if (operation.resource !== 'plugin') {
-      return false;
-    }
-    if (operation.kind === 'install' || operation.kind === 'update') {
-      return true;
-    }
-    if (operation.kind !== 'remove') {
-      return false;
-    }
-    return inventory.profiles[operation.profile]?.plugins[operation.package]?.sourceType !== 'in-box';
-  });
 }
 
 function dshCommandFor(manifest: EnvironmentManifest, options?: ApplyOptions): CommandSpec | null {
@@ -199,135 +110,35 @@ async function executeWithDsh(
 ): Promise<{ success: boolean; error?: string; failedAt?: string }> {
   assertSupportedPlan(plan);
 
-  const commandTimeoutMs = options?.dshCommandTimeoutMs ?? DSH_COMMAND_TIMEOUT_MS;
-  // A plugin that is not a DSH bundle is switched by its insert row; it never belongs in the bundle list.
-  const setPlainPluginEnabled = async (operation: PluginOperation, enabled: boolean): Promise<void> => {
-    rollback.undo.push(await writePluginMount(paths, operation.profile, operation.alias, enabled ? operation.package : null));
-    const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
-    rollback.undo.push(async () => {
-      await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
-    });
+  const ctx: PluginStepContext = {
+    paths,
+    manifest,
+    lock,
+    inventory,
+    rollback,
+    hmrByProfile,
+    onInstalled,
+    signal,
+    command,
+    commandTimeoutMs: options?.dshCommandTimeoutMs ?? DSH_COMMAND_TIMEOUT_MS,
+    hmrSettleMs: options?.hmrSettleMs ?? HMR_SETTLE_MS
   };
   // Skills are home-wide and written after every profile has converged.
   const steps = plan.operations.filter(isProfileOperation);
   for (const [index, operation] of steps.entries()) {
     assertNotInterrupted(signal);
     if (operation.resource === 'profile-patch') {
-      rollback.undo.push(await writeProfilePatches(paths, operation.profile, manifest.profiles[operation.profile]?.patches ?? []));
+      rollback.undo.push(await applyProfilePatchOperation(paths, manifest, operation));
       continue;
     }
-    const failedAt = `[${operation.profile}] ${operation.kind} ${operation.alias} (${operation.package}), step ${index + 1} of ${steps.length}`;
-    if ((operation.kind === 'enable' || operation.kind === 'disable') && inventory.profiles[operation.profile]?.plugins[operation.package]?.bundle === false) {
-      await setPlainPluginEnabled(operation, operation.kind === 'enable');
-      continue;
-    }
-    if (operation.kind === 'enable' || operation.kind === 'disable') {
-      const previousIndex = await setProfileBundleEnabled(
-        paths,
-        operation.profile,
-        operation.package,
-        operation.kind === 'enable'
-      );
-      rollback.undo.push(async () => {
-        await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
-      });
-      continue;
-    }
-
-    if (operation.kind === 'configure') {
-      const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
-      if (!plugin) {
-        throw new ValidationError(`Plugin '${operation.alias}' is missing from profile '${operation.profile}'`);
-      }
-      rollback.undo.push(await writeManagedPatches(paths, operation.profile, operation.alias, plugin.patches ?? []));
-      continue;
-    }
-
-    if (operation.kind === 'remove') {
-      const undoStart = rollback.undo.length;
-      // The alias may now name the package replacing this one (removes run first); its patches belong to that entry.
-      const aliasRedeclared = Boolean(manifest.profiles[operation.profile]?.plugins[operation.alias]);
-      if (!aliasRedeclared) {
-        rollback.undo.push(await clearManagedPatches(paths, operation.profile, operation.alias));
-      }
-      rollback.undo.push(await writePluginMount(paths, operation.profile, operation.alias, null));
-      const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
-      rollback.undo.push(async () => {
-        await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
-      });
-      const sourceType = inventory.profiles[operation.profile]?.plugins[operation.package]?.sourceType;
-      if (sourceType === 'in-box') {
-        continue;
-      }
-      if (!command) {
-        throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
-      }
-      // Only a plugin that was in the bundle list or mounted is loaded, so only then is there an unload to wait for.
-      const installed = inventory.profiles[operation.profile]?.plugins[operation.package];
-      const wasMounted = installed?.bundle === false && installed.enabled === true;
-      if ((previousIndex !== -1 || wasMounted) && hmrByProfile.get(operation.profile)?.state === 'on') {
-        await delay(options?.hmrSettleMs ?? HMR_SETTLE_MS, undefined, { signal }).catch(() => assertNotInterrupted(signal));
-      }
-      const removeResult = await runDshPluginCommand(
-        command,
-        operation.profile,
-        ['remove', operation.package],
-        paths,
-        commandTimeoutMs,
-        signal
-      );
-      if (removeResult.exitCode !== 0) {
-        assertNotInterrupted(signal);
-        return { success: false, error: dshFailure(removeResult, commandTimeoutMs), failedAt };
-      }
-      // The package is gone; restoring its bundle or patch would describe a plugin that no longer exists.
-      rollback.undo.length = undoStart;
-      rollback.keep.push(async () => {
-        if (!aliasRedeclared) {
-          await clearManagedPatches(paths, operation.profile, operation.alias);
-        }
-        await writePluginMount(paths, operation.profile, operation.alias, null);
-      });
-      continue;
-    }
-
-    if (!command) {
-      throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
-    }
-
-    const result = await runDshPluginCommand(
-      command,
-      operation.profile,
-      ['add', packageSpec(manifest, lock, operation)],
-      paths,
-      commandTimeoutMs,
-      signal
-    );
-    if (result.exitCode !== 0) {
-      // Killed because of the interrupt: report that, not the exit code it caused.
-      assertNotInterrupted(signal);
-      return { success: false, error: dshFailure(result, commandTimeoutMs), failedAt };
-    }
-    if (operation.kind === 'install') {
-      await onInstalled(operation);
-    }
-    // Only now is the package on disk to tell whether DSH loads it as a bundle.
-    if (installedAsPlainPlugin(paths, operation.profile, operation.package)) {
-      await setPlainPluginEnabled(operation, operation.targetEnabled !== false);
+    const error = await applyPluginOperation(operation, ctx);
+    if (error) {
+      const failedAt = `[${operation.profile}] ${operation.kind} ${operation.alias} (${operation.package}), step ${index + 1} of ${steps.length}`;
+      return { success: false, error, failedAt };
     }
   }
 
   return { success: true };
-}
-
-function installedAsPlainPlugin(paths: EnvironmentPaths, profile: string, packageName: string): boolean {
-  try {
-    const file = path.join(paths.profilesDir, profile, 'node_modules', ...packageName.split('/'), 'package.json');
-    const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return raw !== null && typeof raw === 'object' && !Array.isArray(raw) && !isBundlePackage(raw as Record<string, unknown>);
-  } catch {
-    return false;
-  }
 }
 
 function recordRestartState(
