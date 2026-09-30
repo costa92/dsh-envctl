@@ -56,10 +56,19 @@
 - 缺少清单时，所有需要清单的命令都提示 `run dshenv init to start one, or dshenv capture … then dshenv adopt …`；`status` 在 stderr 给出同样的提示。`init` 成功后给出下一步，重复 `init` 报 `dshenv is already initialized`；`adopt` 没有可接管的插件时说 `Nothing to adopt`，并以 `Next: dshenv plan` 结尾。
 - `apply --dry-run` 不再重复打印 `Planned operations:` 标题；`apply --yes` 成功后标题改为 `Applied operations:`。
 - `runtime` 对已加载但仍记为需要重启的插件，提示改为 `if DSH restarted after the last apply, run dshenv mark-restarted to clear the restart flag`，不再同时显示 loaded 与“重启 DSH”。
+- 生效 overlay 的提示行 `overlay: <name> (file)` 从 stdout 改到 stderr，`list`、`plan`、`status`、`doctor`、`overlay show`、`apply` 的 stdout 只剩结果本身，便于脚本解析。
+- `DSHENV_PROFILE` 的 stderr 提示只在写入类命令（有 `--layer` 或 `--yes` 的命令）上出现，`config get`、`tools list`、`runtime`、`web start` 等只读命令不再提示。
+- `web start`、`web stop` 与 `runtime` 一样：没有 `-p` 也没有 `DSHENV_PROFILE` 时，使用清单里唯一声明的 Profile。
+- `plan` 有待执行的变更时在 stderr 提示 `Next: dshenv apply --yes`；各命令的 `--dry-run` 预览有待执行的内容时提示去掉 `--dry-run` 并加 `--yes` 再运行。
+- `dshenv --json`、`dshenv config` 等不带子命令运行时，把帮助打印到 stdout 并以退出码 0 结束，不再输出 `{"error":{"message":"(outputHelp)"}}`、退出码 3。
+- DSH 版本不受支持的报错把预发布版本显示为 `0.1.5 (a prerelease)`，不再是像版本范围的 `0.1.5-*`。
 
 ### 修复
 
 - Windows 上探测 DSH 源码插件管理器的 `package.json` 时，用 BigInt 比对文件身份：64 位文件 ID 转成普通数字会丢精度，两个接连创建的文件可能被当成同一个，导致路径检查后被换成软链接的清单没有被识别。
+- `adopt` 预览在候选里的插件都已接管时输出 `Nothing to adopt: every plugin in the candidate is already adopted.`、退出码 0，不再以退出码 2 反复报待接管；候选没有插件时不再输出行尾为空的 `Would adopt 0 plugin(s) across profile(s): `。
+- 对已声明为同一来源的插件重复 `install`、对已启用或已禁用的插件重复 `enable`、`disable`，输出 `… already …; nothing changed.`，不再写成 `Added`、`Disabled`；清单也不改动。`--json` 多一个 `unchanged: true`。
+- `source --help` 不再列出已不推荐的位置参数 `[targetRef]`（仍然可用）。
 
 ## 0.3.1 - 2026-09-29
 

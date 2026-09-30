@@ -321,7 +321,7 @@ exit 0
         expect(stdout).toBe('');
         // Only the numeric part of an unsupported version is shown; its prerelease tag could echo a secret.
         const message = exitCode === 4
-          ? 'Unsupported DSH version 0.1.70-*: dshenv supports DSH 0.1.7 (e.g. 0.1.7-rc.2). Point DSH_CLI at a supported DSH, or pass --allow-untested-dsh to use this one anyway.'
+          ? 'Unsupported DSH version 0.1.70 (a prerelease): dshenv supports DSH 0.1.7 (e.g. 0.1.7-rc.2). Point DSH_CLI at a supported DSH, or pass --allow-untested-dsh to use this one anyway.'
           : 'Unable to parse DSH runtime version';
         expect(jsonArgs.length ? JSON.parse(stderr).error.message : stderr).toBe(jsonArgs.length ? message : `${message}\n`);
         expect(stderr).not.toContain('doctor-secret');
@@ -397,7 +397,7 @@ exit 0
       select('laptop');
       const text = await run(['doctor']);
       expect(text.code).toBe(0);
-      expect(text.stdout.startsWith('overlay: laptop (file)\n')).toBe(true);
+      expect(text.stderr.startsWith('overlay: laptop (file)\n')).toBe(true);
       const json = await run(['doctor', '--json']);
       expect(JSON.parse(json.stdout).overlay).toEqual({ name: 'laptop', via: 'file' });
     });

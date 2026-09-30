@@ -119,12 +119,15 @@ export function missingProfileError(paths: EnvironmentPaths, opts: { overlay?: s
 }
 
 const targetProfileOptions = new WeakSet<Option>();
+const singleProfileOptions = new WeakSet<Option>();
 const writeLayerOptions = new WeakSet<Option>();
 
-// -p for a command that works on one profile; defaultTargetProfile fills it in when it is left out.
-export function targetProfile(): Option {
+// -p for a command that works on one profile; defaultTargetProfile fills it in when it is left out. With
+// singleDeclared, as for runtime, the one profile the manifest declares is used when neither -p nor the env names one.
+export function targetProfile(options: { singleDeclared?: boolean } = {}): Option {
   const option = new Option('-p, --profile <name>', TARGET_PROFILE_HELP).argParser(profileOption);
   targetProfileOptions.add(option);
+  if (options.singleDeclared) singleProfileOptions.add(option);
   return option;
 }
 
@@ -147,20 +150,29 @@ function layerFromEnv(): string | undefined {
 }
 
 // A left-out targetProfile() falls back to DSHENV_PROFILE, else fails naming the profiles to choose from; a left-out
-// writeLayer() falls back to DSHENV_LAYER while an overlay is active. Either says so on stderr, as it is easy to forget.
+// writeLayer() falls back to DSHENV_LAYER while an overlay is active. A command that writes says so on stderr, as it
+// is easy to forget; one that only reads stays quiet, as the note would repeat on every call.
 export function defaultTargetProfile(program: Command, writeErr: (chunk: string) => void): void {
   program.hook('preAction', (_program, action) => {
     const opts = action.optsWithGlobals<{ dshHome?: string; overlay?: string | false; json?: boolean }>();
+    const writes = action.options.some((option) => writeLayerOptions.has(option) || option.long === '--yes');
     const note = (text: string) => {
-      if (!opts.json) writeErr(`${text}\n`);
+      if (writes && !opts.json) writeErr(`${text}\n`);
     };
-    if (action.options.some((option) => targetProfileOptions.has(option)) && action.opts().profile === undefined) {
+    const profileOptionOf = action.options.find((option) => targetProfileOptions.has(option));
+    if (profileOptionOf && action.opts().profile === undefined) {
       const profile = profileFromEnv();
-      if (profile === undefined) {
-        throw missingProfileError(resolveCliPaths(opts), opts);
+      if (profile !== undefined) {
+        action.setOptionValue('profile', profile);
+        note(`Using profile '${profile}' from ${PROFILE_ENV}`);
+      } else {
+        const paths = resolveCliPaths(opts);
+        const declared = singleProfileOptions.has(profileOptionOf) ? declaredProfiles(paths, opts) : [];
+        if (declared.length !== 1) {
+          throw missingProfileError(paths, opts);
+        }
+        action.setOptionValue('profile', declared[0]);
       }
-      action.setOptionValue('profile', profile);
-      note(`Using profile '${profile}' from ${PROFILE_ENV}`);
     }
     // new and source clone write the manifest only with -p, and refuse --layer without it.
     if (action.options.some((option) => writeLayerOptions.has(option)) && action.opts().layer === undefined && action.opts().profile !== undefined) {

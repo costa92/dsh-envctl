@@ -22,7 +22,7 @@ import { resolveCliPaths, resolveCliOverlay, profileOption, profileFromEnv, PROF
 import { didYouMean } from './suggest.js';
 
 // -p, else DSHENV_PROFILE, else the only declared profile; only a declared profile can be checked.
-function selectProfile(manifest: EnvironmentManifest, requested: string | undefined): { profile: string; fromEnv: boolean } {
+function selectProfile(manifest: EnvironmentManifest, requested: string | undefined): string {
   const names = Object.keys(manifest.profiles).sort();
   const fromEnv = requested === undefined ? profileFromEnv() : undefined;
   const named = requested ?? fromEnv;
@@ -33,10 +33,10 @@ function selectProfile(manifest: EnvironmentManifest, requested: string | undefi
         `Profile '${named}'${source} is not declared in the manifest${didYouMean(named, names)}${names.length > 0 ? ` (declared: ${names.join(', ')})` : ''}`
       );
     }
-    return { profile: named, fromEnv: fromEnv !== undefined };
+    return named;
   }
   if (names.length === 1) {
-    return { profile: names[0], fromEnv: false };
+    return names[0];
   }
   throw new ValidationError(
     names.length === 0 ? 'The manifest declares no profiles' : `Missing -p, --profile <name>: choose one of ${names.join(', ')}, or set ${PROFILE_ENV}`
@@ -75,7 +75,7 @@ function assertSameProfile(
 }
 
 export function registerRuntimeCommand(ctx: CommandContext): void {
-  const { program, writeOut, writeErr, setExitCode } = ctx;
+  const { program, writeOut, setExitCode } = ctx;
 
   program
     .command('runtime')
@@ -87,10 +87,7 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
-      const { profile, fromEnv } = selectProfile(manifest, cmdOpts.profile);
-      if (fromEnv && !opts.json) {
-        writeErr(`Using profile '${profile}' from ${PROFILE_ENV}\n`);
-      }
+      const profile = selectProfile(manifest, cmdOpts.profile);
       if (!cmdOpts.start) {
         const url = process.env[DSH_URL_ENV]?.trim() ? process.env[DSH_URL_ENV] : (await runningWebRecord(paths, profile))?.url;
         if (url === undefined) {

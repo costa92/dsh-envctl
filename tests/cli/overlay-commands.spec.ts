@@ -81,7 +81,8 @@ describe('CLI overlay commands', () => {
     expect(parsed.provenance.web.extra.origin).toBe('overlay:laptop');
 
     const text = await run(['overlay', 'show', '--overlay', 'laptop', '--profile', 'web']);
-    expect(text.stdout).toBe('overlay: laptop (flag)\nweb extra extra-plugin origin=overlay:laptop\nweb shared shared-plugin origin=base\n');
+    expect(text.stderr).toBe('overlay: laptop (flag)\n');
+    expect(text.stdout).toBe('web extra extra-plugin origin=overlay:laptop\nweb shared shared-plugin origin=base\n');
   });
 
   it('marks overlay files whose names cannot be selected', async () => {

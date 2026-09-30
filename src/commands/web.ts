@@ -87,7 +87,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('start')
     .description('Start dsh web for a profile in the background and print its URL')
-    .addOption(targetProfile())
+    .addOption(targetProfile({ singleDeclared: true }))
     .option('--port <port>', 'port to listen on; 0 picks a free one', '0')
     .action(async (cmdOpts: { profile: string; port: string }) => {
       const opts = program.opts<CliOpts>();
@@ -135,7 +135,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('stop')
     .description('Stop the dsh web that dshenv web start left running for a profile, with everything it started')
-    .addOption(targetProfile())
+    .addOption(targetProfile({ singleDeclared: true }))
     .action(async (cmdOpts: { profile: string }) => {
       const opts = program.opts<CliOpts>();
       const paths = resolveCliPaths(opts);

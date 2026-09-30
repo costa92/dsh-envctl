@@ -79,7 +79,7 @@ describe('CLI manifest write commands', () => {
       const out = await run(['install', `${PKG}@0.1.22`, '-p', 'web']);
       expect(out.stdout).toBe(`Changed agent-teams in profile 'web' from 0.1.21 to 0.1.22 in the manifest. ${NEXT}\n`);
       const same = await run(['install', `${PKG}@0.1.22`, '-p', 'web']);
-      expect(same.stdout).toMatch(/^Added @nanmicoder\/dsh-agent-teams \(agent-teams\) to profile 'web'/);
+      expect(same.stdout).toBe(`${PKG} (agent-teams) is already declared at 0.1.22 in profile 'web' in the manifest; nothing changed.\n`);
     });
 
     it('keeps the JSON of a write as it was', async () => {
