@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { loadLock, loadState } from '../manifest/files.js';
-import { buildPlan, buildStatus, planExitCode, planJson } from '../planner/plan.js';
+import { buildPlan, buildStatus, onlyProfile, planExitCode, planJson } from '../planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from '../output/render.js';
 import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, unsupportedDshVersionMessage, type RuntimeCapabilityEvidence } from '../dsh/index.js';
 import { readLocalSourceDigests } from '../source/local.js';
@@ -11,14 +11,6 @@ import { loadEffectiveManifest, overlaySwitchWarning, readOverlay } from '../ove
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, filterProfile, type CommandContext } from './context.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { findLocalDrift, findRemoteLockDrift } from '../remote/ownership.js';
-
-// -p narrows the report to one profile by reading only that profile; skills live home-wide, so they stay in.
-function onlyProfile<T extends { profiles: Record<string, unknown> }>(value: T, profile: string | undefined): T {
-  if (profile === undefined) {
-    return value;
-  }
-  return { ...value, profiles: Object.hasOwn(value.profiles, profile) ? { [profile]: value.profiles[profile] } : {} };
-}
 
 export function registerInspectCommands(ctx: CommandContext): void {
   const { program, writeOut, writeErr, setExitCode } = ctx;

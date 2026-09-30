@@ -122,7 +122,7 @@ DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容�
 `-p, --profile <name>` 是 DSH Profile 的名字，即 `profiles/<name>/` 的目录名和清单 `profiles:` 下的键。所有命令用同一套规则：
 
 - 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`plugins config`、`tools`、`verify`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`verify`、`web start`、`web stop` 在清单只声明一个 Profile 时直接用它。
-- 按 Profile 过滤的命令（`plugins list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web list`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝，不会把拼错的名字报成“已同步”。
+- 按 Profile 过滤的命令（`plugins list`、`plan`、`apply`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web list`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝，不会把拼错的名字报成“已同步”。
 - `source`、`new` 的 `-p` 表示把克隆或新建的包登记到该 Profile，不写就不登记。
 
 - 写入命令（`install`、`new -p`、`source clone -p`）指定一个清单没声明、DSH 也没创建的 Profile 时，默认按拼写错误拒绝并给出相近的名字；确实要新建时加 `--new-profile`。
@@ -219,7 +219,12 @@ dshenv apply --dry-run
 
 # 执行变更并提交状态
 dshenv apply --yes
+
+# 只应用一个 Profile，与 plan -p web 看到的一致
+dshenv apply -p web --yes
 ```
+
+`-p` 与 `plan -p` 一样只读取、只改动这个 Profile 的插件与 profile patch，其他 Profile 的所有权与重启记录原样保留；skill 在 `$DSH_HOME/skills` 下、不属于任何 Profile，照常一并应用。
 
 不带 `--yes` 的 `apply` 与 `--dry-run` 相同：展示计划、有变更时退出码 2，并在 stderr 提示加 `--yes` 重跑。`pull`、`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 同样如此：不带 `--yes` 只预览，有待执行的内容时退出码 2，没有时退出码 0。
 

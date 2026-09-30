@@ -122,6 +122,13 @@ const KIND_ORDER: Record<OperationKind, number> = {
   blocked: 7
 };
 
+// -p narrows plan, status and apply to one profile by reading only that profile; skills live home-wide, so they stay in.
+export function onlyProfile<T extends { profiles: Record<string, unknown> }>(value: T, profile: string | undefined): T {
+  if (profile === undefined) {
+    return value;
+  }
+  return { ...value, profiles: Object.hasOwn(value.profiles, profile) ? { [profile]: value.profiles[profile] } : {} };
+}
 
 export function buildPlan(
   manifest: EnvironmentManifest | null,
