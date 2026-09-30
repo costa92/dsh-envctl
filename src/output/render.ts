@@ -1,14 +1,14 @@
-import type { EnvironmentPlan, EnvironmentStatusSummary } from '../planner/plan.js';
+import { isProfileOperation, type EnvironmentPlan, type EnvironmentStatusSummary, type ProfileOperation } from '../planner/plan.js';
 import type { DshCapabilities } from '../dsh/capabilities.js';
 import type { LockEntryDrift } from '../remote/lock-entries.js';
 import { describeRemoteDrift, type RemoteFileDrift } from '../remote/ownership.js';
-import { describeRestartReason, type RestartItem, type RestartSummary } from '../apply/restart-plan.js';
+import { describeRestartReason, restartPackage, type RestartItem, type RestartSummary } from '../apply/restart-plan.js';
 import type { RuntimeCheckItem } from '../runtime/compare.js';
 import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 
-function restartAnnotation(op: EnvironmentPlan['operations'][number], restart: RestartSummary): string {
+function restartAnnotation(op: ProfileOperation, restart: RestartSummary): string {
   const matches = (item: RestartItem): boolean =>
-    item.profile === op.profile && item.package === op.package && item.kind === op.kind;
+    item.profile === op.profile && item.package === restartPackage(op) && item.kind === op.kind;
   if (restart.notRequired.some(matches)) {
     return ' (no restart)';
   }
@@ -33,9 +33,11 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary, head
     return ['Environment is in sync with manifest. No changes planned.', ...pinned].join('\n') + '\n';
   }
 
-  if (plan.operations.length > 0) {
+  const profileOperations = plan.operations.filter(isProfileOperation);
+  const skillOperations = plan.operations.filter((op) => op.resource === 'skill');
+  if (profileOperations.length > 0) {
     lines.push(heading);
-    for (const op of plan.operations) {
+    for (const op of profileOperations) {
       const symbol = getOpSymbol(op.kind);
       let details = '';
       // Non-npm installs and source switches carry no version; the reason line says what changes.
@@ -51,7 +53,7 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary, head
         details = `[BLOCKED: ${op.blockedReason ?? op.reason}]`;
       }
       const annotation = restart ? restartAnnotation(op, restart) : '';
-      const target = op.alias === PROFILE_PATCHES_ALIAS ? 'profile patches' : `${op.package} (${op.alias})`;
+      const target = op.resource === 'profile-patch' ? 'profile patches' : `${op.package} (${op.alias})`;
       lines.push(`  ${symbol} [${op.profile}] ${target} ${details}`.trimEnd() + annotation);
       if (op.reason) {
         lines.push(`      Reason: ${op.reason}`);
@@ -59,10 +61,10 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary, head
     }
   }
 
-  if (plan.skillOperations.length > 0) {
-    if (plan.operations.length > 0) lines.push('');
+  if (skillOperations.length > 0) {
+    if (profileOperations.length > 0) lines.push('');
     lines.push('Planned skill changes:');
-    for (const op of plan.skillOperations) {
+    for (const op of skillOperations) {
       lines.push(`  ${getOpSymbol(op.kind)} [skills] ${op.name}`);
       lines.push(`      Reason: ${op.reason}`);
     }

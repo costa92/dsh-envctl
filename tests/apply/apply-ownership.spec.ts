@@ -85,7 +85,7 @@ describe('applyEnvironment ownership and recovery', () => {
 
     declare(plugin('bb'));
     const plan = await dryRun();
-    expect(plan.plan.operations.map((op) => `${op.kind}:${op.package}`)).toEqual(['remove:aa']);
+    expect(plan.plan.operations.filter((op) => op.resource === 'plugin').map((op) => `${op.kind}:${op.package}`)).toEqual(['remove:aa']);
     expect(plan.plan.unmanaged).toEqual([]);
   });
 
@@ -160,7 +160,7 @@ describe('applyEnvironment ownership and recovery', () => {
 
     declare(plugin('aa'));
     const plan = await dryRun();
-    expect(plan.plan.operations.map((op) => `${op.kind}:${op.package}`)).toEqual(['remove:bb']);
+    expect(plan.plan.operations.filter((op) => op.resource === 'plugin').map((op) => `${op.kind}:${op.package}`)).toEqual(['remove:bb']);
   });
 
   it('honors allowUntestedVersion from the manifest', async () => {

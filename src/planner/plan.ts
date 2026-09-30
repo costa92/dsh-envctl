@@ -8,7 +8,7 @@ import type {
 import type { EnvironmentInventory } from '../inventory/profile-reader.js';
 import { computePatchDigest } from '../patch/patch.js';
 import { PROFILE_PATCHES_ALIAS, describeProfilePatch, digestProfilePatches } from '../profile-patches/entries.js';
-import { planSkills, type SkillOperation } from '../skills/skills.js';
+import { planSkills } from '../skills/skills.js';
 import { isPresetPatch } from '../tools/catalog.js';
 
 export type OperationKind =
@@ -20,7 +20,10 @@ export type OperationKind =
   | 'configure'
   | 'blocked';
 
-export interface PlanOperation {
+export type ResourceKind = 'plugin' | 'profile-patch' | 'skill';
+
+export interface PluginOperation {
+  resource: 'plugin';
   kind: OperationKind;
   profile: string;
   alias: string;
@@ -31,6 +34,30 @@ export interface PlanOperation {
   currentEnabled?: boolean;
   targetEnabled?: boolean;
   blockedReason?: string;
+}
+
+// The profile-level patch entries of one profile, written as a whole.
+export interface ProfilePatchOperation {
+  resource: 'profile-patch';
+  kind: 'configure' | 'blocked';
+  profile: string;
+  reason: string;
+  blockedReason?: string;
+}
+
+// A loose skill in $DSH_HOME/skills; skills are home-wide, so it names no profile.
+export interface SkillPlanOperation {
+  resource: 'skill';
+  kind: 'install' | 'update' | 'remove';
+  name: string;
+  reason: string;
+}
+
+export type ProfileOperation = PluginOperation | ProfilePatchOperation;
+export type PlanOperation = ProfileOperation | SkillPlanOperation;
+
+export function isProfileOperation(operation: PlanOperation): operation is ProfileOperation {
+  return operation.resource !== 'skill';
 }
 
 export interface UnmanagedPlugin {
@@ -57,12 +84,11 @@ export interface UnmanagedPatches {
 
 export interface EnvironmentPlan {
   hasChanges: boolean;
+  // Per-profile operations in execution order, then the skill operations.
   operations: PlanOperation[];
   unmanaged: UnmanagedPlugin[];
   unverified: UnverifiedPlugin[];
   unmanagedPatches: UnmanagedPatches[];
-  // Loose skills in $DSH_HOME/skills; home-wide, so kept apart from the per-profile operations.
-  skillOperations: SkillOperation[];
   unmanagedSkills: string[];
   // Agent presets a manifest patch restates whole (dshenv tools); DSH upgrades to them no longer apply.
   pinnedPresets?: Array<{ profile: string; id: string }>;
@@ -181,7 +207,7 @@ export function buildPlan(
   state?: EnvironmentState | null,
   localDigests?: LocalSourceDigests
 ): EnvironmentPlan {
-  const operations: PlanOperation[] = [];
+  const operations: ProfileOperation[] = [];
   const unmanaged: UnmanagedPlugin[] = [];
   const unverified: UnverifiedPlugin[] = [];
 
@@ -200,7 +226,6 @@ export function buildPlan(
       unmanaged,
       unverified,
       unmanagedPatches: [],
-      skillOperations: [],
       unmanagedSkills: []
     };
   }
@@ -225,6 +250,7 @@ export function buildPlan(
       const gitBlock = pluginManifest.source.type === 'git' ? gitCommitBlock(pluginManifest.source.commit, gitLockCommit) : undefined;
       if (gitBlock) {
         operations.push({
+          resource: 'plugin',
           kind: 'blocked',
           profile: profName,
           alias,
@@ -246,6 +272,7 @@ export function buildPlan(
         // In-box plugins ship with DSH and are only inventoried through the bundles, so absence means disabled.
         if (targetEnabled) {
           operations.push({
+            resource: 'plugin',
             kind: 'enable',
             profile: profName,
             alias,
@@ -257,6 +284,7 @@ export function buildPlan(
         }
       } else if (!isInstalled) {
         operations.push({
+          resource: 'plugin',
           kind: 'install',
           profile: profName,
           alias,
@@ -268,6 +296,7 @@ export function buildPlan(
         // DSH plugin add selects the bundle, so only an explicit disable needs a follow-up.
         if (!targetEnabled) {
           operations.push({
+            resource: 'plugin',
             kind: 'disable',
             profile: profName,
             alias,
@@ -288,6 +317,7 @@ export function buildPlan(
         }
         if (installedType && installedType !== declaredType && installedType !== 'in-box' && declaredType !== 'in-box') {
           operations.push({
+            resource: 'plugin',
             kind: 'update',
             profile: profName,
             alias,
@@ -299,6 +329,7 @@ export function buildPlan(
         } else if (targetVersion && (currentVersion ? targetVersion !== currentVersion : installedType === 'npm')) {
           // A reinstall writes the version that proves the package matches.
           operations.push({
+            resource: 'plugin',
             kind: 'update',
             profile: profName,
             alias,
@@ -316,6 +347,7 @@ export function buildPlan(
           localPathMoved(pluginManifest.source.type, pluginManifest.source.path, installed?.resolvedSource, lockEntry?.source)
         ) {
           operations.push({
+            resource: 'plugin',
             kind: 'update',
             profile: profName,
             alias,
@@ -332,6 +364,7 @@ export function buildPlan(
           // Without a recorded digest the installed copy cannot be proven to match the source.
           const recorded = lockedLocalDigest(lockEntry?.source, pluginManifest.source.type);
           operations.push({
+            resource: 'plugin',
             kind: 'update',
             profile: profName,
             alias,
@@ -347,6 +380,7 @@ export function buildPlan(
         } else if (gitLockCommit && installedType === 'git' && (!installedCommit || !isSameCommit(installedCommit, gitLockCommit))) {
           // A spec such as #main names no commit, so the installed code cannot be shown to match the lock.
           operations.push({
+            resource: 'plugin',
             kind: 'update',
             profile: profName,
             alias,
@@ -364,6 +398,7 @@ export function buildPlan(
         const reselected = !targetEnabled && operations.length > operationsBefore;
         if (currentEnabled !== targetEnabled || reselected) {
           operations.push({
+            resource: 'plugin',
             kind: targetEnabled ? 'enable' : 'disable',
             profile: profName,
             alias,
@@ -388,6 +423,7 @@ export function buildPlan(
         });
       if (!patchesInSync) {
         operations.push({
+          resource: 'plugin',
           kind: 'configure',
           profile: profName,
           alias,
@@ -420,6 +456,7 @@ export function buildPlan(
     const repairAlias = Object.keys(profManifest.plugins).sort()[0];
     if (profInv?.patchFileRepairable && repairAlias && !operations.some((op) => op.kind === 'configure' && op.profile === profName)) {
       operations.push({
+        resource: 'plugin',
         kind: 'configure',
         profile: profName,
         alias: repairAlias,
@@ -449,6 +486,7 @@ export function buildPlan(
       const owned = state?.ownership?.[profName]?.[pkgName];
       if (owned && profInv.plugins[pkgName].installed) {
         operations.push({
+          resource: 'plugin',
           kind: 'remove',
           profile: profName,
           alias: owned.alias || pkgName,
@@ -480,9 +518,9 @@ export function buildPlan(
   // installs run next, as they create a profile that an in-box enable of another package writes to.
   operations.sort((a, b) => {
     if (a.profile !== b.profile) return a.profile.localeCompare(b.profile);
-    const profileLevel = Number(a.alias === PROFILE_PATCHES_ALIAS) - Number(b.alias === PROFILE_PATCHES_ALIAS);
-    if (profileLevel !== 0) return profileLevel;
-    const stage = (op: PlanOperation): number => (op.kind === 'remove' ? 0 : op.kind === 'install' ? 1 : 2);
+    if (a.resource !== b.resource) return a.resource === 'profile-patch' ? 1 : -1;
+    if (a.resource === 'profile-patch' || b.resource === 'profile-patch') return 0;
+    const stage = (op: PluginOperation): number => (op.kind === 'remove' ? 0 : op.kind === 'install' ? 1 : 2);
     if (stage(a) !== stage(b)) return stage(a) - stage(b);
     if (a.package !== b.package) return a.package.localeCompare(b.package);
     return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
@@ -500,11 +538,10 @@ export function buildPlan(
 
   return {
     hasChanges: operations.length > 0 || skills.operations.length > 0,
-    operations,
+    operations: [...operations, ...skills.operations.map((op): SkillPlanOperation => ({ resource: 'skill', ...op }))],
     unmanaged,
     unverified,
     unmanagedPatches,
-    skillOperations: skills.operations,
     unmanagedSkills: skills.unmanaged,
     ...(pinnedPresets.length > 0 ? { pinnedPresets } : {})
   };
@@ -514,9 +551,9 @@ function planProfilePatches(
   profile: string,
   expected: ProfilePatch[],
   profInv: EnvironmentInventory['profiles'][string] | undefined,
-  operations: PlanOperation[]
-): PlanOperation | null {
-  const base = { profile, alias: PROFILE_PATCHES_ALIAS, package: PROFILE_PATCHES_ALIAS };
+  operations: ProfileOperation[]
+): ProfilePatchOperation | null {
+  const base = { resource: 'profile-patch', profile } as const;
   if (!profInv) {
     if (expected.length === 0) {
       return null;
@@ -565,7 +602,7 @@ export function buildStatus(
     blocked: 0
   };
 
-  for (const op of plan.operations) {
+  for (const op of plan.operations.filter(isProfileOperation)) {
     operationCounts[op.kind] = (operationCounts[op.kind] || 0) + 1;
   }
 
@@ -586,7 +623,7 @@ export function buildStatus(
     0
   ) {
     status = 'drifted';
-  } else if (plan.skillOperations.length > 0) {
+  } else if (plan.operations.some((op) => op.resource === 'skill')) {
     status = 'drifted';
   } else if (plan.unmanaged.length > 0 || plan.unmanagedPatches.length > 0 || plan.unmanagedSkills.length > 0) {
     status = 'unmanaged';
@@ -612,9 +649,10 @@ function collectPluginStatuses(
   plan: EnvironmentPlan
 ): PluginStatusEntry[] {
   const entries: PluginStatusEntry[] = [];
-  const blocked = new Set(plan.operations.filter((op) => op.kind === 'blocked').map((op) => `${op.profile}\0${op.package}`));
+  const pluginOperations = plan.operations.filter((op): op is PluginOperation => op.resource === 'plugin');
+  const blocked = new Set(pluginOperations.filter((op) => op.kind === 'blocked').map((op) => `${op.profile}\0${op.package}`));
   const drifted = new Set(
-    plan.operations
+    pluginOperations
       .filter(
         (op) =>
           op.kind === 'install' ||
@@ -679,6 +717,29 @@ function collectPluginStatuses(
     return a.package.localeCompare(b.package);
   });
   return entries;
+}
+
+// The --json shape: profile patches under the '@profile' alias, skills in skillOperations.
+export function planJson(plan: EnvironmentPlan): Record<string, unknown> {
+  const { hasChanges, unmanaged, unverified, unmanagedPatches, unmanagedSkills, pinnedPresets } = plan;
+  const operations = plan.operations.filter(isProfileOperation).map(({ resource, ...op }) => {
+    if (resource !== 'profile-patch') {
+      return op;
+    }
+    const { profile, ...rest } = op;
+    return { profile, alias: PROFILE_PATCHES_ALIAS, package: PROFILE_PATCHES_ALIAS, ...rest };
+  });
+  const skillOperations = plan.operations.flatMap((op) => (op.resource === 'skill' ? [{ kind: op.kind, name: op.name, reason: op.reason }] : []));
+  return {
+    hasChanges,
+    operations,
+    unmanaged,
+    unverified,
+    unmanagedPatches,
+    skillOperations,
+    unmanagedSkills,
+    ...(pinnedPresets ? { pinnedPresets } : {})
+  };
 }
 
 export function planExitCode(plan: { hasChanges: boolean; operations: { kind: OperationKind }[] }): number {

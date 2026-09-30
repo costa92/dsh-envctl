@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { loadLock, loadState } from '../manifest/files.js';
-import { buildPlan, buildStatus, planExitCode } from '../planner/plan.js';
+import { buildPlan, buildStatus, planExitCode, planJson } from '../planner/plan.js';
 import { renderPlan, renderStatus, renderDoctor, type DoctorReport } from '../output/render.js';
 import { resolveDshCommand, probeDsh, capabilitiesFor, evaluateCapabilities, probeOfficialSurfaces, unsupportedDshVersionMessage, type RuntimeCapabilityEvidence } from '../dsh/index.js';
 import { readLocalSourceDigests } from '../source/local.js';
@@ -54,7 +54,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
       }
 
       if (opts.json) {
-        writeOut(JSON.stringify(selection ? { ...plan, overlay: selection } : plan, null, 2) + '\n');
+        writeOut(JSON.stringify(selection ? { ...planJson(plan), overlay: selection } : planJson(plan), null, 2) + '\n');
       } else {
         if (selection) {
           writeErr(overlayBanner(selection));

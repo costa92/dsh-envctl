@@ -51,13 +51,12 @@ describe('renderPlan with a restart summary', () => {
   const plan: EnvironmentPlan = {
     hasChanges: true,
     operations: [
-      { kind: 'enable', profile: 'web', alias: 'teams', package: 'agent-teams', reason: 'enable', targetEnabled: true },
-      { kind: 'update', profile: 'web', alias: 'shared', package: 'shared-plugin', reason: 'update', currentVersion: '1.0.0', targetVersion: '1.1.0' }
+      { resource: 'plugin', kind: 'enable', profile: 'web', alias: 'teams', package: 'agent-teams', reason: 'enable', targetEnabled: true },
+      { resource: 'plugin', kind: 'update', profile: 'web', alias: 'shared', package: 'shared-plugin', reason: 'update', currentVersion: '1.0.0', targetVersion: '1.1.0' }
     ],
     unmanaged: [],
       unverified: [],
       unmanagedPatches: [],
-      skillOperations: [],
       unmanagedSkills: []
   };
 

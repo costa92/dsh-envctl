@@ -6,6 +6,9 @@ import { applyEnvironment } from '../../src/apply/apply.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 import { loadState } from '../../src/manifest/files.js';
 import { renderPlan } from '../../src/output/render.js';
+import type { EnvironmentPlan } from '../../src/planner/plan.js';
+
+const skillOps = (plan: EnvironmentPlan) => plan.operations.filter((op) => op.resource === 'skill');
 
 describe('apply skills', () => {
   let tempHome: string;
@@ -32,7 +35,7 @@ describe('apply skills', () => {
 
   it('installs declared skills, records them as owned, and later removes them into trash', async () => {
     const before = await plan();
-    expect(before.skillOperations).toEqual([{ kind: 'install', name: 'wiki', reason: expect.any(String) }]);
+    expect(skillOps(before)).toEqual([{ resource: 'skill', kind: 'install', name: 'wiki', reason: expect.any(String) }]);
     expect(before.unmanagedSkills).toEqual(['mine']);
     expect(renderPlan(before)).toMatch(/\+ \[skills\] wiki[\s\S]*Skills not in the manifest[\s\S]*\? mine/);
 
@@ -42,11 +45,11 @@ describe('apply skills', () => {
     expect((await plan()).hasChanges).toBe(false);
 
     write(dshSkill('wiki'), 'edited in DSH');
-    expect((await plan()).skillOperations[0].reason).toMatch(/edited in DSH/);
+    expect(skillOps(await plan())[0].reason).toMatch(/edited in DSH/);
 
     fs.rmSync(path.join(paths.skillsDir, 'wiki'), { recursive: true });
     const removal = await applyEnvironment(paths);
-    expect(removal.plan.skillOperations).toMatchObject([{ kind: 'remove', name: 'wiki' }]);
+    expect(skillOps(removal.plan)).toMatchObject([{ kind: 'remove', name: 'wiki' }]);
     expect(fs.existsSync(dshSkill('wiki'))).toBe(false);
     const trashed = fs.readdirSync(paths.trashDir).map((entry) => path.join(paths.trashDir, entry, 'skills', 'wiki', 'SKILL.md'));
     expect(trashed.some((file) => fs.existsSync(file) && fs.readFileSync(file, 'utf8') === 'edited in DSH')).toBe(true);
@@ -60,6 +63,6 @@ describe('apply skills', () => {
     expect(Object.keys(loadState(fs.readFileSync(paths.stateFile, 'utf8')).skills ?? {})).toEqual(['wiki']);
 
     fs.rmSync(path.join(paths.skillsDir, 'wiki'), { recursive: true });
-    expect((await plan()).skillOperations).toMatchObject([{ kind: 'remove', name: 'wiki' }]);
+    expect(skillOps(await plan())).toMatchObject([{ kind: 'remove', name: 'wiki' }]);
   });
 });

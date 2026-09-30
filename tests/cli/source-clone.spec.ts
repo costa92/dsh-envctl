@@ -61,7 +61,7 @@ describe('CLI source clone --profile', () => {
     const inventory = await readEnvironmentInventory(paths);
     const plan = buildPlan(manifest, lock, inventory);
     expect(plan.operations.some((op) => op.kind === 'blocked')).toBe(false);
-    expect(plan.operations.some((op) => op.kind === 'install' && op.alias === 'demo')).toBe(true);
+    expect(plan.operations.some((op) => op.resource === 'plugin' && op.kind === 'install' && op.alias === 'demo')).toBe(true);
   });
 
   it('should update the lock commit on source pull --profile', async () => {

@@ -6,7 +6,7 @@ import { purgePlugin } from '../purge/purge.js';
 import { markRestarted } from '../restart/restart.js';
 import { renderPlan, renderRestartSummary } from '../output/render.js';
 import { ValidationError } from '../errors.js';
-import { planExitCode } from '../planner/plan.js';
+import { planExitCode, planJson } from '../planner/plan.js';
 import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
 import { loadState } from '../manifest/files.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, filterProfile, targetProfile, type CommandContext } from './context.js';
@@ -41,7 +41,8 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
       });
 
       if (opts.json) {
-        writeOut(JSON.stringify(selection ? { ...res, overlay: selection } : res, null, 2) + '\n');
+        const json = { ...res, plan: planJson(res.plan) };
+        writeOut(JSON.stringify(selection ? { ...json, overlay: selection } : json, null, 2) + '\n');
       } else {
         if (selection) {
           writeErr(overlayBanner(selection));

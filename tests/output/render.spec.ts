@@ -7,13 +7,12 @@ describe('renderPlan', () => {
     const text = renderPlan({
       hasChanges: true,
       operations: [
-        { kind: 'install', profile: 'web', alias: 'linked', package: 'linked-pkg', reason: 'missing' },
-        { kind: 'update', profile: 'web', alias: 'moved', package: 'moved-pkg', reason: 'Source type changed: installed npm != declared git' }
+        { resource: 'plugin', kind: 'install', profile: 'web', alias: 'linked', package: 'linked-pkg', reason: 'missing' },
+        { resource: 'plugin', kind: 'update', profile: 'web', alias: 'moved', package: 'moved-pkg', reason: 'Source type changed: installed npm != declared git' }
       ],
       unmanaged: [],
       unverified: [],
       unmanagedPatches: [],
-      skillOperations: [],
       unmanagedSkills: []
     });
     expect(text).not.toMatch(/latest|\? -> \?/);
@@ -28,7 +27,6 @@ describe('renderPlan', () => {
       unmanaged: [],
       unverified: [{ profile: 'web', alias: 'demo', package: 'demo-plugin', reason: 'Local source /src/demo cannot be read' }],
       unmanagedPatches: [],
-      skillOperations: [],
       unmanagedSkills: []
     });
     expect(text).toContain('Unverified plugins');
@@ -41,6 +39,7 @@ describe('renderPlan', () => {
       hasChanges: true,
       operations: [
         {
+          resource: 'plugin',
           kind: 'install',
           profile: 'web',
           alias: 'agent-teams',
@@ -49,6 +48,7 @@ describe('renderPlan', () => {
           targetVersion: '0.1.21'
         },
         {
+          resource: 'plugin',
           kind: 'blocked',
           profile: 'web',
           alias: 'patched',
@@ -60,7 +60,6 @@ describe('renderPlan', () => {
       unmanaged: [{ profile: 'web', package: 'extra-pkg' }],
       unverified: [],
       unmanagedPatches: [],
-      skillOperations: [],
       unmanagedSkills: []
     };
 
