@@ -71,7 +71,7 @@ describe('repository CI workflow', () => {
     for (const run of runs(ci.jobs.check.steps).slice(1)) {
       expect(packageJson.scripts).toHaveProperty(run.split(' ')[1]);
     }
-    expect(ci.jobs['check-os'].strategy?.matrix?.os).toEqual(['windows-latest', 'macos-latest']);
+    expect(ci.jobs['check-os'].strategy?.matrix?.os).toEqual(['windows-2025', 'macos-26']);
     expect(ci.permissions).toEqual({ contents: 'read' });
   });
 
@@ -112,10 +112,10 @@ describe('repository CI workflow', () => {
     }
   });
 
-  it.each(['ci', 'release', 'e2e', 'compat'])('%s runs on a fixed Ubuntu release, not one that moves under it', (name) => {
-    // ubuntu-latest moves to a new release on GitHub's schedule; the upgrade should be a change here instead.
+  it.each(['ci', 'release', 'e2e', 'compat'])('%s runs on fixed runner images, not ones that move under it', (name) => {
+    // The -latest labels move to a new OS release on GitHub's schedule; the upgrade should be a change here instead.
     const text = fs.readFileSync(path.join(projectDir, '.github', 'workflows', `${name}.yml`), 'utf8');
-    expect(text).not.toContain('ubuntu-latest');
+    expect(text).not.toMatch(/(ubuntu|macos|windows)-latest/);
   });
 
   it.each(Object.entries(repositoryWorkflows))('%s never splices a workflow input into a shell script', (_name, workflow) => {
