@@ -1,3 +1,5 @@
+import { DegradedError } from '../errors.js';
+
 // Ctrl-C ends dshenv without running async cleanup, so a detached dsh web would outlive it and an apply would stop
 // halfway. One handler runs every registered cleanup to the end and then lets the signal end dshenv as it would have;
 // a second Ctrl-C meanwhile ends dshenv at once.
@@ -40,4 +42,11 @@ export function stopOnInterrupt(cleanup: () => Promise<void>): () => void {
       for (const name of INTERRUPTS) process.off(name, onInterrupt);
     }
   };
+}
+
+// Stops apply between steps once dshenv is interrupted, so the failure path rolls back what it did so far.
+export function assertNotInterrupted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DegradedError('Apply was interrupted');
+  }
 }

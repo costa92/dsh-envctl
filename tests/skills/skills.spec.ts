@@ -3,14 +3,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
-import { applySkillOperation, planSkills, readSkillInventory, replaceSkillDir } from '../../src/skills/skills.js';
+import { applySkillOperation, planSkills, readSkillInventory, replaceSkillDir } from '../../src/resources/skill.js';
 
 describe('planSkills', () => {
   it('installs a declared skill DSH lacks and updates one whose content differs', () => {
     const { operations, unmanaged } = planSkills({ declared: { a: 'd1', b: 'd2' }, live: { b: 'old' } }, { b: 'old' });
     expect(operations).toEqual([
-      { kind: 'install', name: 'a', reason: 'Skill is declared but not in DSH_HOME/skills' },
-      { kind: 'update', name: 'b', reason: 'Skill changed in the manifest' }
+      { resource: 'skill', kind: 'install', name: 'a', reason: 'Skill is declared but not in DSH_HOME/skills' },
+      { resource: 'skill', kind: 'update', name: 'b', reason: 'Skill changed in the manifest' }
     ]);
     expect(unmanaged).toEqual([]);
   });
@@ -28,7 +28,7 @@ describe('planSkills', () => {
 
   it('removes an owned skill the manifest dropped and reports the others as unmanaged', () => {
     const { operations, unmanaged } = planSkills({ declared: {}, live: { owned: 'x', mine: 'y' } }, { owned: 'x' });
-    expect(operations).toEqual([{ kind: 'remove', name: 'owned', reason: 'Owned skill is no longer declared; apply moves it to trash' }]);
+    expect(operations).toEqual([{ resource: 'skill', kind: 'remove', name: 'owned', reason: 'Owned skill is no longer declared; apply moves it to trash' }]);
     expect(unmanaged).toEqual(['mine']);
   });
 });
@@ -64,7 +64,7 @@ describe('skill files', () => {
 
   it('replaces the DSH copy, keeps the old one in trash, and undoes it', async () => {
     const trash = path.join(paths.trashDir, 'apply-1');
-    const undo = await applySkillOperation(paths, { kind: 'update', name: 'wiki', reason: '' }, trash);
+    const undo = await applySkillOperation(paths, { resource: 'skill', kind: 'update', name: 'wiki', reason: '' }, trash);
     expect(fs.readFileSync(path.join(paths.dshSkillsDir, 'wiki', 'refs', 'a.md'), 'utf8')).toBe('ref');
     expect(fs.readFileSync(path.join(trash, 'skills', 'wiki', 'SKILL.md'), 'utf8')).toBe('v1');
     const inventory = await readSkillInventory(paths);
@@ -77,7 +77,7 @@ describe('skill files', () => {
 
   it('moves a removed skill into trash', async () => {
     const trash = path.join(paths.trashDir, 'apply-2');
-    await applySkillOperation(paths, { kind: 'remove', name: 'wiki', reason: '' }, trash);
+    await applySkillOperation(paths, { resource: 'skill', kind: 'remove', name: 'wiki', reason: '' }, trash);
     expect(fs.existsSync(path.join(paths.dshSkillsDir, 'wiki'))).toBe(false);
     expect(fs.readFileSync(path.join(trash, 'skills', 'wiki', 'SKILL.md'), 'utf8')).toBe('v1');
   });

@@ -14,7 +14,7 @@ import { readOverlay } from '../overlay/effective.js';
 import { mergeManifest } from '../overlay/merge.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { buildPlan, type EnvironmentPlan } from '../planner/plan.js';
-import { readSkillDigests } from '../skills/skills.js';
+import { readSkillDigests } from '../resources/skill.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { isAncestor } from './git.js';
 import {

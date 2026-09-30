@@ -20,7 +20,7 @@ import { freeAlias } from '../adopt/adopt.js';
 import { buildPlan } from '../planner/plan.js';
 import { calculateSourceDigest } from '../source/local.js';
 import * as path from 'node:path';
-import { remoteSkillNames, replaceSkillDir } from '../skills/skills.js';
+import { remoteSkillNames, replaceSkillDir } from '../resources/skill.js';
 import { readOverlay } from '../overlay/effective.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { overlayFilePath, writeSelectionFile, type OverlaySelection } from '../overlay/selection.js';
