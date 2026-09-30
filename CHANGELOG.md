@@ -2,6 +2,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。发布流程见 [docs/发布流程.md](docs/发布流程.md)。
 
+## 未发布
+
+### 修复
+
+- `source pull` 不给 `--ref` 时一律以退出码 3 拒绝，与 README 的示例不符；现在默认快进到当前分支对应的远端分支，处于 detached HEAD 时才要求 `--ref`。
+- 用 `install` 声明一个 DSH 里已经装着的插件、再由 `apply` 更新到声明的版本或来源时，没有记下所有权，之后 `remove` 加 `apply` 不会卸载它（`plan` 只把它列为 unmanaged 并报告已同步），`purge` 也拒绝处理；现在 `apply` 的 update 与 install 一样记下所有权。
+- 生效 overlay 已经声明的插件出现在 capture 文件里时，`adopt` 预览报 `an overlay cannot change package`；现在视为已接管，不写进 base，也不在 base 里留下空的 Profile。
+- README 写明 `status` 的退出码与 `plan` 相同（有待执行的变更时为 2）。
+
 ## 0.4.0 - 2026-09-30
 
 ### 升级须知

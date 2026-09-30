@@ -135,6 +135,33 @@ profiles:
     expect(res.plan.operations.map((op) => [op.kind, op.package])).toEqual([['remove', '@nanmicoder/dsh-agent-teams']]);
   });
 
+  it('takes ownership of a plugin DSH already had when apply updates it to the declared version', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.writeFileSync(
+      paths.stateFile,
+      JSON.stringify({ apiVersion: 'dshenv-state/v1', lastApplied: '2026-01-01T00:00:00.000Z', appliedLockHash: '', profiles: {} })
+    );
+    installDeclaredPlugin();
+    const installedPackage = path.join(tempHome, 'profiles', 'web', 'node_modules', '@nanmicoder', 'dsh-agent-teams', 'package.json');
+    fs.writeFileSync(installedPackage, JSON.stringify({ name: '@nanmicoder/dsh-agent-teams', version: '0.1.20', dsh: { bundle: {} } }));
+
+    const res = await applyEnvironment(paths, {
+      dryRun: false,
+      executor: async () => {
+        installDeclaredPlugin();
+        return { success: true };
+      }
+    });
+    expect(res.plan.operations.map((op) => op.kind)).toContain('update');
+
+    const owned = loadState(fs.readFileSync(paths.stateFile, 'utf8')).ownership?.web?.['@nanmicoder/dsh-agent-teams'];
+    expect(owned).toMatchObject({ alias: 'agent-teams', lockedVersion: '0.1.21', adoptedBy: res.operationId });
+
+    fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins: {}\n');
+    const removal = await applyEnvironment(paths, { dryRun: true });
+    expect(removal.plan.operations.map((op) => [op.kind, op.package])).toEqual([['remove', '@nanmicoder/dsh-agent-teams']]);
+  });
+
   it('should apply changes, create snapshot, journal and update state.json', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const res = await applyEnvironment(paths, {

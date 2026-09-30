@@ -425,7 +425,8 @@ function assertNoTeamEntryOverwritten(
   }
 }
 
-// A plugin apply installed is dshenv's to remove once the manifest drops it, as if it had been adopted.
+// A plugin apply installed, or replaced with the declared version, is dshenv's to remove once the manifest drops it,
+// as if it had been adopted.
 function recordInstalledOwnership(
   pruned: EnvironmentState['ownership'],
   operations: PlanOperation[],
@@ -436,7 +437,7 @@ function recordInstalledOwnership(
   const ownership = { ...pruned };
   for (const operation of operations) {
     const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
-    if (operation.kind !== 'install' || !plugin || ownership[operation.profile]?.[plugin.package]) {
+    if ((operation.kind !== 'install' && operation.kind !== 'update') || !plugin || ownership[operation.profile]?.[plugin.package]) {
       continue;
     }
     ownership[operation.profile] = {

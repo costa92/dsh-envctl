@@ -83,4 +83,31 @@ warnings: []
     expect(stdout).toContain('Adopted');
     expect(stdout).toContain('@nanmicoder/dsh-agent-teams');
   });
+
+  it('leaves a plugin the active overlay already declares where it is, in the preview and with --yes', async () => {
+    const run = async (args: string[]) => {
+      let stdout = '';
+      let stderr = '';
+      const code = await runCli([...args, '--dsh-home', tempHome], {
+        stdout: (chunk) => { stdout += chunk; },
+        stderr: (chunk) => { stderr += chunk; }
+      });
+      return { code, stdout, stderr };
+    };
+    await run(['init']);
+    await run(['overlay', 'create', 'local']);
+    await run(['overlay', 'use', 'local']);
+    expect((await run(['install', '@nanmicoder/dsh-agent-teams@0.1.21', '-p', 'web', '--layer', 'overlay', '--no-npm-check'])).code).toBe(0);
+    const candidate = path.join(tempHome, 'capture.yaml');
+    expect((await run(['capture', '-o', candidate])).code).toBe(0);
+    const base = fs.readFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'utf8');
+
+    const preview = await run(['adopt', '-f', candidate, '--layer', 'base']);
+    expect(preview.stderr).toBe('');
+    expect(preview.stdout).toBe('Nothing to adopt: every plugin in the candidate is already adopted.\n');
+    expect(preview.code).toBe(0);
+
+    expect((await run(['adopt', '-f', candidate, '--layer', 'base', '--yes'])).code).toBe(0);
+    expect(fs.readFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'utf8')).toBe(base);
+  });
 });

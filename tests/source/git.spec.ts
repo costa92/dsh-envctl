@@ -90,6 +90,21 @@ describe('Managed Git Source Lifecycle', () => {
     expect(result.newCommit).toBe(checkout);
   });
 
+  it('follows the checked-out branch upstream when no ref is given, and asks for one on a detached HEAD', async () => {
+    await execa('git', ['branch', '-M', 'main'], { cwd: repoDir });
+    const cloneDir = path.join(tempDir, 'clone');
+    await execa('git', ['clone', repoDir, cloneDir]);
+    fs.writeFileSync(path.join(repoDir, 'index.js'), '// v2\n');
+    await execa('git', ['add', '.'], { cwd: repoDir });
+    await execa('git', ['commit', '-m', 'v2'], { cwd: repoDir });
+    const upstream = (await execa('git', ['rev-parse', 'HEAD'], { cwd: repoDir })).stdout.trim();
+
+    expect((await safeFastForwardManagedGit(cloneDir)).newCommit).toBe(upstream);
+
+    await execa('git', ['checkout', '--detach'], { cwd: cloneDir });
+    await expect(safeFastForwardManagedGit(cloneDir)).rejects.toThrow(/detached HEAD; pass --ref <ref>/);
+  });
+
   it('refuses a URL or ref that git would read as an option', async () => {
     const marker = path.join(tempDir, 'marker');
     await expect(cloneManagedGit(`--upload-pack=touch ${marker}`, path.join(tempDir, 'c1'))).rejects.toThrow(/must not start with -/);
