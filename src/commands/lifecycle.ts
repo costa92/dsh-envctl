@@ -4,13 +4,14 @@ import { rollbackEnvironment } from '../rollback/rollback.js';
 import { gcEnvironment } from '../gc/gc.js';
 import { purgePlugin } from '../purge/purge.js';
 import { markRestarted } from '../restart/restart.js';
-import { renderPlan, renderRestartSummary } from '../output/render.js';
+import { renderPlan, renderRestartSummary, renderRuntimeReport } from '../output/render.js';
 import { ValidationError } from '../errors.js';
-import { planExitCode, planJson } from '../planner/plan.js';
+import { isProfileOperation, planExitCode, planJson } from '../planner/plan.js';
 import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
 import { loadState } from '../manifest/files.js';
 import { resolveCliPaths, resolveCliOverlay, overlayBanner, filterProfile, targetProfile, type CommandContext } from './context.js';
 import { reportPreview } from './confirm.js';
+import { verificationExitCode, verifyProfileRuntime, type ProfileVerification } from './runtime.js';
 
 export function registerLifecycleCommands(ctx: CommandContext): void {
   const { program, writeOut, writeErr, setExitCode } = ctx;
@@ -20,11 +21,19 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
     .description('Apply declared environment manifest to DSH profile installations')
     .option('--dry-run', 'show the plan without changing anything; exit code 2 when it has changes')
     .option('-y, --yes', 'apply; without it apply only previews, like --dry-run')
+    .option('--verify', 'then ask the running dsh web of each changed profile whether its plugins are loaded; exit code as runtime')
+    .option('--verify-timeout <seconds>', 'how long --verify waits for DSH to hot-reload a plugin', '30')
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const allowUntested = Boolean(opts.allowUntestedDsh);
       const preview = Boolean(cmdOpts.dryRun) || !cmdOpts.yes;
+      if (cmdOpts.verify && preview) {
+        throw new ValidationError('--verify checks what apply --yes changed; add --yes, or run dshenv runtime to check without applying');
+      }
+      if (!/^\d+(\.\d+)?$/.test(cmdOpts.verifyTimeout)) {
+        throw new ValidationError(`Invalid --verify-timeout value: ${cmdOpts.verifyTimeout}`);
+      }
 
       const selection = resolveCliOverlay(opts, paths);
       const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
@@ -40,8 +49,17 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         overlay: selection
       });
 
+      const verify: ProfileVerification[] = [];
+      if (cmdOpts.verify && res.applied) {
+        const { manifest } = loadEffectiveManifest(paths, selection);
+        const profiles = [...new Set(res.plan.operations.filter(isProfileOperation).map((operation) => operation.profile))];
+        for (const profile of profiles) {
+          verify.push(await verifyProfileRuntime(paths, manifest, profile, Number(cmdOpts.verifyTimeout) * 1000));
+        }
+      }
+
       if (opts.json) {
-        const json = { ...res, plan: planJson(res.plan) };
+        const json = { ...res, plan: planJson(res.plan), ...(cmdOpts.verify && res.applied ? { verify } : {}) };
         writeOut(JSON.stringify(selection ? { ...json, overlay: selection } : json, null, 2) + '\n');
       } else {
         if (selection) {
@@ -55,9 +73,19 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
           if (res.restart) {
             writeOut(renderRestartSummary(res.restart));
           }
+          for (const item of verify) {
+            if ('results' in item) {
+              writeOut(renderRuntimeReport(item.profile, item.endpoint, item.results));
+            } else {
+              writeErr(`Not verified: ${'skipped' in item ? item.skipped : `profile ${item.profile}: ${item.error}`}\n`);
+            }
+          }
         } else {
           writeOut(`${res.message ?? 'No changes applied.'}\n`);
         }
+      }
+      if (verify.length > 0) {
+        setExitCode(verificationExitCode(verify));
       }
       if (res.dryRun) {
         const code = planExitCode(res.plan);

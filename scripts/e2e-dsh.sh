@@ -339,11 +339,11 @@ step "dsh web starts for the external plugin" 0 test -n "$url"
 if [ -n "$url" ]; then
   step "runtime reports the external plugin loaded" 0 runtime_ok
   step "disable the external plugin" 0 "${run[@]}" disable "$ext_alias" --profile web
-  step "apply the disable" 0 "${run[@]}" apply --yes
+  step "apply --verify sees the disable take effect" 0 env DSHENV_DSH_URL="$url" "${run[@]}" apply --yes --verify
   step "unmounted from cordis.patch.yml" 1 grep -q "plugin=@mount:$ext_alias" "$DSH_HOME/profiles/web/cordis.patch.yml"
   step "runtime reports it unloaded" 0 runtime_ok
   step "enable it again" 0 "${run[@]}" enable "$ext_alias" --profile web
-  step "apply the enable" 0 "${run[@]}" apply --yes
+  step "apply --verify sees the plugin load again" 0 env DSHENV_DSH_URL="$url" "${run[@]}" apply --yes --verify
   step "runtime reports it loaded again" 0 runtime_ok
 fi
 stop_web

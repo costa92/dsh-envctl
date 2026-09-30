@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import type { EnvironmentManifest } from '../domain.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
@@ -18,6 +19,7 @@ import {
   parseRuntimePlugins,
   runtimeExitCode,
   type DeclaredPlugin,
+  type RuntimeCheckItem,
   type RuntimeBundle
 } from '../runtime/compare.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, profileFromEnv, PROFILE_ENV, TARGET_PROFILE_HELP, type CommandContext } from './context.js';
@@ -91,7 +93,7 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
       const manifest = loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest;
       const profile = selectProfile(manifest, cmdOpts.profile);
       if (!cmdOpts.start) {
-        const url = process.env[DSH_URL_ENV]?.trim() ? process.env[DSH_URL_ENV] : (await runningWebRecord(paths, profile))?.url;
+        const url = await dshWebUrlFor(paths, profile);
         if (url === undefined) {
           throw new ValidationError(
             `${DSH_URL_ENV} is not set and no dsh web started by 'dshenv web start' is running for profile ${profile}; export the URL dsh web printed, run dshenv web start -p ${profile}, or pass --start`
@@ -119,33 +121,7 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
     target: DshWebTarget,
     json: boolean | undefined
   ): Promise<void> {
-    const session = await loginDshWeb(target);
-    const bundles = parseRuntimeBundles(await callDshWeb(session, 'pluginManager', 'listBundles'), target.endpoint);
-    const plugins = parseRuntimePlugins(await callDshWeb(session, 'pluginManager', 'listPlugins'), target.endpoint);
-
-    const entries = Object.entries(manifest.profiles[profile]?.plugins ?? {});
-    const installed = (await readEnvironmentInventory(paths)).profiles[profile]?.plugins ?? {};
-    // A mounted plugin is in no bundle, so listBundles cannot show it.
-    const enabledPackages = entries
-      .filter(([, plugin]) => plugin.enabled !== false && installed[plugin.package]?.bundle !== false)
-      .map(([, plugin]) => plugin.package);
-    assertSameProfile(paths, profile, enabledPackages, bundles, target.endpoint);
-
-    const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
-    const patchFile = fs.existsSync(profilePatchFile(paths, profile)) ? fs.readFileSync(profilePatchFile(paths, profile), 'utf8') : '';
-    const declared: DeclaredPlugin[] = entries.map(([alias, plugin]) => {
-      const mounted = installed[plugin.package]?.bundle === false;
-      return {
-        alias,
-        package: plugin.package,
-        enabled: plugin.enabled !== false,
-        restartRequired: state?.profiles[profile]?.plugins[plugin.package]?.status === 'restart-required',
-        ...(mounted ? { mounted: true } : {}),
-        ...(mounted && plugin.enabled === false && mountedByOtherEntry(patchFile, profile, alias, plugin.package) ? { mountedByPatch: true } : {})
-      };
-    });
-    const results = checkRuntime(declared, bundles, plugins);
-
+    const results = await checkProfileRuntime(paths, manifest, profile, target);
     if (json) {
       writeOut(JSON.stringify({ profile, endpoint: target.endpoint, results }, null, 2) + '\n');
     } else {
@@ -153,4 +129,86 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
     }
     setExitCode(runtimeExitCode(results));
   }
+}
+
+// DSHENV_DSH_URL, else the dsh web that dshenv web start left running for the profile.
+export async function dshWebUrlFor(paths: EnvironmentPaths, profile: string): Promise<string | undefined> {
+  return process.env[DSH_URL_ENV]?.trim() ? process.env[DSH_URL_ENV] : (await runningWebRecord(paths, profile))?.url;
+}
+
+// Asks the dsh web whether the plugins the manifest declares for the profile are loaded.
+export async function checkProfileRuntime(
+  paths: EnvironmentPaths,
+  manifest: EnvironmentManifest,
+  profile: string,
+  target: DshWebTarget
+): Promise<RuntimeCheckItem[]> {
+  const session = await loginDshWeb(target);
+  const bundles = parseRuntimeBundles(await callDshWeb(session, 'pluginManager', 'listBundles'), target.endpoint);
+  const plugins = parseRuntimePlugins(await callDshWeb(session, 'pluginManager', 'listPlugins'), target.endpoint);
+
+  const entries = Object.entries(manifest.profiles[profile]?.plugins ?? {});
+  const installed = (await readEnvironmentInventory(paths)).profiles[profile]?.plugins ?? {};
+  // A mounted plugin is in no bundle, so listBundles cannot show it.
+  const enabledPackages = entries
+    .filter(([, plugin]) => plugin.enabled !== false && installed[plugin.package]?.bundle !== false)
+    .map(([, plugin]) => plugin.package);
+  assertSameProfile(paths, profile, enabledPackages, bundles, target.endpoint);
+
+  const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
+  const patchFile = fs.existsSync(profilePatchFile(paths, profile)) ? fs.readFileSync(profilePatchFile(paths, profile), 'utf8') : '';
+  const declared: DeclaredPlugin[] = entries.map(([alias, plugin]) => {
+    const mounted = installed[plugin.package]?.bundle === false;
+    return {
+      alias,
+      package: plugin.package,
+      enabled: plugin.enabled !== false,
+      restartRequired: state?.profiles[profile]?.plugins[plugin.package]?.status === 'restart-required',
+      ...(mounted ? { mounted: true } : {}),
+      ...(mounted && plugin.enabled === false && mountedByOtherEntry(patchFile, profile, alias, plugin.package) ? { mountedByPatch: true } : {})
+    };
+  });
+  return checkRuntime(declared, bundles, plugins);
+}
+
+export type ProfileVerification =
+  | { profile: string; endpoint: string; results: RuntimeCheckItem[] }
+  | { profile: string; skipped: string }
+  | { profile: string; error: string };
+
+// Results a hot reload that has not happened yet can still turn into loaded or unloaded; a plugin that owes
+// a restart reads as not-loaded or still-loaded until then too.
+const HOT_RELOAD_PENDING: ReadonlySet<RuntimeCheckItem['result']> = new Set(['loading', 'not-loaded', 'still-loaded']);
+
+// Checks the profile after apply; DSH hot-reloads a moment later, so such results are asked about again until the timeout.
+export async function verifyProfileRuntime(
+  paths: EnvironmentPaths,
+  manifest: EnvironmentManifest,
+  profile: string,
+  timeoutMs: number
+): Promise<ProfileVerification> {
+  const url = await dshWebUrlFor(paths, profile);
+  if (url === undefined) {
+    return { profile, skipped: `no dsh web is running for profile ${profile}; run dshenv web start -p ${profile}, or set ${DSH_URL_ENV}` };
+  }
+  try {
+    const target = parseDshWebUrl(url);
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const results = await checkProfileRuntime(paths, manifest, profile, target);
+      if (!results.some((item) => HOT_RELOAD_PENDING.has(item.result)) || Date.now() >= deadline) {
+        return { profile, endpoint: target.endpoint, results };
+      }
+      await delay(Math.min(1000, deadline - Date.now()));
+    }
+  } catch (err) {
+    if (err instanceof DshError) {
+      return { profile, error: err.message };
+    }
+    throw err;
+  }
+}
+
+export function verificationExitCode(verifications: ProfileVerification[]): number {
+  return Math.max(0, ...verifications.map((item) => ('results' in item ? runtimeExitCode(item.results) : 'error' in item ? 5 : 0)));
 }
