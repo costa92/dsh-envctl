@@ -2,8 +2,18 @@ import type { EnvironmentManifest, ProfilePatch } from '../domain.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { EnvironmentInventory } from '../inventory/profile-reader.js';
 import type { PluginOperation, ProfilePatchOperation, UnmanagedPatches } from '../planner/plan.js';
-import { writeProfilePatches } from '../apply/patches.js';
-import { describeProfilePatch, digestProfilePatches } from '../profile-patches/entries.js';
+import { isDeepStrictEqual } from 'node:util';
+import { readProfilePatchFile, rewriteProfilePatchFile, writeProfilePatches } from '../apply/patches.js';
+import { ValidationError } from '../errors.js';
+import {
+  describeProfilePatch,
+  digestProfilePatches,
+  mergeDshPatches,
+  overrideKey,
+  readProfilePatchState,
+  removeUnmanagedEntries,
+  replaceProfileBlock
+} from '../profile-patches/entries.js';
 import { isPresetPatch } from '../tools/catalog.js';
 
 export interface ProfilePatchPlan {
@@ -89,4 +99,71 @@ export async function applyProfilePatchOperation(
   operation: ProfilePatchOperation
 ): Promise<() => Promise<void>> {
   return writeProfilePatches(paths, operation.profile, manifest.profiles[operation.profile]?.patches ?? []);
+}
+
+// A profile whose patch entries changed in DSH, and the entries pull makes it declare.
+export interface ProfilePatchImport {
+  profile: string;
+  content: string;
+  desired: ProfilePatch[];
+  expected: ProfilePatch[];
+  from: 'dsh' | 'manifest';
+}
+
+// Profiles changed only in DSH are read; one the manifest changed too is a conflict unless prefer settles it.
+export async function planProfilePatchImport(
+  paths: EnvironmentPaths,
+  profiles: string[],
+  expectedFor: (profile: string) => ProfilePatch[],
+  prefer: 'dsh' | 'manifest' | undefined
+): Promise<{ reads: ProfilePatchImport[]; conflicts: string[] }> {
+  const reads: ProfilePatchImport[] = [];
+  const conflicts: string[] = [];
+  for (const profile of profiles) {
+    const content = await readProfilePatchFile(paths, profile);
+    const state = readProfilePatchState(content, profile);
+    const expected = expectedFor(profile);
+    const dshChanged = state.unmanaged.length > 0 || (state.block !== null && !state.block.isDigestValid);
+    if (!dshChanged) {
+      continue;
+    }
+    const manifestChanged = state.block ? state.block.digest !== digestProfilePatches(expected) : expected.length > 0;
+    if (manifestChanged && !prefer) {
+      conflicts.push(profile);
+      continue;
+    }
+    const from = manifestChanged && prefer === 'manifest' ? 'manifest' : 'dsh';
+    const desired = from === 'manifest' ? expected : mergeDshPatches(state.block?.entries ?? [], state.unmanaged);
+    reads.push({ profile, content, desired, expected, from });
+  }
+  return { reads, conflicts };
+}
+
+export function describeProfilePatchImport(expected: ProfilePatch[], desired: ProfilePatch[]): { added: string[]; changed: string[]; removed: string[] } {
+  const keyed = (entries: ProfilePatch[]) => new Map(entries.map((entry) => [overrideKey(entry) ?? JSON.stringify(entry), entry]));
+  const before = keyed(expected);
+  const after = keyed(desired);
+  return {
+    added: desired.filter((entry) => !before.has(overrideKey(entry) ?? JSON.stringify(entry))).map(describeProfilePatch),
+    changed: desired
+      .filter((entry) => {
+        const previous = before.get(overrideKey(entry) ?? JSON.stringify(entry));
+        return previous !== undefined && !isDeepStrictEqual(previous, entry);
+      })
+      .map(describeProfilePatch),
+    removed: expected.filter((entry) => !after.has(overrideKey(entry) ?? JSON.stringify(entry))).map(describeProfilePatch)
+  };
+}
+
+// Rewrites the profile's block to the entries it now declares and drops the entries outside it; returns what it wrote.
+export async function importProfilePatchFile(paths: EnvironmentPaths, read: ProfilePatchImport, entries: ProfilePatch[]): Promise<string> {
+  let written = '';
+  await rewriteProfilePatchFile(paths, read.profile, (current) => {
+    if (current !== read.content) {
+      throw new ValidationError(`cordis.patch.yml of profile '${read.profile}' changed during pull; run dshenv pull again`);
+    }
+    written = replaceProfileBlock(removeUnmanagedEntries(current), read.profile, entries);
+    return written;
+  });
+  return written;
 }

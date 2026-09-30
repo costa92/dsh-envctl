@@ -11,7 +11,7 @@ import type {
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
 import { buildPlan, isProfileOperation, type EnvironmentPlan, type LocalSourceDigests, type PluginOperation } from '../planner/plan.js';
-import { applyPluginOperation, planNeedsDshCli, type PluginStepContext } from '../resources/plugin.js';
+import { applyPluginOperation, planNeedsDshCli, pluginOwnershipRecord, type PluginStepContext } from '../resources/plugin.js';
 import { applyProfilePatchOperation } from '../resources/profile-patch.js';
 import { loadLock, loadState, serializeState, serializeLock, withResources } from '../manifest/files.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
@@ -261,14 +261,7 @@ function recordInstalledOwnership(
     }
     ownership[operation.profile] = {
       ...ownership[operation.profile],
-      [plugin.package]: {
-        package: plugin.package,
-        alias: operation.alias,
-        sourceType: plugin.source.type,
-        lockedVersion: plugin.source.type === 'npm' ? plugin.source.version : undefined,
-        adoptedAt: now,
-        adoptedBy: operationId
-      }
+      [plugin.package]: pluginOwnershipRecord(plugin.package, operation.alias, plugin.source, now, operationId)
     };
   }
   return ownership;

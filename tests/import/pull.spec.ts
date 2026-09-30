@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as YAML from 'yaml';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
-import { pullProfilePatches } from '../../src/profile-patches/pull.js';
+import { pullProfilePatches } from '../../src/import/pull.js';
 import { applyEnvironment } from '../../src/apply/apply.js';
 import { loadLock, loadManifest, loadState, parseOverlay } from '../../src/manifest/files.js';
 import { readSelectionFile } from '../../src/overlay/selection.js';

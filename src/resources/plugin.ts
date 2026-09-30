@@ -3,8 +3,10 @@ import * as path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { execa } from 'execa';
 import type { EnvironmentPaths } from '../environment/paths.js';
-import type { EnvironmentLock, EnvironmentManifest, EnvironmentState } from '../domain.js';
-import type { EnvironmentInventory } from '../inventory/profile-reader.js';
+import type { CaptureDocument, EnvironmentLock, EnvironmentManifest, EnvironmentState, PluginLockEntry, PluginOwnershipRecord, PluginSource } from '../domain.js';
+import type { EnvironmentInventory, InstalledPluginInfo } from '../inventory/profile-reader.js';
+import { captureEnvironment } from '../import/capture.js';
+import { calculateSourceDigest } from '../source/local.js';
 import type { EnvironmentPlan, LocalSourceDigests, PluginOperation, UnmanagedPlugin, UnverifiedPlugin } from '../planner/plan.js';
 import type { ProfileRollback } from '../apply/apply.js';
 import { computePatchDigest } from '../patch/patch.js';
@@ -589,4 +591,62 @@ export async function applyPluginOperation(operation: PluginOperation, ctx: Plug
     await setPlainPluginEnabled(ctx, operation, operation.targetEnabled !== false);
   }
   return null;
+}
+
+// A plugin dshenv installed or took over is dshenv's to remove once the manifest drops it.
+export function pluginOwnershipRecord(packageName: string, alias: string, source: PluginSource, adoptedAt: string, adoptedBy: string): PluginOwnershipRecord {
+  return {
+    package: packageName,
+    alias,
+    sourceType: source.type,
+    lockedVersion: source.type === 'npm' ? source.version : undefined,
+    adoptedAt,
+    adoptedBy
+  };
+}
+
+// A captured alias can already name another declared package; overwriting that entry would drop it and its patches.
+export function freeAlias(plugins: Record<string, unknown>, alias: string): string {
+  let candidate = alias;
+  for (let counter = 1; Object.hasOwn(plugins, candidate); counter++) {
+    candidate = `${alias}-${counter}`;
+  }
+  return candidate;
+}
+
+// The plugins plan reports as not in the manifest, described the way capture describes them.
+export function captureUnmanagedPlugins(
+  inventory: EnvironmentInventory,
+  profiles: string[],
+  manifest: EnvironmentManifest,
+  lock: EnvironmentLock | null,
+  state: EnvironmentState | null
+): CaptureDocument {
+  const selected: EnvironmentInventory = { profiles: {} };
+  const unmanaged = planPlugins(manifest, lock, inventory, state).unmanaged
+    .sort((a, b) => a.profile.localeCompare(b.profile) || a.package.localeCompare(b.package));
+  for (const { profile, package: name } of unmanaged) {
+    if (!profiles.includes(profile)) {
+      continue;
+    }
+    // Patch entries are pulled on their own; capture would only warn about them.
+    const { profilePatches: _patches, ...source } = inventory.profiles[profile];
+    (selected.profiles[profile] ??= { ...source, plugins: {} }).plugins[name] = source.plugins[name];
+  }
+  return captureEnvironment(selected);
+}
+
+// An install that resolves to the source directory is that directory, so its digest is what DSH loads; a copy proves nothing.
+export async function withLinkDigest(entry: PluginLockEntry, installed: InstalledPluginInfo | undefined): Promise<PluginLockEntry> {
+  if (entry.source.type !== 'local-link' || !installed?.targetPath) {
+    return entry;
+  }
+  try {
+    if ((await fs.promises.realpath(entry.source.path)) !== installed.targetPath) {
+      return entry;
+    }
+    return { ...entry, source: { ...entry.source, digest: await calculateSourceDigest(entry.source.path) } };
+  } catch {
+    return entry;
+  }
 }

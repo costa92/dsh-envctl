@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { captureEnvironment, initEnvironment } from '../../src/capture/capture.js';
+import { captureEnvironment, initEnvironment } from '../../src/import/capture.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 import { readEnvironmentInventory } from '../../src/inventory/profile-reader.js';
 

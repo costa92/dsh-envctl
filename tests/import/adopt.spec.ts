@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { adoptEnvironment } from '../../src/adopt/adopt.js';
+import { adoptEnvironment } from '../../src/import/adopt.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 import { loadManifest, loadState } from '../../src/manifest/files.js';
 import type { CaptureDocument } from '../../src/domain.js';
