@@ -89,7 +89,7 @@ export function registerRemoteCommands(ctx: CommandContext): void {
     .option('--branch <name>', 'branch to follow; defaults to the branch the remote HEAD points to')
     .option('--path <dir>', 'directory inside the repository that holds manifest.yaml', DEFAULT_REMOTE_PATH)
     .option('--replace', 'overwrite a local manifest, same-named overlay or lock entry the team lock pins (a snapshot is taken first)')
-    .option('-y, --yes', 'accept and write the remote files')
+    .option('-y, --yes', 'accept and write the remote files; without it remote add only previews')
     .action(async (url: string, cmdOpts: { branch?: string; path: string; replace?: boolean; yes?: boolean }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -229,7 +229,7 @@ export function registerRemoteCommands(ctx: CommandContext): void {
       .description('Fetch the subscribed remote and preview or accept its newest commit')
       .option('--ref <ref>', 'commit or tag on the subscribed branch to move to')
       .option('--discard-local-changes', 'overwrite remote-owned files and lock entries that were changed locally')
-      .option('-y, --yes', 'accept and write the remote files')
+      .option('-y, --yes', 'accept and write the remote files; without it remote sync only previews')
       .action(async (cmdOpts: { ref?: string; discardLocalChanges?: boolean; yes?: boolean }) => {
         const opts = program.opts();
         const paths = resolveCliPaths(opts);
