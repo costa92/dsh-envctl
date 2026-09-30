@@ -38,9 +38,11 @@ describe('applyEnvironment hot reload awareness', () => {
   // Only plugins dshenv owns are uninstalled when the manifest drops them.
   const own = (): void => {
     const state = JSON.parse(fs.readFileSync(paths.stateFile, 'utf8'));
-    state.ownership = {
-      web: {
-        [PKG]: { package: PKG, alias: 'agent-teams', sourceType: 'npm', lockedVersion: '0.1.21', adoptedAt: '2026-01-01T00:00:00.000Z', adoptedBy: 'test' }
+    state.resources = {
+      plugin: {
+        web: {
+          [PKG]: { package: PKG, alias: 'agent-teams', sourceType: 'npm', lockedVersion: '0.1.21', adoptedAt: '2026-01-01T00:00:00.000Z', adoptedBy: 'test' }
+        }
       }
     };
     fs.writeFileSync(paths.stateFile, JSON.stringify(state));

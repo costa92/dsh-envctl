@@ -63,7 +63,7 @@ describe('loadEffectiveManifest', () => {
 
 describe('overlaySwitchWarning', () => {
   const state = (appliedOverlay?: string): EnvironmentState => ({
-    apiVersion: 'dshenv-state/v2',
+    apiVersion: 'dshenv-state/v1',
     lastApplied: 'x',
     appliedLockHash: '',
     profiles: {},

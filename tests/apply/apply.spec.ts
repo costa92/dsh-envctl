@@ -60,15 +60,17 @@ profiles:
   "lastApplied": "2026-01-01T00:00:00.000Z",
   "appliedLockHash": "",
   "profiles": {},
-  "ownership": {
-    "web": {
-      "@nanmicoder/dsh-agent-teams": {
-        "package": "@nanmicoder/dsh-agent-teams",
-        "alias": "agent-teams",
-        "sourceType": "npm",
-        "lockedVersion": "0.1.21",
-        "adoptedAt": "2026-01-01T00:00:00.000Z",
-        "adoptedBy": "test"
+  "resources": {
+    "plugin": {
+      "web": {
+        "@nanmicoder/dsh-agent-teams": {
+          "package": "@nanmicoder/dsh-agent-teams",
+          "alias": "agent-teams",
+          "sourceType": "npm",
+          "lockedVersion": "0.1.21",
+          "adoptedAt": "2026-01-01T00:00:00.000Z",
+          "adoptedBy": "test"
+        }
       }
     }
   }

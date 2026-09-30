@@ -35,7 +35,7 @@ profiles:
     );
     fs.writeFileSync(
       path.join(managerDir, 'state.json'),
-      `{"apiVersion":"dshenv-state/v1","lastApplied":"2026-01-01T00:00:00.000Z","appliedLockHash":"","profiles":{},"ownership":{}}`
+      `{"apiVersion":"dshenv-state/v1","lastApplied":"2026-01-01T00:00:00.000Z","appliedLockHash":"","profiles":{}}`
     );
   });
 

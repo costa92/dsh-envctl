@@ -277,35 +277,20 @@ export const PluginOwnershipRecordSchema = z
   })
   .strict();
 
-const PluginOwnershipSchema = z.record(z.string(), z.record(z.string(), PluginOwnershipRecordSchema));
-
 export const StateSchema = z
   .object({
-    apiVersion: z.literal('dshenv-state/v2'),
+    apiVersion: z.literal('dshenv-state/v1'),
     lastApplied: z.string(),
     appliedLockHash: z.string(),
     profiles: z.record(z.string(), ProfileStateEntrySchema).default({}),
     appliedOverlay: z.string().min(1).optional(),
     resources: z
       .object({
-        plugin: PluginOwnershipSchema.optional(),
+        plugin: z.record(z.string(), z.record(z.string(), PluginOwnershipRecordSchema)).optional(),
         skill: z.record(z.string(), z.object({ digest: z.string() }).strict()).optional()
       })
       .strict()
       .optional()
-  })
-  .strict();
-
-// Written by dshenv 0.4 and earlier, and still found in apply snapshots.
-export const StateV1Schema = z
-  .object({
-    apiVersion: z.literal('dshenv-state/v1'),
-    lastApplied: z.string(),
-    appliedLockHash: z.string(),
-    profiles: z.record(z.string(), ProfileStateEntrySchema).default({}),
-    ownership: PluginOwnershipSchema.optional(),
-    appliedOverlay: z.string().min(1).optional(),
-    skills: z.record(z.string(), z.string()).optional()
   })
   .strict();
 

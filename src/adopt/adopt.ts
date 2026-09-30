@@ -127,7 +127,7 @@ async function adoptUnderLock(
     profiles: {}
   };
   let existingState: EnvironmentState = {
-    apiVersion: 'dshenv-state/v2',
+    apiVersion: 'dshenv-state/v1',
     lastApplied: now,
     appliedLockHash: '',
     profiles: {}
@@ -238,7 +238,7 @@ async function adoptUnderLock(
 
   const nextState = withResources(
     {
-      apiVersion: 'dshenv-state/v2',
+      apiVersion: 'dshenv-state/v1',
       lastApplied: now,
       appliedLockHash: lockHash,
       profiles: existingState.profiles ?? {},

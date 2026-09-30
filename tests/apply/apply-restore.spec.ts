@@ -73,7 +73,7 @@ describe('applyEnvironment profile restore on failure', () => {
         lastApplied: '2026-01-01T00:00:00.000Z',
         appliedLockHash: '',
         profiles: {},
-        ownership: { web: ownership }
+        resources: { plugin: { web: ownership } }
       })
     );
     fs.mkdirSync(profileDir, { recursive: true });

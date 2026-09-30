@@ -353,7 +353,7 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
       await writeAtomic(paths.lockFile, serializeLock(nextLock), 'overwrite');
     }
     if ((skills && skills.actions.length > 0) || plugins.length > 0) {
-      const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v2', lastApplied: now, appliedLockHash: '', profiles: {} };
+      const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v1', lastApplied: now, appliedLockHash: '', profiles: {} };
       const skill = skills && skills.actions.length > 0 ? skillOwnership(skills.owned) : base.resources?.skill;
       await writeAtomic(paths.stateFile, serializeState(withResources(base, { plugin: ownership, skill })), 'overwrite');
     }
