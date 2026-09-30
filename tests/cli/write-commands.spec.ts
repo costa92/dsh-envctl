@@ -290,7 +290,8 @@ describe('CLI manifest write commands', () => {
       expect(overlay('laptop').profiles?.web?.plugins?.['agent-teams']?.enabled).toBe(true);
       expect(manifest().profiles.web.plugins['agent-teams'].enabled).toBe(false);
 
-      expect((await run(['disable', 'agent-teams', '-p', 'web', '--layer', 'base'])).stderr).toBe('');
+      // An explicit --layer wins, so DSHENV_LAYER is not mentioned.
+      expect((await run(['disable', 'agent-teams', '-p', 'web', '--layer', 'base'])).stderr).not.toMatch(/DSHENV_LAYER/);
     });
 
     it('refuses an invalid value while an overlay is active, and says where it came from', async () => {
@@ -301,6 +302,18 @@ describe('CLI manifest write commands', () => {
       const out = await run(['disable', 'agent-teams', '-p', 'web']);
       expect(out.code).toBe(3);
       expect(out.stderr).toBe("Invalid --layer 'top'; expected base or overlay (from DSHENV_LAYER)\n");
+    });
+
+    it('warns when the active overlay keeps a base write from taking effect', async () => {
+      useOverlay('laptop');
+      expect((await run(['enable', 'agent-teams', '-p', 'web', '--layer', 'overlay'])).code).toBe(0);
+      const out = await run(['disable', 'agent-teams', '-p', 'web', '--layer', 'base']);
+      expect(out.code).toBe(0);
+      expect(manifest().profiles.web.plugins['agent-teams'].enabled).toBe(false);
+      expect(out.stderr).toBe(
+        "Overlay 'laptop' sets enabled: true for agent-teams in profile 'web', so it stays enabled on this machine; use --layer overlay to change it here\n"
+      );
+      expect((await run(['disable', 'agent-teams', '-p', 'web', '--layer', 'base', '--json'])).stderr).toBe('');
     });
 
     it('hides --layer on adopt, which only writes the base', async () => {

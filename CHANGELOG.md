@@ -11,7 +11,7 @@
 - `tools reset <tool>`：删掉清单里改动该工具的 patch，恢复 DSH 的默认；预设内的工具会连同整个预设一起解除固定。
 - `config unset <alias> <dottedPath>`：从插件配置 patch 里删掉一个键（删空的父级一并删除）；overlay 只能删它自己设置的键。
 - `--new-profile`（`install`、`new -p`、`source clone -p`）：写入一个清单没声明、DSH 也没创建的 Profile 时须显式加上，防止拼错的名字悄悄建出新 Profile。
-- `DSHENV_LAYER`：有生效 overlay 时作为改清单命令 `--layer` 的默认值；没有 overlay 时不起作用。取自 `DSHENV_PROFILE` 或 `DSHENV_LAYER` 的值会在 stderr 提示一行（`--json` 时不提示）。
+- `DSHENV_LAYER`：有生效 overlay 时作为改清单命令 `--layer` 的默认值；没有 overlay 时，`DSHENV_LAYER=overlay` 与 `--layer overlay` 一样以退出码 3 拒绝（改动不会落进团队共享的 base），其他值（包括不合法的值）不起作用。取自 `DSHENV_PROFILE` 或 `DSHENV_LAYER` 的值会在 stderr 提示一行（`--json` 时不提示）。
 - `config set --force`：DSH 为该插件组合出了配置而其中没有这个键时，`config set` 报错并给出相近的键名，`--force` 仍然写入。
 - `plan -p <name>`、`status -p <name>` 只看一个 Profile；`status` 文本输出列出每个插件的状态，`status <alias>` 只列出该插件（此前只有 `--json` 生效），`Profiles monitored` 计入清单声明但尚未创建的 Profile。
 - `dshenv remote sync`：即原来的顶层 `sync`。
@@ -20,7 +20,7 @@
 
 ### 变更
 
-- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
+- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝并给出相近的名字（此前 `plan -p <拼错>` 报 in sync、退出码 0，CI 靠退出码判断漂移会被放过）；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
 - `runtime` 在清单声明多个 Profile 又没指定时，报错改为同一格式并列出可选的 Profile。
 - `config get <alias> [dottedPath]` 用位置参数读取嵌套字段，与 `config set`、`tools config` 一致；`--path` 仍然可用，但不再出现在帮助里。
 - `source pull` 的 ref 只在帮助里保留 `--ref`（与 `source clone` 一致）；第二个位置参数仍然可用。
@@ -59,6 +59,12 @@
 
 ### 修复
 
+- `rollback` 恢复快照里的 overlay 前，把它要覆盖的 overlay 一并存进 pre-rollback 快照：apply 之后用 `--layer overlay` 做的改动不再被静默覆盖，`rollback <pre-rollback id>` 能找回来。输出改为说明恢复的是哪次操作开始时保存的文件（apply 的快照是它所应用的清单，加上它运行前的 `lock.json` 和 `state.json`），不再写成 "as they were before apply-X"。
+- `apply` 在建快照、写 journal 之前检查 DSH 命令和版本：版本不受支持或找不到 DSH 时，不再留下一个会被 `rollback` 选中的快照。
+- 失败 apply 的恢复提示里，查找上一次成功 apply 出错时不再误报“恢复 lock.json 和 state.json 也失败了”；提示写明回到那次 apply 的清单会丢掉之后对清单的所有改动。
+- `tools reset --layer overlay` 再执行一次时，不再删掉上次写下的 `remove: true` 墓碑（那会让 base 的 patch 重新生效，输出却说 Removed），而是报 nothing to reset；没有可重置的内容时也不再往 overlay 写一个空的 Profile。overlay 里只有墓碑时，base 层 reset 不再被拒。
+- `tools config <tool> <不存在的键>` 与 `config get` 一致：以退出码 3 报错并给出相近的键，不再输出 `null`、退出码 0。
+- 有生效 overlay 时，`enable`/`disable --layer base` 改的值被 overlay 覆盖，在 stderr 提示这台机器上实际状态没变（`--json` 时不提示）。
 - Windows 上探测 DSH 源码插件管理器的 `package.json` 时，用 BigInt 比对文件身份：64 位文件 ID 转成普通数字会丢精度，两个接连创建的文件可能被当成同一个，导致路径检查后被换成软链接的清单没有被识别。
 
 ## 0.3.1 - 2026-09-29

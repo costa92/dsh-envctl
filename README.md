@@ -120,7 +120,7 @@ DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容�
 `-p, --profile <name>` 是 DSH Profile 的名字，即 `profiles/<name>/` 的目录名和清单 `profiles:` 下的键。所有命令用同一套规则：
 
 - 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`runtime` 在清单只声明一个 Profile 时仍直接用它。
-- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效。
+- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝，不会把拼错的名字报成“已同步”。
 - `source`、`new` 的 `-p` 表示把克隆或新建的包登记到该 Profile，不写就不登记。
 
 - 写入命令（`install`、`new -p`、`source clone -p`）指定一个清单没声明、DSH 也没创建的 Profile 时，默认按拼写错误拒绝并给出相近的名字；确实要新建时加 `--new-profile`。
@@ -476,7 +476,7 @@ dshenv apply --yes                                         # 写进 DSH
 - 目标与 `tools list` 显示的一致：先找 `--preset` 指定的预设（不指定时用 DSH 当前的默认预设），其中没有该工具时改 profile 级那一行；只有别的预设里有时报错，提示加 `--preset`。
 - overlay 已声明同一个 id 的条目时，写 base 会被它覆盖而不生效，因此会拒绝，请改用 `--layer overlay`。
 - 只接受 `tools list --all` 列出的 id；不在 Profile 组合里的工具（如默认未装的 `tool-lsp`、`tool-terminal`）不能用 `enable` 打开，需先安装对应的包。
-- `tools reset <tool>` 删掉清单里改动该工具的那条 patch：顶层工具只删它自己的，预设里的工具会删掉整个预设 patch（该预设内的所有工具改动一起撤销，预设恢复跟随 DSH）。overlay 里写时，base 声明的 patch 记为 `remove: true`。
+- `tools reset <tool>` 删掉清单里改动该工具的那条 patch：顶层工具只删它自己的，预设里的工具会删掉整个预设 patch（该预设内的所有工具改动一起撤销，预设恢复跟随 DSH）。overlay 里写时，base 声明的 patch 记为 `remove: true`；已经记过的再 reset 一次什么也不改。
 
 
 ### 24. `dshenv web`

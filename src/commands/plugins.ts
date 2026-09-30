@@ -10,7 +10,7 @@ import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError } from '../errors.js';
 import { ExactVersionRegex, PackageNameRegex } from '../manifest/schema.js';
 import type { EnvironmentManifest, PluginManifestEntry, PluginSource } from '../domain.js';
-import { loadEffectiveManifest } from '../overlay/effective.js';
+import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { removeOverlayPlugin, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
@@ -616,6 +616,13 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
           });
         }
         reportWrite(opts, overlay, toggle.status, { profile, alias }, `${toggle.verb} plugin '${alias}' in profile '${profile}'`);
+        // The overlay's value wins on this machine, so the base write alone changes nothing here.
+        const overridden = !overlay && selection ? readOverlay(paths, selection.name).profiles?.[profile]?.plugins?.[alias]?.enabled : undefined;
+        if (overridden !== undefined && overridden !== toggle.enabled && !opts.json) {
+          ctx.writeErr(
+            `Overlay '${selection!.name}' sets enabled: ${overridden} for ${alias} in profile '${profile}', so it stays ${overridden ? 'enabled' : 'disabled'} on this machine; use --layer overlay to change it here\n`
+          );
+        }
       });
   }
 
