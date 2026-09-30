@@ -96,7 +96,7 @@ describe('remote ownership', () => {
 
   it('guards only the entries the team lock pins', () => {
     expect(() => assertLockEntryNotRemoteOwned(paths, 'web', 'shared')).toThrow(
-      `Lock entry 'web/shared' is pinned by the team lock of remote ${FIXTURE_REMOTE_URL}; change it in the team repository and run dshenv sync`
+      `Lock entry 'web/shared' is pinned by the team lock of remote ${FIXTURE_REMOTE_URL}; change it in the team repository and run dshenv remote sync`
     );
     expect(() => assertLockEntryNotRemoteOwned(paths, 'web', 'tool')).not.toThrow();
     expect(() => assertLockEntryNotRemoteOwned(paths, 'cli', 'shared')).not.toThrow();

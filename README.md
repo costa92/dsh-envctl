@@ -383,7 +383,7 @@ dshenv mark-restarted --profile web --json
 ```bash
 ```
 
-#### runtime：核对运行中的 DSH 是否已加载
+#### verify：核对运行中的 DSH 是否已加载
 
 `apply` 只能推断改动是否已被热加载。`dshenv verify` 登录运行中的 `dsh web`，读取 Plugin Manager 报告的真实加载状态，与清单对比：
 

@@ -67,7 +67,7 @@ describe('CLI writes to remote-owned files and lock entries', () => {
     for (const extra of [[], ['--overlay', 'mine', '--layer', 'overlay']]) {
       const { code, stderr } = await run(['update', 'shared', '--to', '1.1.0', '-p', 'web', ...extra]);
       expect(code).toBe(3);
-      expect(stderr).toContain(`Lock entry 'web/shared' is pinned by the team lock of remote ${FIXTURE_REMOTE_URL}`);
+      expect(stderr).toContain(`Lock entry 'web/shared' is pinned by the team lock of remote ${FIXTURE_REMOTE_URL}; change it in the team repository and run dshenv remote sync`);
       expectUnchanged();
     }
   });

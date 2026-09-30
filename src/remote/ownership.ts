@@ -92,6 +92,6 @@ export function assertLockEntryNotRemoteOwned(paths: EnvironmentPaths, profile: 
     return;
   }
   throw new ValidationError(
-    `Lock entry '${lockEntryId(profile, alias)}' is pinned by the team lock of remote ${config.url}; change it in the team repository and run dshenv sync`
+    `Lock entry '${lockEntryId(profile, alias)}' is pinned by the team lock of remote ${config.url}; change it in the team repository and run dshenv remote sync`
   );
 }

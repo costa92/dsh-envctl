@@ -23,6 +23,8 @@
   - `runtime` 改名为 `verify`，与 `apply --verify` 对应；
   - `source pull` 改名为 `source sync`，与 `remote sync` 一样表示"从上游 Git 取"，不再与 `pull`（DSH -> 清单）同名；
   - 帮助分组改为 `Plugins & tools`、`Run & check`（`web`、`verify`、`doctor`）。
+  - 错误提示与文档一并改用新名，例如团队 lock 固定的条目提示 `run dshenv remote sync`，不再是有歧义的 `dshenv sync`。
+- `update --to` 用在 Git 或本地来源的插件上时，报错说明该用什么：Git 插件用 `dshenv source sync -p <profile> --as <alias>`，本地来源的改动由 `plan`/`apply` 自动跟上。
 - `state.json` 按资源类型记录 dshenv 拥有的资源（`resources.plugin`、`resources.skill`，见「升级须知」），为插件、profile patch、skill 统一生命周期做准备；命令的输出与行为不变。
 
 ### 修复

@@ -407,7 +407,14 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         if (readRemoteConfig(paths) && lockPinsNpm(paths, profile, alias)) {
           assertLockEntryNotRemoteOwned(paths, profile, alias);
         }
-        const npmOnly = (type: string) => new ValidationError(`update --to currently supports npm sources only (got ${type})`);
+        const npmOnly = (type: string) => {
+          const instead = type === 'git'
+            ? `; move a Git plugin with dshenv source sync -p ${profile} --as ${alias} [--ref <ref>]`
+            : type === 'local-link' || type === 'local-file'
+              ? '; plan and apply pick up changes in a local source by themselves'
+              : '';
+          return new ValidationError(`update --to currently supports npm sources only (got ${type})${instead}`);
+        };
         const declared = loadEffectiveManifest(paths, selection).manifest.profiles[profile].plugins[alias];
         if (declared.source.type !== 'npm') {
           throw npmOnly(declared.source.type);
