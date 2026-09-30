@@ -61,7 +61,7 @@ describe('CLI pull', () => {
 
     const after = await run(['plan']);
     expect(after.code).toBe(0);
-    expect(after.stdout).toContain('overlay: local (file)');
+    expect(after.stderr).toContain('overlay: local (file)');
     expect(after.stdout).not.toMatch(/Planned operations|Patch entries not in the manifest/);
     expect((await run(['pull'])).stdout).toContain('Nothing to pull');
   });

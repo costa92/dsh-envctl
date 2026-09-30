@@ -9,7 +9,7 @@ import { listWebRecords, readWebRecord, removeWebRecord, webLogFile, writeWebRec
 import { parseDshWebUrl } from '../dsh/web-client.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import { assertProfileName } from '../manifest/schema.js';
-import { profileNotCreatedError, profileOption, resolveCliOverlay, resolveCliPaths, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
+import { filterProfile, profileNotCreatedError, resolveCliOverlay, resolveCliPaths, targetProfile, type CommandContext } from './context.js';
 
 interface CliOpts {
   dshHome?: string;
@@ -87,7 +87,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('start')
     .description('Start dsh web for a profile in the background and print its URL')
-    .addOption(targetProfile())
+    .addOption(targetProfile({ singleDeclared: true }))
     .option('--port <port>', 'port to listen on; 0 picks a free one', '0')
     .action(async (cmdOpts: { profile: string; port: string }) => {
       const opts = program.opts<CliOpts>();
@@ -135,7 +135,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('stop')
     .description('Stop the dsh web that dshenv web start left running for a profile, with everything it started')
-    .addOption(targetProfile())
+    .addOption(targetProfile({ singleDeclared: true }))
     .action(async (cmdOpts: { profile: string }) => {
       const opts = program.opts<CliOpts>();
       const paths = resolveCliPaths(opts);
@@ -159,7 +159,7 @@ export function registerWebCommands(ctx: CommandContext): void {
   web
     .command('status')
     .description('List the dsh web servers dshenv web start left running (never their token)')
-    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .addOption(filterProfile())
     .action(async (cmdOpts: { profile?: string }) => {
       const opts = program.opts<CliOpts>();
       const paths = resolveCliPaths(opts);

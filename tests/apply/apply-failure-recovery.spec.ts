@@ -1,10 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { applyEnvironment, type ApplyOptions } from '../../src/apply/apply.js';
 import { rollbackEnvironment } from '../../src/rollback/rollback.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
+
+const hint = vi.hoisted(() => ({ fail: false }));
+vi.mock('../../src/rollback/rollback.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/rollback/rollback.js')>();
+  return {
+    ...actual,
+    lastSuccessfulApply: async (...args: Parameters<typeof actual.lastSuccessfulApply>) => {
+      if (hint.fail) throw new Error('EACCES: backups unreadable');
+      return actual.lastSuccessfulApply(...args);
+    }
+  };
+});
 
 // Fake DSH: `add` installs a bundle package; FAIL_ON makes adds of matching packages fail.
 const FAKE_DSH = `
@@ -51,6 +63,7 @@ describe('applyEnvironment failure recovery', () => {
   });
 
   afterEach(() => {
+    hint.fail = false;
     delete process.env.FAIL_ON;
     if (previousDshCli === undefined) delete process.env.DSH_CLI;
     else process.env.DSH_CLI = previousDshCli;
@@ -69,8 +82,17 @@ describe('applyEnvironment failure recovery', () => {
     expect(message).toMatch(/^Apply execution failed at \[web\] install cc \(cc\), step 2 of 2: DSH plugin command exited with code 7/);
     expect(message).toMatch(/\nApply apply-[0-9a-f]{12} put lock\.json and state\.json back; plugins it installed before failing stay installed: bb\.\n/);
     expect(message).toContain(
-      `The manifest still declares what failed: fix it and apply again, or go back to the manifest apply ${good.operationId} applied with: dshenv rollback ${good.operationId} --yes`
+      `The manifest still declares what failed: fix it and apply again, or go back to the manifest apply ${good.operationId} applied (dropping every manifest change made since) with: dshenv rollback ${good.operationId} --yes`
     );
+  });
+
+  it('does not report a failed restore when only looking up the way back fails', async () => {
+    fs.writeFileSync(paths.manifestFile, manifest(plugin('aa'), plugin('bb')));
+    process.env.FAIL_ON = 'bb';
+    hint.fail = true;
+    const message = ((await applyEnvironment(paths, options).catch((err: Error) => err)) as Error).message;
+    expect(message).toMatch(/put lock\.json and state\.json back/);
+    expect(message).not.toMatch(/also failed/);
   });
 
   it('rolls back past a failed apply that already undid itself, to the last apply that changed something', async () => {
@@ -84,7 +106,9 @@ describe('applyEnvironment failure recovery', () => {
 
     const result = await rollbackEnvironment(paths);
     expect(result.snapshotId.endsWith(good.operationId!)).toBe(true);
-    expect(result.message).toMatch(/^Restored the envctl files as they were before apply-[0-9a-f]{12} \(snapshot /);
+    expect(result.message).toMatch(
+      /^Restored the envctl files saved when apply-[0-9a-f]{12} started \(snapshot [^)]+\): the manifest it applied, with lock\.json and state\.json from before it ran; the files it replaced are saved as snapshot /
+    );
     expect(result.message).toMatch(/skipped apply-[0-9a-f]{12}, which failed and had already undone its own changes/);
     expect(fs.readFileSync(paths.manifestFile, 'utf8')).toBe(goodManifest);
   });
@@ -102,5 +126,20 @@ describe('applyEnvironment failure recovery', () => {
 
     await rollbackEnvironment(paths);
     expect(fs.readFileSync(overlayFile(), 'utf8')).toBe(goodOverlay);
+  });
+
+  it('keeps the overlay a rollback overwrites in its own snapshot, so rolling back again brings it back', async () => {
+    fs.writeFileSync(paths.manifestFile, manifest(plugin('aa')));
+    fs.writeFileSync(overlayFile(), overlay(plugin('bb')));
+    const withOverlay: ApplyOptions = { ...options, overlay: { name: 'laptop', via: 'flag' } };
+    const good = await applyEnvironment(paths, withOverlay);
+    // Edited after the apply, like `dshenv install ... --layer overlay`.
+    const edited = overlay(plugin('bb'), plugin('dd'));
+    fs.writeFileSync(overlayFile(), edited);
+
+    const result = await rollbackEnvironment(paths, { operationId: good.operationId });
+    expect(fs.readFileSync(overlayFile(), 'utf8')).toBe(overlay(plugin('bb')));
+    await rollbackEnvironment(paths, { operationId: result.backupSnapshotId });
+    expect(fs.readFileSync(overlayFile(), 'utf8')).toBe(edited);
   });
 });

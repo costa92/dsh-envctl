@@ -9,7 +9,7 @@ import { ValidationError } from '../errors.js';
 import { planExitCode } from '../planner/plan.js';
 import { loadEffectiveManifest, overlaySwitchWarning } from '../overlay/effective.js';
 import { loadState } from '../manifest/files.js';
-import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, targetProfile, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, filterProfile, targetProfile, type CommandContext } from './context.js';
 import { reportPreview } from './confirm.js';
 
 export function registerLifecycleCommands(ctx: CommandContext): void {
@@ -44,7 +44,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         writeOut(JSON.stringify(selection ? { ...res, overlay: selection } : res, null, 2) + '\n');
       } else {
         if (selection) {
-          writeOut(overlayBanner(selection));
+          writeErr(overlayBanner(selection));
         }
         if (res.dryRun) {
           writeOut(renderPlan(res.plan, res.restart, '[DRY-RUN] Planned operations:'));
@@ -145,7 +145,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
     .command('mark-restarted')
     .alias('restarted')
     .description('Record that DSH was restarted, clearing restart-required')
-    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .addOption(filterProfile())
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const result = await markRestarted(resolveCliPaths(opts), cmdOpts.profile);

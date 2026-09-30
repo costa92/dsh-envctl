@@ -64,8 +64,13 @@ Environment variables:
   DSHENV_DSH_URL  dsh web URL that runtime checks
 `;
 
-// Aliases kept for old scripts stay out of help; the name alone is listed.
+// Aliases kept for old scripts stay out of help; the name alone is listed. A command that sets its own usage (to keep
+// a deprecated argument out of it) is listed by that usage.
 function subcommandTerm(cmd: Command): string {
+  const customUsage = (cmd as unknown as { _usage?: string })._usage;
+  if (customUsage !== undefined) {
+    return `${cmd.name()} ${customUsage}`;
+  }
   const args = cmd.registeredArguments.map((arg) => (arg.required ? `<${arg.name()}${arg.variadic ? '...' : ''}>` : `[${arg.name()}${arg.variadic ? '...' : ''}]`)).join(' ');
   return cmd.name() + (cmd.options.length ? ' [options]' : '') + (args ? ` ${args}` : '');
 }
@@ -87,6 +92,9 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
   const endOfOptions = argv.indexOf('--');
   const jsonRequested = (endOfOptions === -1 ? argv : argv.slice(0, endOfOptions)).includes('--json');
 
+  // commander's own stderr (usage errors, help it shows for a command run without a subcommand) is held until
+  // commander is done, so that help can go to stdout instead.
+  let commanderErr = '';
   const program = new Command();
   program
     .name('dshenv')
@@ -100,7 +108,9 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
     .option('--no-overlay', 'use only the base manifest for this command')
     .configureOutput({
       writeOut: (str) => writeOut(str),
-      writeErr: (str) => writeErr(str),
+      writeErr: (str) => {
+        commanderErr += str;
+      },
       // With --json the usage error is reported once, as JSON, below.
       outputError: (str, write) => {
         if (!jsonRequested) write(str);
@@ -156,11 +166,18 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       throw new ValidationError('--overlay and --no-overlay cannot be used together');
     }
     await program.parseAsync(argv, { from: 'user' });
+    writeErr(commanderErr);
     return exitCodeToReturn;
   } catch (err: unknown) {
     const isCommanderError = err && typeof err === 'object' && (err as { code?: string }).code?.startsWith('commander.');
     if (isCommanderError) {
       const exitCode = (err as { exitCode?: number }).exitCode;
+      // A command group run without a subcommand (or dshenv --json alone) shows its help, like dshenv alone.
+      if ((err as { code?: string }).code === 'commander.help') {
+        writeOut(commanderErr);
+        return 0;
+      }
+      writeErr(commanderErr);
       if (exitCode === 0) {
         return 0;
       }
@@ -172,6 +189,7 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       return 3;
     }
 
+    writeErr(commanderErr);
     const message = err instanceof Error ? err.message : String(err);
     const exitCode = err instanceof DshError ? err.exitCode : 1;
     const json = program.opts().json === true || jsonRequested;

@@ -120,7 +120,7 @@ export function registerOverlayCommands(ctx: CommandContext): void {
         return;
       }
       if (effective.overlay) {
-        writeOut(overlayBanner(effective.overlay));
+        writeErr(overlayBanner(effective.overlay));
       }
       for (const profileName of profileNames) {
         const plugins = effective.manifest.profiles[profileName].plugins;

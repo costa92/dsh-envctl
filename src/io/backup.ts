@@ -89,6 +89,13 @@ export function readAbsentKeys(snapshot: EnvironmentSnapshot): string[] {
   return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as string[]) : [];
 }
 
+// Overlay keys a restore of this snapshot writes or deletes, so a backup taken before it can hold what they replace.
+export function snapshotOverlayKeys(snapshot: EnvironmentSnapshot): string[] {
+  const saved = path.join(snapshot.snapshotDir, 'overlays');
+  const held = fs.existsSync(saved) ? fs.readdirSync(saved).map((name) => `overlays/${name}`) : [];
+  return [...new Set([...held, ...readAbsentKeys(snapshot)])];
+}
+
 function currentRemoteConfig(paths: EnvironmentPaths): RemoteConfig | null {
   try {
     return readRemoteConfig(paths);

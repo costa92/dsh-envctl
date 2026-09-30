@@ -109,15 +109,21 @@ export function registerSetupCommands(ctx: CommandContext): void {
         dryRun: !cmdOpts.yes
       });
       if (!cmdOpts.yes) {
+        const pending = summary.details.filter((d) => !d.alreadyAdopted);
         if (opts.json) {
           writeOut(JSON.stringify({ ...summary, dryRun: true }, null, 2) + '\n');
+        } else if (summary.details.length === 0) {
+          writeOut('Nothing to adopt: the candidate declares no plugins.\n');
+        } else if (pending.length === 0) {
+          writeOut('Nothing to adopt: every plugin in the candidate is already adopted.\n');
         } else {
-          writeOut(`Would adopt ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}\n`);
-          for (const d of summary.details) {
+          const profiles = [...new Set(pending.map((d) => d.profile))];
+          writeOut(`Would adopt ${pending.length} plugin(s) across profile(s): ${profiles.join(', ')}\n`);
+          for (const d of pending) {
             writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]\n`);
           }
         }
-        reportPreview(ctx, { json: opts.json, pending: summary.adoptedCount > 0, action: 'adopt' });
+        reportPreview(ctx, { json: opts.json, pending: pending.length > 0, action: 'adopt' });
         return;
       }
       // Taking over a profile includes the settings DSH wrote into its patch file.

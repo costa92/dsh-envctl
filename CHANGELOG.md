@@ -11,8 +11,8 @@
 - `tools reset <tool>`：删掉清单里改动该工具的 patch，恢复 DSH 的默认；预设内的工具会连同整个预设一起解除固定。
 - `config unset <alias> <dottedPath>`：从插件配置 patch 里删掉一个键（删空的父级一并删除）；overlay 只能删它自己设置的键。
 - `--new-profile`（`install`、`new -p`、`source clone -p`）：写入一个清单没声明、DSH 也没创建的 Profile 时须显式加上，防止拼错的名字悄悄建出新 Profile。
-- `DSHENV_LAYER`：有生效 overlay 时作为改清单命令 `--layer` 的默认值；没有 overlay 时不起作用。取自 `DSHENV_PROFILE` 或 `DSHENV_LAYER` 的值会在 stderr 提示一行（`--json` 时不提示）。
-- `config set --force`：DSH 为该插件组合出了配置而其中没有这个键时，`config set` 报错并给出相近的键名，`--force` 仍然写入。
+- `DSHENV_LAYER`：有生效 overlay 时作为改清单命令 `--layer` 的默认值；没有 overlay 时，`DSHENV_LAYER=overlay` 与 `--layer overlay` 一样以退出码 3 拒绝（改动不会落进团队共享的 base），其他值（包括不合法的值）不起作用。取自 `DSHENV_PROFILE` 或 `DSHENV_LAYER` 的值会在 stderr 提示一行（`--json` 时不提示）。
+- `config set --force`：DSH 为该插件组合出了配置而其中没有这个顶层键时，`config set` 在 stderr 提示一行并给出相近的键名，照常写入（DSH 只组合出带默认值的键，插件文档里的合法键可能不在其中）；`--force` 不再提示。
 - `plan -p <name>`、`status -p <name>` 只看一个 Profile；`status` 文本输出列出每个插件的状态，`status <alias>` 只列出该插件（此前只有 `--json` 生效），`Profiles monitored` 计入清单声明但尚未创建的 Profile。
 - `dshenv remote sync`：即原来的顶层 `sync`。
 - `dshenv overlay create <name>`：新建只含 `apiVersion` 的空 overlay，文件已存在时退出码 3。README 补上 overlay 文件格式示例。
@@ -20,13 +20,15 @@
 
 ### 变更
 
-- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
+- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝并给出相近的名字（此前 `plan -p <拼错>` 报 in sync、退出码 0，CI 靠退出码判断漂移会被放过）；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
 - `runtime` 在清单声明多个 Profile 又没指定时，报错改为同一格式并列出可选的 Profile。
 - `config get <alias> [dottedPath]` 用位置参数读取嵌套字段，与 `config set`、`tools config` 一致；`--path` 仍然可用，但不再出现在帮助里。
 - `source pull` 的 ref 只在帮助里保留 `--ref`（与 `source clone` 一致）；第二个位置参数仍然可用。
 - `purge`、`status` 的参数在帮助里改名为 `<alias>`（接受别名或包名，行为不变）。
 - `install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable|disable|config` 的输出说明只改了清单并给出下一步：如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`；同一别名重新 `install` 换了版本时说 `Changed agent-teams in profile 'web' from 0.1.20 to 0.1.21`。`--json` 输出不变。
-- `install` 的 npm 版本先用 `npm view` 核对：包或版本不存在时以退出码 3 报错并给出最新版本；npm 查询不了（离线等）时只警告。设 `DSHENV_NPM_CHECK=off` 跳过。
+- `install` 与 `update --to` 的 npm 版本先用 `npm view` 核对：包在而版本不存在时以退出码 3 报错并给出最新版本（npm 10 对不存在的版本也回 E404，会再查一次包来区分）。npm 看不到这个包（可能是需要凭据的私有包）、拒绝凭据，或查询不了（离线，约 5 秒超时，超时连同 npm 启动的子进程一起结束）时只警告、照常写入。加 `--no-npm-check` 或设 `DSHENV_NPM_CHECK=off` 跳过；`--json` 输出新增 `npmCheck`（`verified`、`unverified`、`unreachable`、`skipped`）。包名不合法（如以 `-` 开头）时直接拒绝，`npm view` 的参数前也加了 `--`。
+- `config get|set|unset` 的路径为空，或含 `__proto__`、`prototype`、`constructor` 时以退出码 3 拒绝；读取和删除只认配置里自己的键，不再读到或删掉 `toString` 这类继承属性（此前 `config unset <alias> __proto__.toString` 会改到进程内的对象原型）。
+- `config unset` 在该插件声明的所有 patch 里找这个键，base 与 overlay 一致；删完后什么都不设的 patch 一并删掉，不留下 `config: {}`。
 - `tools enable|disable|config` 只接受 `tools list --all` 列出的工具 id，其他 id（如 DSH 的 web 能力层 `web`）以退出码 3 拒绝并给出相近的 id；有生效的 overlay 时也先检查 id，再要求选择 `--layer`。
 - 插件别名写错时报错给出相近的别名，也接受包名；插件只在 overlay 里却写 base 时，提示改用 `--layer overlay`；Profile 未声明时直接说明，而不是说找不到插件。
 - 需要 DSH 已创建 Profile 的命令（`tools`、`web start`、`runtime --start`）：Profile 已声明时仍提示先用 `--profile` 启动 DSH 一次；未声明时列出已知 Profile 和相近的名字，不再引导去创建拼错的 Profile。
@@ -56,10 +58,25 @@
 - 缺少清单时，所有需要清单的命令都提示 `run dshenv init to start one, or dshenv capture … then dshenv adopt …`；`status` 在 stderr 给出同样的提示。`init` 成功后给出下一步，重复 `init` 报 `dshenv is already initialized`；`adopt` 没有可接管的插件时说 `Nothing to adopt`，并以 `Next: dshenv plan` 结尾。
 - `apply --dry-run` 不再重复打印 `Planned operations:` 标题；`apply --yes` 成功后标题改为 `Applied operations:`。
 - `runtime` 对已加载但仍记为需要重启的插件，提示改为 `if DSH restarted after the last apply, run dshenv mark-restarted to clear the restart flag`，不再同时显示 loaded 与“重启 DSH”。
+- 生效 overlay 的提示行 `overlay: <name> (file)` 从 stdout 改到 stderr，`list`、`plan`、`status`、`doctor`、`overlay show`、`apply` 的 stdout 只剩结果本身，便于脚本解析。
+- `DSHENV_PROFILE` 的 stderr 提示只在写入类命令（有 `--layer` 或 `--yes` 的命令）上出现，`config get`、`tools list`、`runtime`、`web start` 等只读命令不再提示。
+- `web start`、`web stop` 与 `runtime` 一样：没有 `-p` 也没有 `DSHENV_PROFILE` 时，使用清单里唯一声明的 Profile。
+- `plan` 有待执行的变更时在 stderr 提示 `Next: dshenv apply --yes`；各命令的 `--dry-run` 预览有待执行的内容时提示去掉 `--dry-run` 并加 `--yes` 再运行。
+- `dshenv --json`、`dshenv config` 等不带子命令运行时，把帮助打印到 stdout 并以退出码 0 结束，不再输出 `{"error":{"message":"(outputHelp)"}}`、退出码 3。
+- DSH 版本不受支持的报错把预发布版本显示为 `0.1.5 (a prerelease)`，不再是像版本范围的 `0.1.5-*`。
 
 ### 修复
 
+- `rollback` 恢复快照里的 overlay 前，把它要覆盖的 overlay 一并存进 pre-rollback 快照：apply 之后用 `--layer overlay` 做的改动不再被静默覆盖，`rollback <pre-rollback id>` 能找回来。输出改为说明恢复的是哪次操作开始时保存的文件（apply 的快照是它所应用的清单，加上它运行前的 `lock.json` 和 `state.json`），不再写成 "as they were before apply-X"。
+- `apply` 在建快照、写 journal 之前检查 DSH 命令和版本：版本不受支持或找不到 DSH 时，不再留下一个会被 `rollback` 选中的快照。
+- 失败 apply 的恢复提示里，查找上一次成功 apply 出错时不再误报“恢复 lock.json 和 state.json 也失败了”；提示写明回到那次 apply 的清单会丢掉之后对清单的所有改动。
+- `tools reset --layer overlay` 再执行一次时，不再删掉上次写下的 `remove: true` 墓碑（那会让 base 的 patch 重新生效，输出却说 Removed），而是报 nothing to reset；没有可重置的内容时也不再往 overlay 写一个空的 Profile。overlay 里只有墓碑时，base 层 reset 不再被拒。
+- `tools config <tool> <不存在的键>` 与 `config get` 一致：以退出码 3 报错并给出相近的键，不再输出 `null`、退出码 0。
+- 有生效 overlay 时，`enable`/`disable --layer base` 改的值被 overlay 覆盖，在 stderr 提示这台机器上实际状态没变（`--json` 时不提示）。
 - Windows 上探测 DSH 源码插件管理器的 `package.json` 时，用 BigInt 比对文件身份：64 位文件 ID 转成普通数字会丢精度，两个接连创建的文件可能被当成同一个，导致路径检查后被换成软链接的清单没有被识别。
+- `adopt` 预览在候选里的插件都已接管时输出 `Nothing to adopt: every plugin in the candidate is already adopted.`、退出码 0，不再以退出码 2 反复报待接管；候选没有插件时不再输出行尾为空的 `Would adopt 0 plugin(s) across profile(s): `。
+- 对已声明为同一来源的插件重复 `install`、对已启用或已禁用的插件重复 `enable`、`disable`，输出 `… already …; nothing changed.`，不再写成 `Added`、`Disabled`；清单也不改动。`--json` 多一个 `unchanged: true`。
+- `source --help` 不再列出已不推荐的位置参数 `[targetRef]`（仍然可用）。
 
 ## 0.3.1 - 2026-09-29
 

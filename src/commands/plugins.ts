@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Option } from 'commander';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
-import { getAtPath, parseConfigValue, readPluginConfig, unsetAtPath, upsertPluginPatch } from '../config/config.js';
+import { assertConfigPath, getAtPath, parseConfigValue, readPluginConfig, unsetAtPath, upsertPluginPatch } from '../config/config.js';
 import { loadLock, loadManifest, loadState, serializeLock } from '../manifest/files.js';
 import { buildPlan } from '../planner/plan.js';
 import { writeAtomic } from '../io/atomic-file.js';
@@ -10,7 +10,7 @@ import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError } from '../errors.js';
 import { ExactVersionRegex, PackageNameRegex } from '../manifest/schema.js';
 import type { EnvironmentManifest, PluginManifestEntry, PluginSource } from '../domain.js';
-import { loadEffectiveManifest } from '../overlay/effective.js';
+import { loadEffectiveManifest, readOverlay } from '../overlay/effective.js';
 import { removeOverlayPlugin, setOverlayPatchValue, setOverlayPluginFields } from '../overlay/write.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { OverlaySelection } from '../overlay/selection.js';
@@ -20,12 +20,11 @@ import {
   resolveCliPaths,
   resolveCliOverlay,
   overlayBanner,
-  profileOption,
   aliasOption,
   assertKnownProfile,
   targetProfile,
   writeLayer,
-  PROFILE_FILTER_HELP,
+  filterProfile,
   type CommandContext
 } from './context.js';
 import { didYouMean } from './suggest.js';
@@ -46,7 +45,13 @@ export interface InstallPluginRequest {
   layer?: string;
   // A profile that is neither declared nor created is refused as a likely typo unless this is set.
   newProfile?: boolean;
+  // False skips asking npm whether the version exists (--no-npm-check).
+  npmCheck?: boolean;
 }
+
+// verified: npm has the version; unverified: npm answered but could not tell (a private package, say);
+// unreachable: npm never answered; skipped: not an npm source, or the check was turned off.
+export type NpmCheck = 'verified' | 'unverified' | 'unreachable' | 'skipped';
 
 export interface InstallPluginResult {
   alias: string;
@@ -55,6 +60,9 @@ export interface InstallPluginResult {
   overlay: OverlaySelection | null;
   // The source the alias had before, when the install only moved it (to another version, say).
   previousSource?: PluginSource;
+  // The alias already declared this package from this source, so nothing changed.
+  unchanged?: boolean;
+  npmCheck: NpmCheck;
 }
 
 export interface PluginCommands {
@@ -62,6 +70,7 @@ export interface PluginCommands {
 }
 
 export const NEXT_STEP = 'Next: dshenv plan, then dshenv apply --yes.';
+const NPM_CHECK_SKIP_HINT = 'Skip this check with --no-npm-check or DSHENV_NPM_CHECK=off';
 
 function describeSource(source: PluginSource): string {
   switch (source.type) {
@@ -151,6 +160,10 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       }
     }
 
+    // npm reads a leading '-' as an option; the regex alone lets one through.
+    if (!PackageNameRegex.test(packageName) || packageName.startsWith('-')) {
+      throw new ValidationError(`Invalid npm package name: ${packageName}`);
+    }
     if (!version || !ExactVersionRegex.test(version)) {
       throw new ValidationError(`npm plugin needs an exact version: ${packageName}@<x.y.z>`);
     }
@@ -220,12 +233,14 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     overlay: OverlaySelection | null,
     status: string,
     fields: Record<string, unknown>,
-    text: string
+    text: string,
+    unchanged = false
   ): void {
     if (opts.json) {
-      writeOut(JSON.stringify({ status, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}), ...fields }, null, 2) + '\n');
+      writeOut(JSON.stringify({ status, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}), ...fields, ...(unchanged ? { unchanged: true } : {}) }, null, 2) + '\n');
     } else {
-      writeOut(`${text} in the ${overlay ? `overlay '${overlay.name}'` : 'manifest'}. ${NEXT_STEP}\n`);
+      const where = overlay ? `overlay '${overlay.name}'` : 'manifest';
+      writeOut(unchanged ? `${text} in the ${where}; nothing changed.\n` : `${text} in the ${where}. ${NEXT_STEP}\n`);
     }
   }
 
@@ -259,7 +274,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     const { profile } = request;
     const { selection, overlay } = resolveWrite(opts, paths, request.layer);
     assertKnownProfile(paths, opts, profile, request.newProfile);
-    await checkNpmSpec(opts, parsePluginSpec(request.spec, request.alias, request.packageName));
+    const npmCheck = await checkNpmSpec(opts, parsePluginSpec(request.spec, request.alias, request.packageName), request.npmCheck);
 
     let previousSource: PluginSource | undefined;
     const parsed = overlay
@@ -300,25 +315,35 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
           return next;
         });
     const moved = previousSource !== undefined && JSON.stringify(previousSource) !== JSON.stringify(parsed.source);
-    return { ...parsed, overlay, ...(moved ? { previousSource } : {}) };
+    return { ...parsed, overlay, npmCheck, ...(moved ? { previousSource } : {}), ...(previousSource !== undefined && !moved ? { unchanged: true } : {}) };
   }
 
-  // A version npm does not have fails only at apply, minutes later; offline, the install goes ahead with a warning.
-  async function checkNpmSpec(opts: { json?: boolean }, parsed: { packageName: string; source: PluginSource }): Promise<void> {
-    if (parsed.source.type !== 'npm' || process.env.DSHENV_NPM_CHECK === 'off') {
-      return;
+  // A version npm does not have fails only at apply, minutes later. Only a version missing from a package npm has is
+  // refused: a package npm cannot see may be private, and offline nothing can be told, so those go ahead with a warning.
+  async function checkNpmSpec(
+    opts: { json?: boolean },
+    parsed: { packageName: string; source: PluginSource },
+    enabled = true
+  ): Promise<NpmCheck> {
+    if (parsed.source.type !== 'npm' || !enabled || process.env.DSHENV_NPM_CHECK === 'off') {
+      return 'skipped';
     }
-    const check = await checkNpmVersion(parsed.packageName, parsed.source.version);
+    const { packageName } = parsed;
+    const { version } = parsed.source;
+    const check = await checkNpmVersion(packageName, version);
     if (check.status === 'missing') {
-      throw new ValidationError(
-        check.what === 'package'
-          ? `npm has no package ${parsed.packageName}`
-          : `npm has no version ${parsed.source.version} of ${parsed.packageName}${check.latest ? `; the latest is ${check.latest}` : ''}`
-      );
+      throw new ValidationError(`npm has no version ${version} of ${packageName}${check.latest ? `; the latest is ${check.latest}` : ''}`);
     }
-    if (check.status === 'unknown' && !opts.json) {
-      ctx.writeErr(`Could not check ${parsed.packageName}@${parsed.source.version} on npm (${check.reason}); apply fails if it does not exist\n`);
+    if (check.status === 'exists') {
+      return 'verified';
     }
+    if (!opts.json) {
+      const what = check.reason === 'npm cannot see the package'
+        ? `npm cannot see ${packageName} (a private package needs npm credentials)`
+        : `Could not check ${packageName}@${version} on npm (${check.reason})`;
+      ctx.writeErr(`${what}; apply fails if it does not exist. ${NPM_CHECK_SKIP_HINT}\n`);
+    }
+    return check.reachable ? 'unverified' : 'unreachable';
   }
 
   program
@@ -329,6 +354,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     .option('--package <name>', 'package name for a git or local source; defaults to its package.json name')
     .addOption(writeLayer())
     .option('--new-profile', 'allow a profile that is neither declared nor created yet (guards against typos)')
+    .option('--no-npm-check', 'do not ask npm whether the package version exists (also: DSHENV_NPM_CHECK=off)')
     .action(async (spec: string, cmdOpts) => {
       const opts = program.opts();
       const result = await installPlugin(opts, {
@@ -337,16 +363,20 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         alias: cmdOpts.as,
         packageName: cmdOpts.package,
         layer: cmdOpts.layer,
-        newProfile: cmdOpts.newProfile
+        newProfile: cmdOpts.newProfile,
+        npmCheck: cmdOpts.npmCheck
       });
       reportWrite(
         opts,
         result.overlay,
         'installed',
-        { profile: cmdOpts.profile, alias: result.alias, package: result.packageName, source: result.source },
-        result.previousSource
-          ? `Changed ${result.alias} in profile '${cmdOpts.profile}' from ${describeSource(result.previousSource)} to ${describeSource(result.source)}`
-          : `Added ${result.packageName} (${result.alias}) to profile '${cmdOpts.profile}'`
+        { profile: cmdOpts.profile, alias: result.alias, package: result.packageName, source: result.source, npmCheck: result.npmCheck },
+        result.unchanged
+          ? `${result.packageName} (${result.alias}) is already declared at ${describeSource(result.source)} in profile '${cmdOpts.profile}'`
+          : result.previousSource
+            ? `Changed ${result.alias} in profile '${cmdOpts.profile}' from ${describeSource(result.previousSource)} to ${describeSource(result.source)}`
+            : `Added ${result.packageName} (${result.alias}) to profile '${cmdOpts.profile}'`,
+        result.unchanged
       );
     });
 
@@ -356,6 +386,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     .addOption(targetProfile())
     .requiredOption('--to <version>', '(required) exact version to declare; does not float to latest')
     .addOption(writeLayer())
+    .option('--no-npm-check', 'do not ask npm whether the version exists (also: DSHENV_NPM_CHECK=off)')
     .action(async (name: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -372,6 +403,11 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         assertLockEntryNotRemoteOwned(paths, profile, alias);
       }
       const npmOnly = (type: string) => new ValidationError(`update --to currently supports npm sources only (got ${type})`);
+      const declared = loadEffectiveManifest(paths, selection).manifest.profiles[profile].plugins[alias];
+      if (declared.source.type !== 'npm') {
+        throw npmOnly(declared.source.type);
+      }
+      const npmCheck = await checkNpmSpec(opts, { packageName: declared.package, source: { ...declared.source, version } }, cmdOpts.npmCheck);
 
       if (overlay) {
         await writeOverlay(paths, overlay, (doc) => {
@@ -391,13 +427,13 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         });
       }
       await pinLockVersion(paths, profile, alias, version);
-      reportWrite(opts, overlay, 'updated', { profile, alias, version }, `Set ${alias} in profile '${profile}' to ${version}`);
+      reportWrite(opts, overlay, 'updated', { profile, alias, version, npmCheck }, `Set ${alias} in profile '${profile}' to ${version}`);
     });
 
   program
     .command('list')
     .description('List declared and unmanaged plugins')
-    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .addOption(filterProfile())
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -444,14 +480,14 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         writeOut(JSON.stringify(selection ? { plugins: rows, overlay: selection } : { plugins: rows }, null, 2) + '\n');
       } else {
         if (selection) {
-          writeOut(overlayBanner(selection));
+          ctx.writeErr(overlayBanner(selection));
         }
         writeOut(renderPluginTable(rows, Boolean(selection)));
       }
     });
 
-  // Where DSH composes a default config for the package, a key it does not have is most likely a typo.
-  async function assertKnownConfigKey(paths: EnvironmentPaths, opts: { harnessSource?: string; overlay?: string | false }, profile: string, packageName: string, dottedPath: string): Promise<void> {
+  // DSH composes only the keys that have a default, so a key it does not show may still be real: warn, don't refuse.
+  async function warnUnknownConfigKey(paths: EnvironmentPaths, opts: { harnessSource?: string; overlay?: string | false }, profile: string, packageName: string, dottedPath: string): Promise<void> {
     // dsh --dump-config creates a missing profile, which a manifest write must not do.
     if (!fs.existsSync(path.join(paths.profilesDir, profile, 'package.json'))) {
       return;
@@ -473,10 +509,24 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     }
     const head = dottedPath.split('.')[0];
     if (keys.length > 0 && !keys.includes(head)) {
-      throw new ValidationError(
-        `'${head}' is not a config key of ${packageName}${didYouMean(head, keys)} (DSH composes: ${keys.join(', ')}); pass --force to set it anyway`
-      );
+      const hint = didYouMean(head, keys);
+      ctx.writeErr(`'${head}' is not among the keys DSH composes for ${packageName} (${keys.join(', ')})${hint ? `${hint} ` : '. '}Set it anyway; pass --force to skip this check\n`);
     }
+  }
+
+  // Takes the key out of whichever declared patch has it; a patch left with nothing to set goes too.
+  function unsetFromPatches<T extends { id: string; config?: Record<string, unknown> }>(
+    patches: T[] | undefined,
+    dottedPath: string
+  ): T[] | undefined | false {
+    const index = (patches ?? []).findIndex((patch) => patch.config && unsetAtPath(patch.config, dottedPath));
+    if (index === -1) {
+      return false;
+    }
+    const setsSomething = (patch: T) =>
+      Object.keys(patch.config ?? {}).length > 0 || Object.keys(patch).some((key) => key !== 'id' && key !== 'config');
+    const rest = patches!.filter((patch, i) => i !== index || setsSomething(patch));
+    return rest.length > 0 ? rest : undefined;
   }
 
   const configCmd = program.command('config').description('Read or update declared plugin configuration');
@@ -496,8 +546,11 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       const alias = resolveAlias(paths, selection, cmdOpts.profile, name);
       const manifest = loadEffectiveManifest(paths, selection).manifest;
       const config = await readPluginConfig(paths, manifest, cmdOpts.profile, alias);
-      const field = dottedPath ?? cmdOpts.path;
-      const value = field ? getAtPath(config.config, field) : config;
+      const field: string | undefined = dottedPath ?? cmdOpts.path;
+      if (field !== undefined) {
+        assertConfigPath(field);
+      }
+      const value = field !== undefined ? getAtPath(config.config, field) : config;
       if (value === undefined) {
         throw new ValidationError(
           `The config of '${alias}' in profile '${cmdOpts.profile}' has no '${field}'${didYouMean(field!.split('.')[0], Object.keys(config.config))}`
@@ -531,16 +584,17 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     .description('Set one key of a plugin config patch in the manifest (the value is parsed as JSON, else taken as a string)')
     .addOption(targetProfile())
     .addOption(writeLayer())
-    .option('--force', 'set a key DSH does not compose for this plugin')
+    .option('--force', "skip the warning about a key DSH does not compose for this plugin")
     .action(async (name: string, dottedPath: string, value: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+      assertConfigPath(dottedPath);
       const profile: string = cmdOpts.profile;
       const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
       const alias = resolveAlias(paths, selection, profile, name, { overlay });
       if (!cmdOpts.force) {
         const plugin = loadEffectiveManifest(paths, selection).manifest.profiles[profile].plugins[alias];
-        await assertKnownConfigKey(paths, opts, profile, plugin.package, dottedPath);
+        await warnUnknownConfigKey(paths, opts, profile, plugin.package, dottedPath);
       }
 
       const patch = overlay
@@ -562,6 +616,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     .action(async (name: string, dottedPath: string, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+      assertConfigPath(dottedPath);
       const profile: string = cmdOpts.profile;
       const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
       const alias = resolveAlias(paths, selection, profile, name, { overlay });
@@ -570,8 +625,11 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
       if (overlay) {
         await writeOverlay(paths, overlay, (doc, base) => {
           const entry = doc.profiles?.[profile]?.plugins?.[alias];
-          const removed = Boolean(entry && !entry.remove && entry.patches?.some((patch) => patch.config && unsetAtPath(patch.config, dottedPath)));
-          if (!removed) {
+          const remaining = entry && !entry.remove ? unsetFromPatches(entry.patches, dottedPath) : false;
+          if (remaining !== false) {
+            if (remaining) entry!.patches = remaining;
+            else delete entry!.patches;
+          } else {
             // Overlay patches merge into the base ones, so a key the base sets cannot be taken out from the overlay.
             if (base.profiles[profile]?.plugins[alias]?.patches?.some((patch) => getAtPath(patch.config, dottedPath) !== undefined)) {
               throw new ValidationError(`'${dottedPath}' of '${alias}' is set in the base manifest, which an overlay cannot remove; use --layer base`);
@@ -581,10 +639,13 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         });
       } else {
         await writeBase(paths, selection, (manifest) => {
-          const patch = requirePlugin(manifest, profile, alias).patches?.[0];
-          if (!patch || !unsetAtPath(patch.config, dottedPath)) {
+          const plugin = requirePlugin(manifest, profile, alias);
+          const remaining = unsetFromPatches(plugin.patches, dottedPath);
+          if (remaining === false) {
             throw missing(`profile '${profile}'`);
           }
+          if (remaining) plugin.patches = remaining;
+          else delete plugin.patches;
         });
       }
       reportWrite(opts, overlay, 'unset', { profile, alias, path: dottedPath }, `Removed ${alias} config ${dottedPath} in profile '${profile}'`);
@@ -606,17 +667,34 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
         const alias = resolveAlias(paths, selection, profile, name, { overlay });
 
+        let unchanged = false;
         if (overlay) {
           await writeOverlay(paths, overlay, (doc) => {
-            effectivePlugin(paths, overlay, profile, alias);
-            setOverlayPluginFields(doc, profile, alias, { enabled: toggle.enabled });
+            unchanged = (effectivePlugin(paths, overlay, profile, alias).enabled ?? true) === toggle.enabled;
+            if (!unchanged) setOverlayPluginFields(doc, profile, alias, { enabled: toggle.enabled });
           });
         } else {
           await writeBase(paths, selection, (manifest) => {
-            requirePlugin(manifest, profile, alias).enabled = toggle.enabled;
+            const plugin = requirePlugin(manifest, profile, alias);
+            unchanged = (plugin.enabled ?? true) === toggle.enabled;
+            if (!unchanged) plugin.enabled = toggle.enabled;
           });
         }
-        reportWrite(opts, overlay, toggle.status, { profile, alias }, `${toggle.verb} plugin '${alias}' in profile '${profile}'`);
+        reportWrite(
+          opts,
+          overlay,
+          toggle.status,
+          { profile, alias },
+          unchanged ? `Plugin '${alias}' in profile '${profile}' is already ${toggle.status}` : `${toggle.verb} plugin '${alias}' in profile '${profile}'`,
+          unchanged
+        );
+        // The overlay's value wins on this machine, so the base write alone changes nothing here.
+        const overridden = !overlay && selection ? readOverlay(paths, selection.name).profiles?.[profile]?.plugins?.[alias]?.enabled : undefined;
+        if (overridden !== undefined && overridden !== toggle.enabled && !opts.json) {
+          ctx.writeErr(
+            `Overlay '${selection!.name}' sets enabled: ${overridden} for ${alias} in profile '${profile}', so it stays ${overridden ? 'enabled' : 'disabled'} on this machine; use --layer overlay to change it here\n`
+          );
+        }
       });
   }
 

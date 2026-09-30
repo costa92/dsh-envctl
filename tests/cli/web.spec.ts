@@ -124,6 +124,8 @@ describe('CLI web', () => {
     expect(json).toEqual({ webs: [expect.objectContaining({ profile: 'web', pid, running: true, endpoint: fake.origin.replace('http://', '') })] });
     expect(JSON.stringify(json)).not.toContain('SECRET-TOKEN-123');
     expect((await run(['web', 'status', '-p', 'web'])).stdout).toBe(status.stdout);
+    fs.mkdirSync(path.join(tempHome, 'profiles', 'other'), { recursive: true });
+    fs.writeFileSync(path.join(tempHome, 'profiles', 'other', 'package.json'), '{}');
     expect((await run(['web', 'status', '-p', 'other'])).stdout).toBe('No dsh web started by dshenv for profile other.\n');
     expect(JSON.parse((await run(['web', 'status', '-p', 'other', '--json'])).stdout)).toEqual({ webs: [] });
 

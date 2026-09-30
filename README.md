@@ -119,12 +119,12 @@ DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容�
 
 `-p, --profile <name>` 是 DSH Profile 的名字，即 `profiles/<name>/` 的目录名和清单 `profiles:` 下的键。所有命令用同一套规则：
 
-- 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`runtime` 在清单只声明一个 Profile 时仍直接用它。
-- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效。
+- 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`runtime`、`web start`、`web stop` 在清单只声明一个 Profile 时直接用它。
+- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝，不会把拼错的名字报成“已同步”。
 - `source`、`new` 的 `-p` 表示把克隆或新建的包登记到该 Profile，不写就不登记。
 
 - 写入命令（`install`、`new -p`、`source clone -p`）指定一个清单没声明、DSH 也没创建的 Profile 时，默认按拼写错误拒绝并给出相近的名字；确实要新建时加 `--new-profile`。
-- 用了 `DSHENV_PROFILE` 时，命令会在 stderr 提示 `Using profile 'web' from DSHENV_PROFILE`（`--json` 时不提示）。
+- 写入类命令用了 `DSHENV_PROFILE` 时，会在 stderr 提示 `Using profile 'web' from DSHENV_PROFILE`（`--json` 时不提示）；只读命令（`config get`、`tools list`、`runtime`、`web start` 等）不提示。
 
 ```bash
 export DSHENV_PROFILE=web      # 之后 dshenv web start、dshenv runtime 等可以省略 -p
@@ -296,8 +296,9 @@ dshenv config unset agent-teams taskPlanning --profile web     # 删掉一个键
 ```
 
 - 值按 JSON 解析（`3`、`true`、`{"a":1}`），解析不了时当作字符串；要写字符串 `"3"` 就传 `'"3"'`。
-- DSH 为该插件组合出了配置时，`config set` 只接受其中已有的顶层键，拼错的键会报错并给出相近的键名；确实要写新键时加 `--force`。
-- 读取不存在的键时以退出码 3 报错。
+- DSH 为该插件组合出了配置而其中没有这个顶层键时，`config set` 在 stderr 提示一行（附相近的键名）后照常写入：DSH 只组合出带默认值的键，插件文档里的键可能不在其中。`--force` 不再提示。
+- 读取或删除不存在的键时以退出码 3 报错；只认配置里自己的键，不会读到 `toString` 这类继承来的属性。路径为空，或含 `__proto__`、`prototype`、`constructor` 时以退出码 3 拒绝。
+- `config unset` 在该插件声明的所有 patch 里找这个键；删完后什么都不设的 patch 会一并删掉，不留下 `config: {}`。
 
 ```bash
 ```
@@ -476,7 +477,7 @@ dshenv apply --yes                                         # 写进 DSH
 - 目标与 `tools list` 显示的一致：先找 `--preset` 指定的预设（不指定时用 DSH 当前的默认预设），其中没有该工具时改 profile 级那一行；只有别的预设里有时报错，提示加 `--preset`。
 - overlay 已声明同一个 id 的条目时，写 base 会被它覆盖而不生效，因此会拒绝，请改用 `--layer overlay`。
 - 只接受 `tools list --all` 列出的 id；不在 Profile 组合里的工具（如默认未装的 `tool-lsp`、`tool-terminal`）不能用 `enable` 打开，需先安装对应的包。
-- `tools reset <tool>` 删掉清单里改动该工具的那条 patch：顶层工具只删它自己的，预设里的工具会删掉整个预设 patch（该预设内的所有工具改动一起撤销，预设恢复跟随 DSH）。overlay 里写时，base 声明的 patch 记为 `remove: true`。
+- `tools reset <tool>` 删掉清单里改动该工具的那条 patch：顶层工具只删它自己的，预设里的工具会删掉整个预设 patch（该预设内的所有工具改动一起撤销，预设恢复跟随 DSH）。overlay 里写时，base 声明的 patch 记为 `remove: true`；已经记过的再 reset 一次什么也不改。
 
 
 ### 24. `dshenv web`
@@ -513,7 +514,7 @@ dshenv remove agent-teams -p web
 
 - 别名默认取包名（去掉作用域与 `dsh-plugin-`、`dsh-` 前缀），`--as` 指定。本地来源的包名默认读其 `package.json` 的 `name`（读不到时用目录名），Git 来源默认用仓库名，与实际包名不同时用 `--package` 指定（`source clone --profile` 会读仓库的 `package.json`）；`--package` 只对 Git 与本地来源有效。
 - 同一别名重新 `install` 同一个包只改来源，保留 `patches` 与启用状态；输出会说明从哪个版本（来源）改成了哪个。
-- npm 来源先用 `npm view` 核对包与版本：不存在时以退出码 3 报错并给出最新版本，npm 查询不了（离线等）时只警告。设 `DSHENV_NPM_CHECK=off` 跳过核对。
+- npm 来源（`install` 与 `update --to`）先用 `npm view` 核对：包在而版本不存在时以退出码 3 报错并给出最新版本。npm 看不到这个包（可能是需要凭据的私有包）、拒绝凭据，或查询不了（离线、超过约 5 秒）时只警告，照常写入清单。加 `--no-npm-check` 或设 `DSHENV_NPM_CHECK=off` 跳过核对；`--json` 输出的 `npmCheck` 是 `verified`、`unverified`、`unreachable` 或 `skipped`。包名不合法（例如以 `-` 开头）时直接拒绝，不会交给 npm。
 - `enable`、`disable`、`remove`、`update`、`config` 也接受包名；别名写错时报错会给出相近的别名。
 - 输出统一为「改了清单 + 下一步」，如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`。
 - `remove` 从清单删除该条目；写 overlay 时，base 中已有的插件记为 `remove: true`。`apply` 只卸载有所有权记录的插件（dshenv 安装或 `adopt` 接管的），其他实际存在的插件标为 `unmanaged`，不会卸载。`remove` 只改清单，无需确认；旧脚本里的 `-y`/`--yes` 仍被接受。`uninstall` 是 `remove` 的别名。
