@@ -108,7 +108,7 @@ step "plan leaves the unmanaged plugin alone" 0 "${run[@]}" plan
 step "capture the profile" 0 "${run[@]}" capture --profile web --output "$work/capture.yaml"
 step "adopt previews without --yes" 2 "${run[@]}" adopt --from "$work/capture.yaml"
 step "adopt the capture" 0 "${run[@]}" adopt --from "$work/capture.yaml" --yes
-step "adopt records ownership" 0 json_true "$envctl/state.json" "v.ownership?.web?.['$pkg']?.lockedVersion === '$pkg_version'"
+step "adopt records ownership" 0 json_true "$envctl/state.json" "v.resources?.plugin?.web?.['$pkg']?.lockedVersion === '$pkg_version'"
 step "plan clean after adopt" 0 "${run[@]}" plan
 alias="$(alias_of "$pkg")"
 step "manifest declares an alias for $pkg" 0 test -n "$alias"
@@ -121,7 +121,7 @@ step "plan shows the install" 2 "${run[@]}" plan
 step "apply install" 0 "${run[@]}" apply --yes
 step "plan clean after install" 0 "${run[@]}" plan
 step "lock records the local source digest" 0 json_true "$envctl/lock.json" "Boolean(v.profiles.web.plugins['$tool_alias']?.source?.digest)"
-step "state takes ownership of the installed plugin" 0 json_true "$envctl/state.json" "Boolean(v.ownership?.web?.['$tool'])"
+step "state takes ownership of the installed plugin" 0 json_true "$envctl/state.json" "Boolean(v.resources?.plugin?.web?.['$tool'])"
 step "dsh composes the tool plugin" 0 bash -c '"$DSH_CLI" --profile web --dump-config | grep -q "$1"' _ "$tool"
 echo "// e2e edit" >>"$work/$tool/index.js"
 step "plan sees the source change as an update" 2 "${run[@]}" plan
@@ -169,7 +169,7 @@ step "declare remove" 0 "${run[@]}" remove "$alias" --profile web
 step "apply remove" 0 "${run[@]}" apply --yes
 step "plan clean after remove" 0 "${run[@]}" plan
 step "profile no longer has $pkg" 0 test -z "$(installed_version "$pkg")"
-step "ownership released" 0 json_true "$envctl/state.json" "!v.ownership?.web?.['$pkg']"
+step "ownership released" 0 json_true "$envctl/state.json" "!v.resources?.plugin?.web?.['$pkg']"
 
 # 8. Scaffolds: every package kind installs and composes; a loose skill needs no package.
 for kind in skill agent mcp; do
