@@ -15,6 +15,7 @@ import {
   serializeManifest,
   serializeLock,
   serializeState,
+  withResources,
   loadManifest,
   loadLock,
   loadState
@@ -126,11 +127,10 @@ async function adoptUnderLock(
     profiles: {}
   };
   let existingState: EnvironmentState = {
-    apiVersion: 'dshenv-state/v1',
+    apiVersion: 'dshenv-state/v2',
     lastApplied: now,
     appliedLockHash: '',
-    profiles: {},
-    ownership: {}
+    profiles: {}
   };
 
   if (fs.existsSync(paths.manifestFile)) {
@@ -155,7 +155,7 @@ async function adoptUnderLock(
   };
 
   const ownership: Record<string, Record<string, PluginOwnershipRecord>> = {
-    ...(existingState.ownership ?? {})
+    ...(existingState.resources?.plugin ?? {})
   };
 
   const details: AdoptDetail[] = [];
@@ -197,7 +197,7 @@ async function adoptUnderLock(
         existingEntry !== undefined &&
         isDeepStrictEqual(existingEntry, entry) &&
         (!lockEntry || isDeepStrictEqual(mergedLock.profiles[profileName].plugins[alias], lockEntry)) &&
-        existingState.ownership?.[profileName]?.[plugin.package]?.alias === alias;
+        existingState.resources?.plugin?.[profileName]?.[plugin.package]?.alias === alias;
       if (lockEntry) {
         mergedLock.profiles[profileName].plugins[alias] = lockEntry;
       }
@@ -236,15 +236,17 @@ async function adoptUnderLock(
   const lockSerialized = serializeLock(mergedLock);
   const lockHash = crypto.createHash('sha256').update(lockSerialized).digest('hex');
 
-  const nextState: EnvironmentState = {
-    apiVersion: 'dshenv-state/v1',
-    lastApplied: now,
-    appliedLockHash: lockHash,
-    profiles: existingState.profiles ?? {},
-    ownership,
-    ...(existingState.appliedOverlay ? { appliedOverlay: existingState.appliedOverlay } : {}),
-    ...(existingState.skills ? { skills: existingState.skills } : {})
-  };
+  const nextState = withResources(
+    {
+      apiVersion: 'dshenv-state/v2',
+      lastApplied: now,
+      appliedLockHash: lockHash,
+      profiles: existingState.profiles ?? {},
+      ...(existingState.appliedOverlay ? { appliedOverlay: existingState.appliedOverlay } : {}),
+      ...(existingState.resources ? { resources: existingState.resources } : {})
+    },
+    { plugin: ownership }
+  );
 
   options?.validateManifest?.(mergedManifest);
   if (options?.dryRun) {

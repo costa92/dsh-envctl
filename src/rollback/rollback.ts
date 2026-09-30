@@ -13,7 +13,7 @@ import {
 import { appendJournalEntry, readJournalEntries } from '../io/journal.js';
 import { ValidationError } from '../errors.js';
 import { overlayFilePath, readSelectionFile, writeSelectionFile } from '../overlay/selection.js';
-import { loadLock, loadManifest, loadState, serializeState } from '../manifest/files.js';
+import { loadLock, loadManifest, loadState, serializeState, withResources } from '../manifest/files.js';
 import * as path from 'node:path';
 import { writeAtomic } from '../io/atomic-file.js';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
@@ -46,24 +46,25 @@ function readState(paths: EnvironmentPaths): EnvironmentState | null {
 // Rollback leaves the profiles alone, so a plugin an apply installed is still installed and must stay dshenv's to remove.
 async function keepInstalledOwnership(paths: EnvironmentPaths, before: EnvironmentState | null): Promise<void> {
   const restored = readState(paths);
-  if (!before?.ownership || (fs.existsSync(paths.stateFile) && !restored)) {
+  if (!before?.resources?.plugin || (fs.existsSync(paths.stateFile) && !restored)) {
     return;
   }
   const inventory = await readEnvironmentInventory(paths);
-  const next: EnvironmentState = restored ?? { apiVersion: 'dshenv-state/v1', lastApplied: '', appliedLockHash: '', profiles: {} };
+  const next: EnvironmentState = restored ?? { apiVersion: 'dshenv-state/v2', lastApplied: '', appliedLockHash: '', profiles: {} };
+  const plugin = structuredClone(next.resources?.plugin ?? {});
   let changed = false;
-  for (const [profile, packages] of Object.entries(before.ownership)) {
+  for (const [profile, packages] of Object.entries(before.resources.plugin)) {
     for (const [packageName, record] of Object.entries(packages)) {
       // Adopted plugins were DSH's before; rolling back an adopt gives them back.
-      if (!record.adoptedBy.startsWith('apply-') || next.ownership?.[profile]?.[packageName] || !inventory.profiles[profile]?.plugins[packageName]?.installed) {
+      if (!record.adoptedBy.startsWith('apply-') || plugin[profile]?.[packageName] || !inventory.profiles[profile]?.plugins[packageName]?.installed) {
         continue;
       }
-      next.ownership = { ...next.ownership, [profile]: { ...next.ownership?.[profile], [packageName]: record } };
+      (plugin[profile] ??= {})[packageName] = record;
       changed = true;
     }
   }
   if (changed) {
-    await writeAtomic(paths.stateFile, serializeState(next), 'overwrite');
+    await writeAtomic(paths.stateFile, serializeState(withResources(next, { plugin })), 'overwrite');
   }
 }
 

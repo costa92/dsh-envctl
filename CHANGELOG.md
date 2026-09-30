@@ -4,6 +4,14 @@
 
 ## 未发布
 
+### 升级须知
+
+- `state.json` 升级为 `dshenv-state/v2`：插件所有权（原 `ownership`）与 skill 的同步基线（原 `skills`）合并到 `resources.plugin` 与 `resources.skill`。新版本照常读取旧格式，下次写 state 时自动转换；但转换后 0.4.x 读不了，会以 `Invalid state schema: apiVersion` 退出。打算退回 0.4.x 的话，升级前先备份 `envctl/state.json`，退回时放回去。
+
+### 变更
+
+- `state.json` 按资源类型记录 dshenv 拥有的资源（见「升级须知」），为插件、profile patch、skill 统一生命周期做准备；命令的输出与行为不变。
+
 ### 修复
 
 - `runtime` 把清单里 disabled、但被 profile patch 条目（如自己写的 insert 分组）加载的非 bundle 插件一直报成 `loading (unmounted on disk; waiting for DSH to hot-reload it)`、退出码 2；现在按应当加载检查，正常时报 `loaded … (mounted by a profile patch entry, not by dshenv)`、退出码 0，加载失败或挂起仍如实报告。

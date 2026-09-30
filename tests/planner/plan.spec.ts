@@ -149,19 +149,21 @@ describe('buildPlan', () => {
       }
     };
     const state: EnvironmentState = {
-      apiVersion: 'dshenv-state/v1',
+      apiVersion: 'dshenv-state/v2',
       lastApplied: '2026-01-01T00:00:00.000Z',
       appliedLockHash: '',
       profiles: {},
-      ownership: {
-        web: {
-          'owned-pkg': {
-            package: 'owned-pkg',
-            alias: 'owned',
-            sourceType: 'npm',
-            lockedVersion: '1.0.0',
-            adoptedAt: '2026-01-01T00:00:00.000Z',
-            adoptedBy: 'test'
+      resources: {
+        plugin: {
+          web: {
+            'owned-pkg': {
+              package: 'owned-pkg',
+              alias: 'owned',
+              sourceType: 'npm',
+              lockedVersion: '1.0.0',
+              adoptedAt: '2026-01-01T00:00:00.000Z',
+              adoptedBy: 'test'
+            }
           }
         }
       }
@@ -911,11 +913,11 @@ describe('plan edge cases around profiles and in-box listings', () => {
       }
     };
     const state: EnvironmentState = {
-      apiVersion: 'dshenv-state/v1',
+      apiVersion: 'dshenv-state/v2',
       lastApplied: '',
       appliedLockHash: '',
       profiles: {},
-      ownership: { web: { 'zz-old': { package: 'zz-old', alias: 'foo', sourceType: 'npm', adoptedAt: '', adoptedBy: 'apply-1' } } }
+      resources: { plugin: { web: { 'zz-old': { package: 'zz-old', alias: 'foo', sourceType: 'npm', adoptedAt: '', adoptedBy: 'apply-1' } } } }
     };
     expect(buildPlan(manifest, null, inventory, state).operations.filter((op) => op.resource === 'plugin').map((op) => `${op.kind}:${op.package}`)).toEqual([
       'remove:zz-old',

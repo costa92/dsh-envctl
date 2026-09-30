@@ -4,7 +4,8 @@ import { ValidationError } from '../errors.js';
 import {
   ManifestSchema,
   LockSchema,
-  StateSchema
+  StateSchema,
+  StateV1Schema
 } from './schema.js';
 import { OverlaySchema } from '../overlay/schema.js';
 import type {
@@ -12,7 +13,8 @@ import type {
   EnvironmentLock,
   EnvironmentState,
   CaptureDocument,
-  EnvironmentOverlay
+  EnvironmentOverlay,
+  OwnedResources
 } from '../domain.js';
 
 export function parseYamlStrict(content: string): unknown {
@@ -91,12 +93,30 @@ export function loadState(content: string): EnvironmentState {
   } catch (err) {
     throw new ValidationError(`Invalid JSON in state file: ${err instanceof Error ? err.message : String(err)}`);
   }
-  const res = StateSchema.safeParse(raw);
+  const isV1 = raw !== null && typeof raw === 'object' && (raw as Record<string, unknown>).apiVersion === 'dshenv-state/v1';
+  const res = isV1 ? StateV1Schema.safeParse(raw) : StateSchema.safeParse(raw);
   if (!res.success) {
     const issues = res.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
     throw new ValidationError(`Invalid state schema: ${issues}`);
   }
-  return res.data as EnvironmentState;
+  if (res.data.apiVersion === 'dshenv-state/v2') {
+    return res.data as EnvironmentState;
+  }
+  const { ownership, skills, apiVersion: _v1, ...rest } = res.data;
+  return withResources({ ...rest, apiVersion: 'dshenv-state/v2' } as EnvironmentState, {
+    plugin: ownership,
+    skill: skills && Object.fromEntries(Object.entries(skills).map(([name, digest]) => [name, { digest }]))
+  });
+}
+
+// Replaces the given kinds of owned resources; a kind that owns nothing is left out, and so are empty resources.
+export function withResources(state: EnvironmentState, owned: OwnedResources): EnvironmentState {
+  const { resources: previous, ...rest } = state;
+  const merged: OwnedResources = { ...previous, ...owned };
+  const resources = Object.fromEntries(
+    Object.entries(merged).filter(([, entries]) => entries !== undefined && Object.keys(entries).length > 0)
+  ) as OwnedResources;
+  return Object.keys(resources).length > 0 ? { ...rest, resources } : rest;
 }
 
 export function parseOverlay(content: string, file: string): EnvironmentOverlay {

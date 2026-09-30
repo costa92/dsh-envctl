@@ -14,13 +14,13 @@ import type {
 } from '../domain.js';
 import { ValidationError, missingManifestError } from '../errors.js';
 import { readEnvironmentInventory, type EnvironmentInventory, type InstalledPluginInfo } from '../inventory/profile-reader.js';
-import { loadLock, loadManifest, loadState, serializeLock, serializeManifest, serializeState } from '../manifest/files.js';
+import { loadLock, loadManifest, loadState, serializeLock, serializeManifest, serializeState, withResources } from '../manifest/files.js';
 import { captureEnvironment } from '../capture/capture.js';
 import { freeAlias } from '../adopt/adopt.js';
 import { buildPlan } from '../planner/plan.js';
 import { calculateSourceDigest } from '../source/local.js';
 import * as path from 'node:path';
-import { remoteSkillNames, replaceSkillDir } from '../resources/skill.js';
+import { ownedSkillDigests, remoteSkillNames, replaceSkillDir, skillOwnership } from '../resources/skill.js';
 import { readOverlay } from '../overlay/effective.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { overlayFilePath, writeSelectionFile, type OverlaySelection } from '../overlay/selection.js';
@@ -191,7 +191,7 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     reads.push({ profile, content, desired, expected, from });
   }
   const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
-  const skills = options.skills === false ? null : planSkillPull(inventory.skills ?? { declared: {}, live: {} }, state?.skills ?? {}, options.prefer);
+  const skills = options.skills === false ? null : planSkillPull(inventory.skills ?? { declared: {}, live: {} }, ownedSkillDigests(state), options.prefer);
   const conflictNames = [
     ...(conflicts.length > 0 ? [`Profile patches of ${conflicts.join(', ')}`] : []),
     ...(skills && skills.conflicts.length > 0 ? [`skill ${skills.conflicts.join(', ')}`] : [])
@@ -256,7 +256,7 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
   const operationId = `pull-${crypto.randomBytes(6).toString('hex')}`;
   const now = new Date().toISOString();
   const nextLock: EnvironmentLock = structuredClone(lock ?? { apiVersion: 'dshenv-lock/v1', profiles: {} });
-  const ownership = structuredClone(state?.ownership ?? {});
+  const ownership = structuredClone(state?.resources?.plugin ?? {});
   const plugins: PluginPullChange[] = [];
   for (const [profile, { plugins: capturedPlugins }] of Object.entries(captured?.manifest.profiles ?? {})) {
     for (const [capturedAlias, entry] of Object.entries(capturedPlugins)) {
@@ -353,18 +353,9 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
       await writeAtomic(paths.lockFile, serializeLock(nextLock), 'overwrite');
     }
     if ((skills && skills.actions.length > 0) || plugins.length > 0) {
-      const { skills: previous, ownership: _previous, ...rest }: EnvironmentState =
-        state ?? { apiVersion: 'dshenv-state/v1', lastApplied: now, appliedLockHash: '', profiles: {} };
-      const owned = skills && skills.actions.length > 0 ? skills.owned : (previous ?? {});
-      await writeAtomic(
-        paths.stateFile,
-        serializeState({
-          ...rest,
-          ...(Object.keys(ownership).length > 0 ? { ownership } : {}),
-          ...(Object.keys(owned).length > 0 ? { skills: owned } : {})
-        }),
-        'overwrite'
-      );
+      const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v2', lastApplied: now, appliedLockHash: '', profiles: {} };
+      const skill = skills && skills.actions.length > 0 ? skillOwnership(skills.owned) : base.resources?.skill;
+      await writeAtomic(paths.stateFile, serializeState(withResources(base, { plugin: ownership, skill })), 'overwrite');
     }
     for (const read of reads) {
       let written = '';

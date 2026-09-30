@@ -5,6 +5,16 @@ import { readRemoteConfig, skillPathFromKey } from '../remote/schema.js';
 import { calculateSourceDigest } from '../source/local.js';
 import { retryWhileBusy } from '../io/windows-retry.js';
 import type { SkillPlanOperation } from '../planner/plan.js';
+import type { EnvironmentState, SkillOwnershipRecord } from '../domain.js';
+
+// name -> the digest both sides had when they last matched, as state.resources.skill records it.
+export function ownedSkillDigests(state: EnvironmentState | null | undefined): Record<string, string> {
+  return Object.fromEntries(Object.entries(state?.resources?.skill ?? {}).map(([name, record]) => [name, record.digest]));
+}
+
+export function skillOwnership(digests: Record<string, string>): Record<string, SkillOwnershipRecord> {
+  return Object.fromEntries(Object.entries(digests).map(([name, digest]) => [name, { digest }]));
+}
 
 // name -> content digest of each skill directory
 export interface SkillInventory {

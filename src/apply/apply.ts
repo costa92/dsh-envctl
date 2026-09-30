@@ -6,13 +6,14 @@ import type { EnvironmentPaths } from '../environment/paths.js';
 import type {
   EnvironmentManifest,
   EnvironmentLock,
-  EnvironmentState
+  EnvironmentState,
+  PluginOwnership
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
 import { buildPlan, isProfileOperation, type EnvironmentPlan, type LocalSourceDigests, type PluginOperation } from '../planner/plan.js';
 import { applyPluginOperation, planNeedsDshCli, type PluginStepContext } from '../resources/plugin.js';
 import { applyProfilePatchOperation } from '../resources/profile-patch.js';
-import { loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
+import { loadLock, loadState, serializeState, serializeLock, withResources } from '../manifest/files.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { acquireEnvironmentLock } from '../io/lock.js';
@@ -29,7 +30,7 @@ import { capabilitiesFor } from '../dsh/capabilities.js';
 import { probeProfileHmr, type HmrStatus } from '../dsh/hmr.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { lockEntryId } from '../remote/lock-entries.js';
-import { applySkillOperation } from '../resources/skill.js';
+import { applySkillOperation, ownedSkillDigests, skillOwnership } from '../resources/skill.js';
 import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
 
 // Longer than the ~2 s awaitWriteFinish window of DSH's HMR watcher, so it unloads the plugin before its files go.
@@ -243,12 +244,12 @@ function assertNoTeamEntryOverwritten(
 // A plugin apply installed, or replaced with the declared version, is dshenv's to remove once the manifest drops it,
 // as if it had been adopted.
 function recordInstalledOwnership(
-  pruned: EnvironmentState['ownership'],
+  pruned: PluginOwnership | undefined,
   operations: EnvironmentPlan['operations'],
   manifest: EnvironmentManifest,
   now: string,
   operationId: string
-): EnvironmentState['ownership'] {
+): PluginOwnership {
   const ownership = { ...pruned };
   for (const operation of operations) {
     if (operation.resource !== 'plugin') {
@@ -274,14 +275,14 @@ function recordInstalledOwnership(
 }
 
 function pruneOwnership(
-  ownership: EnvironmentState['ownership'],
+  ownership: PluginOwnership | undefined,
   manifest: EnvironmentManifest
-): EnvironmentState['ownership'] {
+): PluginOwnership {
   if (!ownership) {
     return {};
   }
 
-  const next: NonNullable<EnvironmentState['ownership']> = {};
+  const next: PluginOwnership = {};
   for (const [profileName, packages] of Object.entries(ownership)) {
     const expected = new Set(
       Object.values(manifest.profiles[profileName]?.plugins ?? {}).map((plugin) => plugin.package)
@@ -425,14 +426,13 @@ async function planAndApply(
     if (
       !options?.dryRun &&
       state &&
-      (state.appliedOverlay !== options?.overlay?.name || !isDeepStrictEqual(state.skills ?? {}, skills))
+      (state.appliedOverlay !== options?.overlay?.name || !isDeepStrictEqual(ownedSkillDigests(state), skills))
     ) {
-      const { appliedOverlay: _previous, skills: _skills, ...rest } = state;
-      const nextState: EnvironmentState = {
-        ...rest,
-        ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {}),
-        ...(Object.keys(skills).length > 0 ? { skills } : {})
-      };
+      const { appliedOverlay: _previous, ...rest } = state;
+      const nextState = withResources(
+        { ...rest, ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {}) },
+        { skill: skillOwnership(skills) }
+      );
       await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');
     }
     return {
@@ -492,9 +492,9 @@ async function planAndApply(
   // DSH cannot take an install back, so each one is owned as soon as it succeeds, even if apply then fails or is killed.
   const installed: PluginOperation[] = [];
   const recordInstalled = async (): Promise<void> => {
-    const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v1', lastApplied: '', appliedLockHash: '', profiles: {} };
-    const ownership = recordInstalledOwnership(base.ownership, installed, manifest, now, operationId);
-    await writeAtomic(paths.stateFile, serializeState({ ...base, ownership }), 'overwrite');
+    const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v2', lastApplied: '', appliedLockHash: '', profiles: {} };
+    const plugin = recordInstalledOwnership(base.resources?.plugin, installed, manifest, now, operationId);
+    await writeAtomic(paths.stateFile, serializeState(withResources(base, { plugin })), 'overwrite');
   };
   const onInstalled = async (operation: PluginOperation): Promise<void> => {
     installed.push(operation);
@@ -553,16 +553,20 @@ async function planAndApply(
     const lockSerialized = nextLock ? serializeLock(nextLock) : '{}';
     const lockHash = crypto.createHash('sha256').update(lockSerialized).digest('hex');
 
-    const nextState: EnvironmentState = {
-      apiVersion: 'dshenv-state/v1',
-      lastApplied: now,
-      appliedLockHash: lockHash,
-      profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),
-      ownership: recordInstalledOwnership(pruneOwnership(state?.ownership, manifest), plan.operations, manifest, now, operationId),
-      ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {}),
-      // Converged, so every declared skill is in DSH exactly as declared.
-      ...(Object.keys(verifiedInventory.skills?.declared ?? {}).length > 0 ? { skills: verifiedInventory.skills!.declared } : {})
-    };
+    const nextState = withResources(
+      {
+        apiVersion: 'dshenv-state/v2',
+        lastApplied: now,
+        appliedLockHash: lockHash,
+        profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),
+        ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {})
+      },
+      {
+        plugin: recordInstalledOwnership(pruneOwnership(state?.resources?.plugin, manifest), plan.operations, manifest, now, operationId),
+        // Converged, so every declared skill is in DSH exactly as declared.
+        skill: skillOwnership(verifiedInventory.skills?.declared ?? {})
+      }
+    );
 
     await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');
 

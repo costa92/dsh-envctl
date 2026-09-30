@@ -49,7 +49,7 @@ describe('applyEnvironment ownership and recovery', () => {
       `apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins:${plugins.length > 0 ? `\n${plugins.join('')}` : ' {}\n'}`
     );
   const owned = (): string[] =>
-    Object.keys((JSON.parse(fs.readFileSync(paths.stateFile, 'utf8')) as { ownership?: { web?: object } }).ownership?.web ?? {}).sort();
+    Object.keys((JSON.parse(fs.readFileSync(paths.stateFile, 'utf8')) as { resources?: { plugin?: { web?: object } } }).resources?.plugin?.web ?? {}).sort();
   const dryRun = () => applyEnvironment(paths, { ...options, dryRun: true });
 
   beforeEach(() => {
