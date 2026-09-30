@@ -21,6 +21,7 @@
 
 ### 变更
 
+- README 新增「确认执行（`--yes`）」一节：只改 envctl 声明的命令直接写入，会改 DSH、批量接管或覆盖文件的命令（`apply`、`adopt`、`rollback`、`gc`、`purge`、`remote add|sync|remove`）不加 `--yes` 只预览并以退出码 2 结束；`remote add|sync` 的 `--yes` 帮助补上 `without it … only previews`。
 - 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web list`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝并给出相近的名字（此前 `plan -p <拼错>` 报 in sync、退出码 0，CI 靠退出码判断漂移会被放过）；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
 - `runtime` 在清单声明多个 Profile 又没指定时，报错改为同一格式并列出可选的 Profile。
 - `config get <alias> [dottedPath]` 用位置参数读取嵌套字段，与 `config set`、`tools config` 一致；`--path` 仍然可用，但不再出现在帮助里。
