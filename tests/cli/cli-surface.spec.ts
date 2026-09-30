@@ -194,6 +194,13 @@ describe('CLI surface', () => {
       expect(manifest().profiles.headless.plugins).toHaveProperty('plugin-other');
     });
 
+    it('says in help that every --yes command only previews without it', async () => {
+      for (const args of [['apply'], ['adopt'], ['rollback'], ['gc'], ['purge'], ['remote', 'add'], ['remote', 'sync'], ['remote', 'remove']]) {
+        const help = (await run([...args, '--help'], false)).stdout.replace(/\s+/g, ' ');
+        expect(help, args.join(' ')).toMatch(/-y, --yes [^-]*without it [a-z ]+ only previews/);
+      }
+    });
+
     it('still accepts -y on remove, where there is nothing to confirm', async () => {
       expect((await run(['remove', 'agent-teams', '-p', 'web', '-y'])).code).toBe(0);
       expect(manifest().profiles.web.plugins).toEqual({});

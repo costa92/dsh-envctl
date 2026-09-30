@@ -131,6 +131,15 @@ export DSHENV_PROFILE=web      # 之后 dshenv web start、dshenv runtime 等可
 dshenv disable agent-teams     # 等同于 dshenv disable agent-teams -p web
 ```
 
+### 确认执行（`--yes`）
+
+哪些命令要加 `--yes`，只看一条规则：
+
+- **只改 envctl 声明（清单、overlay、lock）的命令直接写入**：`install`、`update`、`remove`、`enable`、`disable`、`config set|unset`、`tools enable|disable|config|reset`、`overlay create|use`、`pull`、`new -p`、`source clone -p`、`source pull -p`。它们不碰 DSH profile，改错了再改回来即可，DSH 要等 `apply --yes` 才变；`pull` 另有 `--dry-run` 只预览。
+- **会改 DSH、批量接管或覆盖文件的命令要 `--yes`**：`apply`、`adopt`、`rollback`、`gc`、`purge`、`remote add|sync|remove`。不加 `--yes` 时只预览、什么都不写；有待执行的内容时退出码为 2，并在 stderr 提示加 `--yes` 重跑，所以 CI 里可以直接用不带 `--yes` 的命令检查漂移。
+
+`remove` 仍接受 `-y`（旧脚本兼容），但它只改清单，加不加都一样。
+
 ### 1. `dshenv doctor`
 探测 DSH 运行时能力并检查环境就绪状态。
 
