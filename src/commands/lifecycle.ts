@@ -44,7 +44,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         writeOut(JSON.stringify(selection ? { ...res, overlay: selection } : res, null, 2) + '\n');
       } else {
         if (selection) {
-          writeOut(overlayBanner(selection));
+          writeErr(overlayBanner(selection));
         }
         if (res.dryRun) {
           writeOut(renderPlan(res.plan, res.restart, '[DRY-RUN] Planned operations:'));

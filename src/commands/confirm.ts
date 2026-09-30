@@ -7,7 +7,11 @@ export function reportPreview(ctx: CommandContext, options: { json?: boolean; dr
     return;
   }
   ctx.setExitCode(2);
-  if (!options.dryRun && !options.json) {
-    ctx.writeErr(`Nothing was changed. Re-run with --yes to ${options.action}.\n`);
+  if (!options.json) {
+    ctx.writeErr(
+      options.dryRun
+        ? `Nothing was changed. Run it again without --dry-run and with --yes to ${options.action}.\n`
+        : `Nothing was changed. Re-run with --yes to ${options.action}.\n`
+    );
   }
 }

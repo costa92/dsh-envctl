@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type {
   CaptureDocument,
@@ -27,6 +28,8 @@ export interface AdoptDetail {
   package: string;
   sourceType: string;
   version?: string;
+  // Declared, locked and owned exactly as the candidate has it already, so adopting it again changes nothing.
+  alreadyAdopted: boolean;
 }
 
 export interface AdoptSummary {
@@ -175,11 +178,17 @@ async function adoptUnderLock(
         .find(([, entry]) => entry.package === plugin.package)?.[0];
       const alias = existingAlias ?? freeAlias(mergedManifest.profiles[profileName].plugins, candidateAlias);
       // Capture cannot see declared patches, so a candidate without any must not erase them.
-      const existingPatches = existingAlias ? mergedManifest.profiles[profileName].plugins[existingAlias].patches : undefined;
-      mergedManifest.profiles[profileName].plugins[alias] =
-        plugin.patches === undefined && existingPatches ? { ...plugin, patches: existingPatches } : plugin;
+      const existingEntry = existingAlias ? mergedManifest.profiles[profileName].plugins[existingAlias] : undefined;
+      const existingPatches = existingEntry?.patches;
+      const entry = plugin.patches === undefined && existingPatches ? { ...plugin, patches: existingPatches } : plugin;
+      mergedManifest.profiles[profileName].plugins[alias] = entry;
 
       const lockEntry = candLockProf[candidateAlias];
+      const alreadyAdopted =
+        existingEntry !== undefined &&
+        isDeepStrictEqual(existingEntry, entry) &&
+        (!lockEntry || isDeepStrictEqual(mergedLock.profiles[profileName].plugins[alias], lockEntry)) &&
+        existingState.ownership?.[profileName]?.[plugin.package]?.alias === alias;
       if (lockEntry) {
         mergedLock.profiles[profileName].plugins[alias] = lockEntry;
       }
@@ -203,7 +212,8 @@ async function adoptUnderLock(
         alias,
         package: plugin.package,
         sourceType: plugin.source.type,
-        version: lockedVersion
+        version: lockedVersion,
+        alreadyAdopted
       });
     }
   }

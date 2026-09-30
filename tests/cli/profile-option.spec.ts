@@ -50,7 +50,8 @@ describe('CLI -p, --profile', () => {
   });
 
   it('names the profiles to choose from when -p is missing and DSHENV_PROFILE is not set', async () => {
-    for (const args of [['disable', 'agent-teams'], ['tools', 'list'], ['web', 'stop'], ['purge', 'agent-teams', '--dry-run'], ['config', 'get', 'agent-teams']]) {
+    // web start/stop fall back to the one declared profile, like runtime; see output-hygiene.spec.ts.
+    for (const args of [['disable', 'agent-teams'], ['tools', 'list'], ['purge', 'agent-teams', '--dry-run'], ['config', 'get', 'agent-teams']]) {
       const out = await run(args);
       expect(out.code, args.join(' ')).toBe(3);
       expect(out.stderr).toBe('Missing -p, --profile <name>: choose one of headless, web, or set DSHENV_PROFILE\n');

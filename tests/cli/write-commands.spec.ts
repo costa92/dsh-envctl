@@ -79,7 +79,7 @@ describe('CLI manifest write commands', () => {
       const out = await run(['install', `${PKG}@0.1.22`, '-p', 'web']);
       expect(out.stdout).toBe(`Changed agent-teams in profile 'web' from 0.1.21 to 0.1.22 in the manifest. ${NEXT}\n`);
       const same = await run(['install', `${PKG}@0.1.22`, '-p', 'web']);
-      expect(same.stdout).toMatch(/^Added @nanmicoder\/dsh-agent-teams \(agent-teams\) to profile 'web'/);
+      expect(same.stdout).toBe(`${PKG} (agent-teams) is already declared at 0.1.22 in profile 'web' in the manifest; nothing changed.\n`);
     });
 
     it('keeps the JSON of a write as it was', async () => {
@@ -348,7 +348,10 @@ describe('CLI manifest write commands', () => {
 
     it('warns when the active overlay keeps a base write from taking effect', async () => {
       useOverlay('laptop');
-      expect((await run(['enable', 'agent-teams', '-p', 'web', '--layer', 'overlay'])).code).toBe(0);
+      fs.writeFileSync(
+        path.join(tempHome, 'envctl', 'overlays', 'laptop.yaml'),
+        'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      agent-teams:\n        enabled: true\n'
+      );
       const out = await run(['disable', 'agent-teams', '-p', 'web', '--layer', 'base']);
       expect(out.code).toBe(0);
       expect(manifest().profiles.web.plugins['agent-teams'].enabled).toBe(false);

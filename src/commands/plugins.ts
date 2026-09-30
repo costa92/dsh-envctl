@@ -60,6 +60,8 @@ export interface InstallPluginResult {
   overlay: OverlaySelection | null;
   // The source the alias had before, when the install only moved it (to another version, say).
   previousSource?: PluginSource;
+  // The alias already declared this package from this source, so nothing changed.
+  unchanged?: boolean;
   npmCheck: NpmCheck;
 }
 
@@ -231,12 +233,14 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     overlay: OverlaySelection | null,
     status: string,
     fields: Record<string, unknown>,
-    text: string
+    text: string,
+    unchanged = false
   ): void {
     if (opts.json) {
-      writeOut(JSON.stringify({ status, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}), ...fields }, null, 2) + '\n');
+      writeOut(JSON.stringify({ status, ...(overlay ? { layer: 'overlay', overlay: overlay.name } : {}), ...fields, ...(unchanged ? { unchanged: true } : {}) }, null, 2) + '\n');
     } else {
-      writeOut(`${text} in the ${overlay ? `overlay '${overlay.name}'` : 'manifest'}. ${NEXT_STEP}\n`);
+      const where = overlay ? `overlay '${overlay.name}'` : 'manifest';
+      writeOut(unchanged ? `${text} in the ${where}; nothing changed.\n` : `${text} in the ${where}. ${NEXT_STEP}\n`);
     }
   }
 
@@ -311,7 +315,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
           return next;
         });
     const moved = previousSource !== undefined && JSON.stringify(previousSource) !== JSON.stringify(parsed.source);
-    return { ...parsed, overlay, npmCheck, ...(moved ? { previousSource } : {}) };
+    return { ...parsed, overlay, npmCheck, ...(moved ? { previousSource } : {}), ...(previousSource !== undefined && !moved ? { unchanged: true } : {}) };
   }
 
   // A version npm does not have fails only at apply, minutes later. Only a version missing from a package npm has is
@@ -367,9 +371,12 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         result.overlay,
         'installed',
         { profile: cmdOpts.profile, alias: result.alias, package: result.packageName, source: result.source, npmCheck: result.npmCheck },
-        result.previousSource
-          ? `Changed ${result.alias} in profile '${cmdOpts.profile}' from ${describeSource(result.previousSource)} to ${describeSource(result.source)}`
-          : `Added ${result.packageName} (${result.alias}) to profile '${cmdOpts.profile}'`
+        result.unchanged
+          ? `${result.packageName} (${result.alias}) is already declared at ${describeSource(result.source)} in profile '${cmdOpts.profile}'`
+          : result.previousSource
+            ? `Changed ${result.alias} in profile '${cmdOpts.profile}' from ${describeSource(result.previousSource)} to ${describeSource(result.source)}`
+            : `Added ${result.packageName} (${result.alias}) to profile '${cmdOpts.profile}'`,
+        result.unchanged
       );
     });
 
@@ -473,7 +480,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         writeOut(JSON.stringify(selection ? { plugins: rows, overlay: selection } : { plugins: rows }, null, 2) + '\n');
       } else {
         if (selection) {
-          writeOut(overlayBanner(selection));
+          ctx.writeErr(overlayBanner(selection));
         }
         writeOut(renderPluginTable(rows, Boolean(selection)));
       }
@@ -660,17 +667,27 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
         const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
         const alias = resolveAlias(paths, selection, profile, name, { overlay });
 
+        let unchanged = false;
         if (overlay) {
           await writeOverlay(paths, overlay, (doc) => {
-            effectivePlugin(paths, overlay, profile, alias);
-            setOverlayPluginFields(doc, profile, alias, { enabled: toggle.enabled });
+            unchanged = (effectivePlugin(paths, overlay, profile, alias).enabled ?? true) === toggle.enabled;
+            if (!unchanged) setOverlayPluginFields(doc, profile, alias, { enabled: toggle.enabled });
           });
         } else {
           await writeBase(paths, selection, (manifest) => {
-            requirePlugin(manifest, profile, alias).enabled = toggle.enabled;
+            const plugin = requirePlugin(manifest, profile, alias);
+            unchanged = (plugin.enabled ?? true) === toggle.enabled;
+            if (!unchanged) plugin.enabled = toggle.enabled;
           });
         }
-        reportWrite(opts, overlay, toggle.status, { profile, alias }, `${toggle.verb} plugin '${alias}' in profile '${profile}'`);
+        reportWrite(
+          opts,
+          overlay,
+          toggle.status,
+          { profile, alias },
+          unchanged ? `Plugin '${alias}' in profile '${profile}' is already ${toggle.status}` : `${toggle.verb} plugin '${alias}' in profile '${profile}'`,
+          unchanged
+        );
         // The overlay's value wins on this machine, so the base write alone changes nothing here.
         const overridden = !overlay && selection ? readOverlay(paths, selection.name).profiles?.[profile]?.plugins?.[alias]?.enabled : undefined;
         if (overridden !== undefined && overridden !== toggle.enabled && !opts.json) {

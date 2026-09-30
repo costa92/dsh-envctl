@@ -56,10 +56,11 @@ describe('CLI overlay-aware reads', () => {
     expect(plan.unmanaged).toEqual([{ profile: 'web', package: 'heavy-plugin' }]);
   });
 
-  it('prints the overlay banner in text output', async () => {
+  it('prints the overlay banner on stderr, keeping stdout to the plan', async () => {
     selectInFile('laptop');
-    const { stdout } = await run(['plan']);
-    expect(stdout.startsWith('overlay: laptop (file)\n')).toBe(true);
+    const { stdout, stderr } = await run(['plan']);
+    expect(stderr.startsWith('overlay: laptop (file)\n')).toBe(true);
+    expect(stdout).not.toContain('overlay: laptop');
   });
 
   it('reads the selection from DSHENV_OVERLAY', async () => {
@@ -105,7 +106,7 @@ describe('CLI overlay-aware reads', () => {
     expect(JSON.parse((await run(['list', '--json'])).stdout)).not.toHaveProperty('overlay');
 
     const text = await run(['list', '--overlay', 'laptop']);
-    expect(text.stdout).toContain('overlay: laptop (flag)');
+    expect(text.stderr).toContain('overlay: laptop (flag)');
     expect(text.stdout).toMatch(/^PROFILE .* ORIGIN$/m);
     expect(text.stdout).toMatch(/ extra .* overlay:laptop$/m);
 
@@ -160,7 +161,7 @@ profiles:
     );
     const { stdout, stderr } = await run(['apply', '--dry-run', '--overlay', 'laptop']);
     expect(stderr).toContain('overlay changed since last apply: none → laptop');
-    expect(stdout.startsWith('overlay: laptop (flag)\n')).toBe(true);
+    expect(stderr).toContain('overlay: laptop (flag)\n');
     expect(stdout).toContain('extra-plugin');
   });
 });
