@@ -103,17 +103,20 @@ describe('CLI surface', () => {
   describe('help', () => {
     it('groups commands and lists examples, data flow and environment variables', async () => {
       const help = (await run(['--help'], false)).stdout;
-      for (const heading of ['Getting started:', 'Everyday:', 'Plugins:', 'Tools & web:', 'Checks:', 'Team & machine:', 'Authoring:', 'Maintenance:', 'Examples:', 'Environment variables:']) {
+      for (const heading of ['Getting started:', 'Everyday:', 'Plugins & tools:', 'Run & check:', 'Team & machine:', 'Authoring:', 'Maintenance:', 'Examples:', 'Environment variables:']) {
         expect(help).toContain(heading);
       }
       const group = (heading: string) => help.split(heading)[1].split(/\n\n/)[0].match(/^ {2}[a-z-]+/gm)!.map((name) => name.trim());
       expect(group('Everyday:')).toEqual(['plan', 'apply', 'pull', 'status', 'mark-restarted', 'rollback']);
-      expect(group('Checks:')).toEqual(['doctor', 'runtime']);
+      expect(group('Plugins & tools:')).toEqual(['install', 'update', 'remove', 'enable', 'disable', 'plugins', 'tools']);
+      expect(group('Run & check:')).toEqual(['web', 'verify', 'doctor']);
       expect(group('Maintenance:')).toEqual(['purge', 'gc', 'self-update']);
       for (const name of ['DSH_HOME', 'DSH_CLI', 'DSHENV_PROFILE', 'DSHENV_LAYER', 'DSHENV_OVERLAY', 'DSHENV_DSH_URL']) {
         expect(help).toContain(name);
       }
       expect(help).toMatch(/remote sync\s+team repository -> local envctl/);
+      expect(help).toMatch(/source sync\s+upstream Git -> a plugin's managed clone/);
+      expect(help).toMatch(/DSHENV_DSH_URL\s+dsh web URL that verify checks/);
       // Every command sits in a named group; none is left under commander's default heading.
       expect(help).not.toMatch(/^Commands:/m);
       expect(help).toMatch(/Getting started:[\s\S]*help \[command\][\s\S]*Everyday:/);
@@ -121,6 +124,8 @@ describe('CLI surface', () => {
       expect(help).not.toMatch(/^\s+sync\b/m);
       expect(help).not.toMatch(/^\s+restarted\b/m);
       expect(help).not.toContain('uninstall');
+      expect(help).not.toMatch(/^\s+(list|config|runtime)\b/m);
+      expect(help).not.toContain('source pull');
       expect(help).toMatch(/^\s+mark-restarted\b/m);
     });
 
@@ -128,7 +133,7 @@ describe('CLI surface', () => {
       expect((await run(['apply', '--help'], false)).stdout).toMatch(/Global Options:[\s\S]*--json/);
       expect((await run(['update', '--help'], false)).stdout).toMatch(/--to <version>\s+\(required\)/);
       expect((await run(['adopt', '--help'], false)).stdout).toMatch(/-f, --from <file>\s+\(required\)/);
-      const config = (await run(['config', '--help'], false)).stdout;
+      const config = (await run(['plugins', 'config', '--help'], false)).stdout;
       expect(config).toMatch(/get \[options\] <alias> \[dottedPath\]\s+\S+/);
       expect(config).toMatch(/validate \[options\] <alias>\s+\S+/);
       expect(config).toMatch(/set \[options\] <alias> <dottedPath> <value>\s+\S+/);
@@ -146,9 +151,36 @@ describe('CLI surface', () => {
       const source = (await run(['source', '--help'], false)).stdout;
       expect(source).toMatch(/^\s+show \[options\] \[dir\]/m);
       expect(source).toMatch(/^\s+clone \[options\] <url> \[dir\]/m);
-      expect(source).toMatch(/^\s+pull \[options\] \[dir\]/m);
-      expect(source).not.toMatch(/status|targetDir|sourcePath/);
+      expect(source).toMatch(/^\s+sync \[options\] \[dir\]/m);
+      expect(source).not.toMatch(/status|pull|targetDir|sourcePath/);
       expect((await run(['source', 'status', '--help'], false)).stdout).toMatch(/Usage: dshenv source show/);
+      expect((await run(['source', 'pull', '--help'], false)).stdout).toMatch(/Usage: dshenv source sync/);
+    });
+
+    it('runs the plugin commands under plugins too, and keeps the old top-level names', async () => {
+      const plugins = (await run(['plugins', '--help'], false)).stdout;
+      expect(plugins.match(/^ {2}[a-z]+/gm)!.map((name) => name.trim())).toEqual(['install', 'update', 'remove', 'enable', 'disable', 'list', 'config', 'help']);
+      expect((await run(['plugins', 'list', '--help'], false)).stdout).toMatch(/Usage: dshenv plugins list/);
+
+      expect((await run(['plugins', 'install', `${PKG}@0.1.21`, '-p', 'web'])).code).toBe(0);
+      expect((await run(['plugins', 'config', 'set', 'agent-teams', 'teams.max', '3', '-p', 'web'])).code).toBe(0);
+      expect(manifest().profiles.web.plugins['agent-teams'].patches?.[0].config).toEqual({ teams: { max: 3 } });
+      expect((await run(['plugins', 'disable', 'agent-teams', '-p', 'web'])).code).toBe(0);
+      expect(manifest().profiles.web.plugins['agent-teams'].enabled).toBe(false);
+
+      const listed = await run(['plugins', 'list']);
+      expect(listed.stdout).toContain('agent-teams');
+      expect(await run(['list'])).toEqual(listed);
+      expect(await run(['config', 'get', 'agent-teams', '-p', 'web'])).toEqual(await run(['plugins', 'config', 'get', 'agent-teams', '-p', 'web']));
+
+      expect((await run(['plugins', 'remove', 'agent-teams', '-p', 'web'])).code).toBe(0);
+      expect(manifest().profiles.web.plugins).not.toHaveProperty('agent-teams');
+    });
+
+    it('names the runtime check verify, like apply --verify, and keeps runtime as a hidden alias', async () => {
+      expect((await run(['verify', '--help'], false)).stdout).toMatch(/Usage: dshenv verify/);
+      expect((await run(['runtime', '--help'], false)).stdout).toMatch(/Usage: dshenv verify/);
+      expect((await run(['apply', '--verify'])).stderr).toContain('run dshenv verify to check without applying');
     });
   });
 

@@ -246,7 +246,8 @@ export function registerSourceCommands(ctx: CommandContext): void {
     });
 
   sourceCmd
-    .command('pull [dir] [targetRef]')
+    .command('sync [dir] [targetRef]')
+    .alias('pull')
     .description('Fast-forward a Git checkout; with --profile, also update the lock commit')
     // A second positional ref still works; --ref is the one spelling shown, as in source clone.
     .usage('[options] [dir]')
@@ -274,7 +275,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
             .filter(([, plugin]) => plugin.source.type === 'git')
             .map(([name]) => name);
           if (gitAliases.length !== 1) {
-            throw new ValidationError('source pull --profile requires --as when the profile does not have exactly one git plugin');
+            throw new ValidationError('source sync --profile requires --as when the profile does not have exactly one git plugin');
           }
           alias = gitAliases[0];
         }
@@ -290,7 +291,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
       } else if (targetDir) {
         resolvedTarget = path.resolve(process.cwd(), targetDir);
       } else {
-        throw new ValidationError('source pull requires <dir> or --profile');
+        throw new ValidationError('source sync requires <dir> or --profile');
       }
 
       if (cmdOpts.profile && alias) {
