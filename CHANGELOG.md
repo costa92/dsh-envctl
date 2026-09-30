@@ -8,7 +8,7 @@
 
 - `dshenv pull` 接管 `plan` 列为 `Unmanaged plugins` 的插件：描述方式与 `capture` 相同，lock 与所有权按 `adopt` 记录（`local-link` 另记源码 digest），接管后 `plan` 没有待执行操作；`local-link`/`local-file` 插件写进本机 overlay（没有选中时新建并选中 `local`，`--no-overlay` 时拒绝），其余写进基础清单。`--json` 输出新增 `plugins` 与 `warnings`；`plan` 的未管理插件提示改为指向 `dshenv pull`。此前只能 `capture` + `adopt`（只写基础清单），或 `install <path> --layer overlay` 再 `disable`。
 - `-p, --profile` 的统一规则：作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）不写 `-p` 时使用环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报 `Missing -p, --profile <name>: choose one of …, or set DSHENV_PROFILE`，列出清单声明的与 DSH 已创建的 Profile（此前是 commander 的 `required option ... not specified`，退出码 1）。`DSHENV_PROFILE` 不合法时报错并注明来源。
-- `web status -p <name>` 只列出一个 Profile；`capture` 支持 `-p` 简写。
+- `web list -p <name>` 只列出一个 Profile；`capture` 支持 `-p` 简写。
 - `tools reset <tool>`：删掉清单里改动该工具的 patch，恢复 DSH 的默认；预设内的工具会连同整个预设一起解除固定。
 - `config unset <alias> <dottedPath>`：从插件配置 patch 里删掉一个键（删空的父级一并删除）；overlay 只能删它自己设置的键。
 - `--new-profile`（`install`、`new -p`、`source clone -p`）：写入一个清单没声明、DSH 也没创建的 Profile 时须显式加上，防止拼错的名字悄悄建出新 Profile。
@@ -17,15 +17,17 @@
 - `plan -p <name>`、`status -p <name>` 只看一个 Profile；`status` 文本输出列出每个插件的状态，`status <alias>` 只列出该插件（此前只有 `--json` 生效），`Profiles monitored` 计入清单声明但尚未创建的 Profile。
 - `dshenv remote sync`：即原来的顶层 `sync`。
 - `dshenv overlay create <name>`：新建只含 `apiVersion` 的空 overlay，文件已存在时退出码 3。README 补上 overlay 文件格式示例。
-- 顶层帮助按用途分组（Getting started、Everyday、Plugins、Tools & runtime、Sources & team、Maintenance），附常用示例、数据流向与环境变量说明；子命令帮助列出全局选项；`dshenv` 不带参数时显示帮助并退出码 0。
+- 顶层帮助按用途分组（Getting started、Everyday、Plugins、Tools & web、Checks、Team & machine、Authoring、Maintenance：`mark-restarted` 挨着 `status`，`doctor` 与 `runtime` 同属检查，`purge` 与 `gc` 同属清理），附常用示例、数据流向与环境变量说明；子命令帮助列出全局选项；`dshenv` 不带参数时显示帮助并退出码 0。
 
 ### 变更
 
-- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝并给出相近的名字（此前 `plan -p <拼错>` 报 in sync、退出码 0，CI 靠退出码判断漂移会被放过）；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
+- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web list`）的 `-p` 说明统一为 `only this profile (default: all)`，它们不读 `DSHENV_PROFILE`；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝并给出相近的名字（此前 `plan -p <拼错>` 报 in sync、退出码 0，CI 靠退出码判断漂移会被放过）；必填的一律为 `target profile (default: $DSHENV_PROFILE)`。
 - `runtime` 在清单声明多个 Profile 又没指定时，报错改为同一格式并列出可选的 Profile。
 - `config get <alias> [dottedPath]` 用位置参数读取嵌套字段，与 `config set`、`tools config` 一致；`--path` 仍然可用，但不再出现在帮助里。
 - `source pull` 的 ref 只在帮助里保留 `--ref`（与 `source clone` 一致）；第二个位置参数仍然可用。
 - `purge`、`status` 的参数在帮助里改名为 `<alias>`（接受别名或包名，行为不变）。
+- 查看类子命令统一动词：列出多个用 `list`，查看一个用 `show`。`web status` 改名 `web list`，`source status` 改名 `source show`，旧名作为别名保留（不出现在帮助里）；`source` 各子命令的目录参数统一叫 `[dir]`。
+- `rollback` 的说明写明它只恢复 envctl 文件（清单、lock、overlay），恢复后提示 `DSH itself is unchanged. Next: dshenv plan, then dshenv apply --yes.`；`purge` 的说明改为 `Move a plugin's managed config patch and envctl/sources clone into trash (gc empties it)`。
 - `install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable|disable|config` 的输出说明只改了清单并给出下一步：如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`；同一别名重新 `install` 换了版本时说 `Changed agent-teams in profile 'web' from 0.1.20 to 0.1.21`。`--json` 输出不变。
 - `install` 与 `update --to` 的 npm 版本先用 `npm view` 核对：包在而版本不存在时以退出码 3 报错并给出最新版本（npm 10 对不存在的版本也回 E404，会再查一次包来区分）。npm 看不到这个包（可能是需要凭据的私有包）、拒绝凭据，或查询不了（离线，约 5 秒超时，超时连同 npm 启动的子进程一起结束）时只警告、照常写入。加 `--no-npm-check` 或设 `DSHENV_NPM_CHECK=off` 跳过；`--json` 输出新增 `npmCheck`（`verified`、`unverified`、`unreachable`、`skipped`）。包名不合法（如以 `-` 开头）时直接拒绝，`npm view` 的参数前也加了 `--`。
 - `config get|set|unset` 的路径为空，或含 `__proto__`、`prototype`、`constructor` 时以退出码 3 拒绝；读取和删除只认配置里自己的键，不再读到或删掉 `toString` 这类继承属性（此前 `config unset <alias> __proto__.toString` 会改到进程内的对象原型）。

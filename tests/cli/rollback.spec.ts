@@ -31,14 +31,17 @@ describe('CLI rollback and gc', () => {
   describe('when there is nothing it can restore', () => {
     const envctl = (...parts: string[]) => path.join(tempHome, 'envctl', ...parts);
     const run = async (args: string[]) => {
+      let stdout = '';
       let stderr = '';
       const code = await runCli([...args, '--dsh-home', tempHome], {
-        stdout: () => {},
+        stdout: (chunk) => {
+          stdout += chunk;
+        },
         stderr: (chunk) => {
           stderr += chunk;
         }
       });
-      return { code, stderr };
+      return { code, stdout, stderr };
     };
     const current = () => ['manifest.yaml', 'lock.json', 'state.json'].map((file) => (fs.existsSync(envctl(file)) ? fs.readFileSync(envctl(file), 'utf8') : null));
     const snapshot = (id: string, files: Record<string, string>) => {
@@ -84,6 +87,15 @@ describe('CLI rollback and gc', () => {
       expect(out.stderr).toMatch(/Snapshot 2026-01-01T00-00-00-000Z-apply-aaa .*manifest\.yaml/);
       expect(current()).toEqual(before);
       expect(fs.readdirSync(envctl('backups'))).toEqual(['2026-01-01T00-00-00-000Z-apply-aaa']);
+    });
+
+    it('says DSH is unchanged and what to run next after a restore, but not in a preview', async () => {
+      snapshot('2026-01-01T00-00-00-000Z-apply-aaa', { 'manifest.yaml': 'apiVersion: dshenv/v1\nprofiles: {}\n' });
+      const next = 'DSH itself is unchanged. Next: dshenv plan, then dshenv apply --yes.\n';
+      expect((await run(['rollback'])).stdout).not.toContain(next);
+      const out = await run(['rollback', '--yes']);
+      expect(out.code).toBe(0);
+      expect(out.stdout).toMatch(new RegExp(`^Restored the envctl files .*\\n${next.replace(/\./g, '\\.')}$`));
     });
   });
 

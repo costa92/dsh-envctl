@@ -31,12 +31,14 @@ export interface CliIO {
 
 // Top-level commands by task, in the order a newcomer meets them.
 const HELP_GROUPS: Array<[string, string[]]> = [
-  ['Getting started:', ['init', 'capture', 'adopt', 'doctor']],
-  ['Everyday:', ['plan', 'apply', 'status', 'pull', 'rollback']],
-  ['Plugins:', ['install', 'update', 'list', 'config', 'enable', 'disable', 'remove', 'new', 'purge']],
-  ['Tools & runtime:', ['tools', 'runtime', 'web', 'mark-restarted']],
-  ['Sources & team:', ['source', 'remote', 'overlay']],
-  ['Maintenance:', ['gc', 'self-update']]
+  ['Getting started:', ['init', 'capture', 'adopt']],
+  ['Everyday:', ['plan', 'apply', 'pull', 'status', 'mark-restarted', 'rollback']],
+  ['Plugins:', ['install', 'update', 'remove', 'enable', 'disable', 'list', 'config']],
+  ['Tools & web:', ['tools', 'web']],
+  ['Checks:', ['doctor', 'runtime']],
+  ['Team & machine:', ['remote', 'overlay', 'source']],
+  ['Authoring:', ['new']],
+  ['Maintenance:', ['purge', 'gc', 'self-update']]
 ];
 
 const ROOT_HELP_AFTER = `
