@@ -1,7 +1,7 @@
 name: E2E
 
 # The main chain (adopt, manifest/lock/ownership, plan, apply, runtime, rollback, remove) against a real
-# npm DSH. Kept apart from CI: it needs the npm registry and a running dsh web, so it is not a merge gate.
+# npm DSH. Kept apart from CI because it needs the npm registry and a running dsh web; a required check on master.
 on:
   push:
     branches: [master]
