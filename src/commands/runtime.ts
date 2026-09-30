@@ -12,7 +12,7 @@ import { callDshWeb, DSH_URL_ENV, loginDshWeb, parseDshWebUrl, type DshWebTarget
 import { startDshWeb } from '../dsh/web-server.js';
 import { profilePatchFile } from '../apply/patches.js';
 import { mountedByOtherEntry } from '../patch/mount.js';
-import { assertProfileExists, resolveCliDshCommand, runningWebRecord } from './web.js';
+import { dshWebCommand, runningWebRecord } from './web.js';
 import {
   checkRuntime,
   parseRuntimeBundles,
@@ -106,8 +106,7 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
       if (cmdOpts.allowRemote) {
         throw new ValidationError('--start and --allow-remote cannot be combined: --start checks the dsh web it starts on this machine');
       }
-      assertProfileExists(paths, opts, profile);
-      const web = await startDshWeb(profile, { command: resolveCliDshCommand(paths, opts), dshHome: paths.home });
+      const web = await startDshWeb(profile, { command: await dshWebCommand(paths, opts, profile), dshHome: paths.home });
       try {
         await checkProfile(paths, manifest, profile, parseDshWebUrl(web.url), opts.json);
       } finally {

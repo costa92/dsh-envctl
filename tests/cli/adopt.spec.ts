@@ -102,12 +102,14 @@ warnings: []
     expect((await run(['capture', '-o', candidate])).code).toBe(0);
     const base = fs.readFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'utf8');
 
-    const preview = await run(['adopt', '-f', candidate, '--layer', 'base']);
+    // adopt only writes the base, so an active overlay needs no --layer.
+    const preview = await run(['adopt', candidate]);
     expect(preview.stderr).toBe('');
     expect(preview.stdout).toBe('Nothing to adopt: every plugin in the candidate is already adopted.\n');
     expect(preview.code).toBe(0);
 
-    expect((await run(['adopt', '-f', candidate, '--layer', 'base', '--yes'])).code).toBe(0);
+    expect((await run(['adopt', candidate, '--yes'])).code).toBe(0);
+    expect((await run(['adopt', candidate, '--layer', 'base'])).code).toBe(0);
     expect(fs.readFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'utf8')).toBe(base);
   });
 });

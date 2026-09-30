@@ -94,7 +94,8 @@ export function registerSetupCommands(ctx: CommandContext): void {
       }
 
       const selection = resolveCliOverlay(opts, paths);
-      if (resolveWriteLayer(selection, cmdOpts.layer) === 'overlay') {
+      // adopt only ever writes the base, so an active overlay does not make it ask for --layer.
+      if (resolveWriteLayer(selection, cmdOpts.layer ?? 'base') === 'overlay') {
         throw new ValidationError('adopt only writes the base manifest; use --layer base');
       }
       // Adopt rewrites the base and the whole lock; a subscription always owns the base, so team lock entries stay intact too.

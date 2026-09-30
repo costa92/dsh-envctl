@@ -43,9 +43,9 @@ describe('CLI web', () => {
     }
   };
   // Stands in for dsh web: prints the fake server's URL like DSH does, then serves until stopped.
-  const fakeDsh = (body: string): void => {
+  const fakeDsh = (body: string, version = '0.1.7-rc.2'): void => {
     const file = path.join(tempHome, 'fake-dsh.mjs');
-    fs.writeFileSync(file, body);
+    fs.writeFileSync(file, `if (process.argv.includes('--version')) { console.log(${JSON.stringify(version)}); process.exit(0); }\n${body}`);
     process.env.DSH_CLI = JSON.stringify([process.execPath, file]);
   };
   const serving = () => fakeDsh(`console.log('dsh web: ${fake.url}'); setInterval(() => {}, 1000);`);
@@ -262,5 +262,34 @@ setInterval(() => {}, 1000);`);
     expect(restarted.stdout).toMatch(/^Started dsh web/);
     expect(await reaped(child)).toBe(true);
     expect(record().pid).not.toBe(pid);
+  });
+  it('refuses to start a DSH version dshenv does not support, unless told to', async () => {
+    const launched = path.join(tempHome, 'launched');
+    fakeDsh(`import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(launched)}, '');\nconsole.log('dsh web: ${fake.url}');\nsetInterval(() => {}, 1000);`, '0.1.5');
+    const refused = await run(['web', 'start', '-p', 'web']);
+    expect(refused.code).toBe(4);
+    expect(refused.stderr).toMatch(/Unsupported DSH version 0\.1\.5: dshenv supports DSH 0\.1\.7/);
+    expect(fs.existsSync(launched)).toBe(false);
+    expect(fs.existsSync(recordFile())).toBe(false);
+
+    const allowed = await run(['web', 'start', '-p', 'web', '--allow-untested-dsh']);
+    expect(allowed.code).toBe(0);
+    expect(allowed.stdout).toMatch(/^Started dsh web/);
+  });
+
+  it('says a profile runs another app instead of starting DSH for it', async () => {
+    const launched = path.join(tempHome, 'launched');
+    fakeDsh(`import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(launched)}, '');\nprocess.exit(1);`);
+    fs.mkdirSync(path.join(tempHome, 'profiles', 'headless'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempHome, 'profiles', 'headless', 'package.json'),
+      JSON.stringify({ name: 'dsh-profile-headless', dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'] } } })
+    );
+    const out = await run(['web', 'start', '-p', 'headless']);
+    expect(out.code).toBe(3);
+    expect(out.stderr).toBe(
+      'Profile headless runs @deepseek-ai/dsh-headless, not dsh web; start dsh web for a profile whose bundles include @deepseek-ai/dsh-web-app\n'
+    );
+    expect(fs.existsSync(launched)).toBe(false);
   });
 });
