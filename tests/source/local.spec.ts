@@ -58,6 +58,70 @@ describe('Local Source Lifecycle and Digest', () => {
     expect(digest3).not.toBe(digest1);
   });
 
+  describe('with a files list in package.json', () => {
+    const write = (rel: string, content: string) => {
+      fs.mkdirSync(path.dirname(path.join(pkgDir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(pkgDir, rel), content);
+    };
+    const setFiles = (files: string[], extra: Record<string, unknown> = {}) =>
+      write('package.json', JSON.stringify({ name: 'my-local-pkg', version: '1.0.0', files, ...extra }));
+
+    it('digests only what npm would publish', async () => {
+      setFiles(['lib', './skills/'], { main: 'entry.js' });
+      write('lib/index.js', 'v1');
+      write('skills/a/SKILL.md', 'skill');
+      write('entry.js', 'main');
+      write('README.md', 'readme');
+      write('LICENSE', 'mit');
+      write('docs/image.png', 'png1');
+      write('src/index.ts', 'ts1');
+      const digest = await calculateSourceDigest(pkgDir);
+
+      write('docs/image.png', 'png2');
+      write('src/index.ts', 'ts2');
+      write('examples/new.md', 'new');
+      expect(await calculateSourceDigest(pkgDir)).toBe(digest);
+
+      for (const rel of ['lib/index.js', 'skills/a/SKILL.md', 'entry.js', 'README.md', 'LICENSE']) {
+        const before = await calculateSourceDigest(pkgDir);
+        write(rel, `${rel} changed`);
+        expect(await calculateSourceDigest(pkgDir), rel).not.toBe(before);
+      }
+    });
+
+    it('matches globs and leaves out negated entries', async () => {
+      setFiles(['dist/**/*.js', '!dist/test']);
+      write('dist/a/b.js', 'js');
+      write('dist/a/b.js.map', 'map1');
+      write('dist/test/t.js', 't1');
+      const digest = await calculateSourceDigest(pkgDir);
+
+      write('dist/a/b.js.map', 'map2');
+      write('dist/test/t.js', 't2');
+      expect(await calculateSourceDigest(pkgDir)).toBe(digest);
+
+      write('dist/a/b.js', 'js2');
+      expect(await calculateSourceDigest(pkgDir)).not.toBe(digest);
+    });
+
+    it('lets a leading **/ match at the package root too', async () => {
+      setFiles(['**/*.yml']);
+      write('cordis.patch.yml', 'a');
+      write('docs/notes.md', 'n1');
+      const digest = await calculateSourceDigest(pkgDir);
+      write('docs/notes.md', 'n2');
+      expect(await calculateSourceDigest(pkgDir)).toBe(digest);
+      write('cordis.patch.yml', 'b');
+      expect(await calculateSourceDigest(pkgDir)).not.toBe(digest);
+    });
+
+    it('still digests the whole tree when package.json has no files list', async () => {
+      const digest = await calculateSourceDigest(pkgDir);
+      write('docs/image.png', 'png');
+      expect(await calculateSourceDigest(pkgDir)).not.toBe(digest);
+    });
+  });
+
   it('should reject non-absolute path', async () => {
     await expect(inspectLocalSource('relative/path')).rejects.toThrow(ValidationError);
   });

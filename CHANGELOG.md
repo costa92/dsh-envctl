@@ -4,6 +4,10 @@
 
 ## 未发布
 
+### 变更
+
+- 本地来源插件的摘要：`package.json` 有 `files` 时只算 npm 会发布的文件，改 docs、测试、图片等不再让 `plan` 报更新、`apply` 要求重启。升级后，有 `files` 的本地插件会各出现一次 `Local source changed`，`apply --yes` 记下新摘要即可；没有 `files` 的包与 skill 不受影响。
+
 ### 修复
 
 - `source pull` 不给 `--ref` 时一律以退出码 3 拒绝，与 README 的示例不符；现在默认快进到当前分支对应的远端分支，处于 detached HEAD 时才要求 `--ref`。
