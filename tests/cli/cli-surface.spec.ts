@@ -113,10 +113,21 @@ describe('CLI surface', () => {
         expect(help).toContain(heading);
       }
       const group = (heading: string) => help.split(heading)[1].split(/\n\n/)[0].match(/^ {2}[a-z-]+/gm)!.map((name) => name.trim());
-      expect(group('Everyday:')).toEqual(['plan', 'apply', 'pull', 'status', 'mark-restarted', 'rollback']);
-      expect(group('Plugins & tools:')).toEqual(['install', 'update', 'remove', 'enable', 'disable', 'plugins', 'tools']);
+      expect(group('Everyday:')).toEqual(['plan', 'apply', 'pull', 'status', 'mark-restarted']);
+      expect(group('Plugins & tools:')).toEqual(['install', 'update', 'remove', 'enable', 'disable', 'plugins', 'tools', 'source']);
+      expect(group('Team & machine:')).toEqual(['remote', 'overlay']);
       expect(group('Run & check:')).toEqual(['web', 'verify', 'doctor']);
-      expect(group('Maintenance:')).toEqual(['purge', 'gc', 'self-update']);
+      expect(group('Maintenance:')).toEqual(['rollback', 'purge', 'gc', 'self-update']);
+      const examples = help.split('Examples:')[1].split('Data flow:')[0];
+      for (const example of ['dshenv pull --yes', 'dshenv verify --start -p web', 'dshenv remote add <url> --yes', 'dshenv adopt capture.yaml --yes']) {
+        expect(examples).toContain(example);
+      }
+      // Each check says what it looks at, so the four of them can be told apart.
+      const flat = help.replace(/\s+/g, ' ');
+      expect(flat).toContain('plan [options] Show what apply would change');
+      expect(flat).toContain('apply [options] Make DSH match the manifest');
+      expect(flat).toContain('doctor Check that DSH runs and the dshenv files are readable (not whether plugins are loaded: verify)');
+      expect(flat).toMatch(/remove \[options\] <alias> [^:]*purge/);
       for (const name of ['DSH_HOME', 'DSH_CLI', 'DSHENV_PROFILE', 'DSHENV_LAYER', 'DSHENV_OVERLAY', 'DSHENV_DSH_URL']) {
         expect(help).toContain(name);
       }
@@ -138,7 +149,9 @@ describe('CLI surface', () => {
     it('shows global options in subcommand help and marks required options', async () => {
       expect((await run(['apply', '--help'], false)).stdout).toMatch(/Global Options:[\s\S]*--json/);
       expect((await run(['update', '--help'], false)).stdout).toMatch(/--to <version>\s+\(required\)/);
-      expect((await run(['adopt', '--help'], false)).stdout).toMatch(/-f, --from <file>\s+\(required\)/);
+      const adoptHelp = (await run(['adopt', '--help'], false)).stdout;
+      expect(adoptHelp).toMatch(/^Usage: dshenv adopt \[options\] <file>$/m);
+      expect(adoptHelp).not.toContain('--from');
       const config = (await run(['plugins', 'config', '--help'], false)).stdout;
       expect(config).toMatch(/get \[options\] <alias> \[dottedPath\]\s+\S+/);
       expect(config).toMatch(/validate \[options\] <alias>\s+\S+/);
@@ -242,7 +255,14 @@ describe('CLI surface', () => {
       expect(captured.stderr).toBe('');
       const before = fs.readFileSync(manifestFile(), 'utf8');
 
-      const preview = await run(['adopt', '-f', candidate]);
+      const both = await run(['adopt', candidate, '-f', candidate]);
+      expect(both.code).toBe(3);
+      expect(both.stderr).toContain('Give the capture file once');
+      const neither = await run(['adopt']);
+      expect(neither.code).toBe(3);
+      expect(neither.stderr).toContain("missing required argument 'file'");
+
+      const preview = await run(['adopt', candidate]);
       expect(preview.code).toBe(2);
       expect(preview.stdout).toContain('dsh-plugin-other');
       expect(preview.stderr).toMatch(/Re-run with --yes to adopt/);

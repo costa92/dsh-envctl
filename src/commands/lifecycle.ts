@@ -18,7 +18,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
 
   program
     .command('apply')
-    .description('Apply declared environment manifest to DSH profile installations')
+    .description('Make DSH match the manifest: its plugins, profile patches and skills')
     .addOption(filterProfile())
     .option('--dry-run', 'show the plan without changing anything; exit code 2 when it has changes')
     .option('-y, --yes', 'apply; without it apply only previews, like --dry-run')

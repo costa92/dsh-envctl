@@ -106,8 +106,8 @@ step "dsh installs $pkg@$pkg_version outside dshenv" 0 "$DSH_CLI" plugin --profi
 step "init" 0 "${run[@]}" init
 step "plan leaves the unmanaged plugin alone" 0 "${run[@]}" plan
 step "capture the profile" 0 "${run[@]}" capture --profile web --output "$work/capture.yaml"
-step "adopt previews without --yes" 2 "${run[@]}" adopt --from "$work/capture.yaml"
-step "adopt the capture" 0 "${run[@]}" adopt --from "$work/capture.yaml" --yes
+step "adopt previews without --yes" 2 "${run[@]}" adopt "$work/capture.yaml"
+step "adopt the capture" 0 "${run[@]}" adopt "$work/capture.yaml" --yes
 step "adopt records ownership" 0 json_true "$envctl/state.json" "v.resources?.plugin?.web?.['$pkg']?.lockedVersion === '$pkg_version'"
 step "plan clean after adopt" 0 "${run[@]}" plan
 alias="$(alias_of "$pkg")"

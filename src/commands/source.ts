@@ -251,7 +251,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
     .description('Fast-forward a Git checkout; with --profile, also update the lock commit')
     // A second positional ref still works; --ref is the one spelling shown, as in source clone.
     .usage('[options] [dir]')
-    .option('-p, --profile <name>', 'managed profile whose envctl/sources clone should be updated', profileOption)
+    .option('-p, --profile <name>', 'update this profile\'s managed clone under envctl/sources and its lock commit, instead of a directory', profileOption)
     .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
     .option('--ref <ref>', 'commit or ref to fast-forward to (default: the upstream of the checked-out branch)')
     .action(async (targetDir: string | undefined, targetRef: string | undefined, cmdOpts) => {

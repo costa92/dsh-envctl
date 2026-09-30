@@ -194,8 +194,8 @@ dshenv capture --output my-dsh-backup.yaml
 接管来自 `capture` 生成的候选清单，建立明确的插件所有权记录。
 
 ```bash
-dshenv adopt --from my-candidate.yaml        # 预览会接管哪些插件，有待接管时退出码 2，不写文件
-dshenv adopt --from my-candidate.yaml --yes  # 校验候选事实一致性并接管所有权
+dshenv adopt my-candidate.yaml               # 预览会接管哪些插件，有待接管时退出码 2，不写文件
+dshenv adopt my-candidate.yaml --yes         # 校验候选事实一致性并接管所有权
 ```
 
 不带 `--yes` 时 `adopt` 只列出将接管的插件；带 `--yes` 才写入清单、锁文件和状态。

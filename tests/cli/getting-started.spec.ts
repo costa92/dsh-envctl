@@ -20,7 +20,7 @@ describe('CLI getting started', () => {
     });
     return { code, stdout, stderr };
   };
-  const INIT_HINT = 'run dshenv init to start one, or dshenv capture -o candidate.yaml then dshenv adopt -f candidate.yaml';
+  const INIT_HINT = 'run dshenv init to start one, or dshenv capture -o candidate.yaml then dshenv adopt candidate.yaml';
 
   beforeEach(() => {
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-cli-start-'));

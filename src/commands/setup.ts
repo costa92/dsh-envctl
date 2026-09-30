@@ -22,7 +22,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
 
   program
     .command('init')
-    .description('Initialize an empty dshenv environment')
+    .description('Create an empty manifest to start managing DSH')
     .action(async () => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -40,7 +40,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
 
   program
     .command('capture')
-    .description('Capture existing DSH environment into reviewable candidate manifest')
+    .description('Write what DSH already has installed into a candidate manifest for adopt to review')
     .option('-o, --output <file>', 'output candidate manifest file')
     .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
     .action(async (cmdOpts) => {
@@ -73,15 +73,25 @@ export function registerSetupCommands(ctx: CommandContext): void {
 
   program
     .command('adopt')
-    .description('Adopt a candidate capture manifest into active environment management')
-    .requiredOption('-f, --from <file>', '(required) path to candidate capture manifest')
+    .description('Take a captured manifest into management: write it to the manifest and lock')
+    .argument('[file]', 'candidate manifest written by capture')
+    .usage('[options] <file>')
+    // The file used to be given only as -f; kept out of help for old scripts.
+    .addOption(new Option('-f, --from <file>').hideHelp())
     .option('--dry-run', 'show what adopt would take over without writing; exit code 2 when there is any')
     .option('-y, --yes', 'adopt; without it adopt only previews what it would take over')
     // Only base is valid, so the option is accepted for scripts that pass it but not shown.
     .addOption(new Option('--layer <layer>').hideHelp())
-    .action(async (cmdOpts) => {
+    .action(async (file: string | undefined, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
+      if (file !== undefined && cmdOpts.from !== undefined) {
+        throw new ValidationError('Give the capture file once: as the argument or with -f, not both');
+      }
+      const from: string | undefined = file ?? cmdOpts.from;
+      if (from === undefined) {
+        throw new ValidationError("missing required argument 'file'");
+      }
 
       const selection = resolveCliOverlay(opts, paths);
       if (resolveWriteLayer(selection, cmdOpts.layer) === 'overlay') {
@@ -90,9 +100,9 @@ export function registerSetupCommands(ctx: CommandContext): void {
       // Adopt rewrites the base and the whole lock; a subscription always owns the base, so team lock entries stay intact too.
       assertNotRemoteOwned(paths, paths.manifestFile);
 
-      const candidatePath = path.isAbsolute(cmdOpts.from)
-        ? cmdOpts.from
-        : path.resolve(process.cwd(), cmdOpts.from);
+      const candidatePath = path.isAbsolute(from)
+        ? from
+        : path.resolve(process.cwd(), from);
 
       if (!fs.existsSync(candidatePath)) {
         throw new ValidationError(`Candidate file not found: ${candidatePath}`);

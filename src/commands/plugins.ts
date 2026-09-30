@@ -721,7 +721,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
     parent
       .command('remove <alias>')
       .alias('uninstall')
-      .description('Remove a plugin from the manifest (apply removes it from DSH)')
+      .description('Remove a plugin from the manifest (apply removes it from DSH; purge clears the config patch and clone it leaves)')
       .addOption(targetProfile())
       // Removing only edits the manifest (apply does the rest), so there is nothing to confirm; kept for old scripts.
       .addOption(new Option('-y, --yes').hideHelp())

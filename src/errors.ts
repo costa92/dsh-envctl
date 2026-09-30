@@ -38,7 +38,7 @@ export class FileExistsError extends DshError {
 }
 
 export const START_HINT =
-  'run dshenv init to start one, or dshenv capture -o candidate.yaml then dshenv adopt -f candidate.yaml to manage the DSH setup you have';
+  'run dshenv init to start one, or dshenv capture -o candidate.yaml then dshenv adopt candidate.yaml to manage the DSH setup you have';
 
 // Every command that needs the manifest says how to get one, since a missing manifest usually means a first run.
 export function missingManifestError(manifestFile: string): ValidationError {

@@ -17,7 +17,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
 
   program
     .command('plan')
-    .description('Plan drift between target manifest and actual DSH environment')
+    .description('Show what apply would change: the manifest against DSH on disk')
     .addOption(filterProfile())
     .action(async (cmdOpts: { profile?: string }) => {
       const opts = program.opts();
@@ -63,7 +63,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
   program
     .command('status')
     .argument('[alias]', 'show only this plugin (alias or package name)')
-    .description('Display status summary of DSH environment and manifests')
+    .description('Show whether DSH matches the manifest: drift, pending operations and unmanaged plugins')
     .addOption(filterProfile())
     .action(async (plugin: string | undefined, cmdOpts: { profile?: string }) => {
       const opts = program.opts();
@@ -121,7 +121,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
 
   program
     .command('doctor')
-    .description('Probe DSH runtime and inspect environment readiness')
+    .description('Check that DSH runs and the dshenv files are readable (not whether plugins are loaded: verify)')
     .action(async () => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
