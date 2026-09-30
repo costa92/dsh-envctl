@@ -6,11 +6,14 @@
 
 ### 升级须知
 
-- `state.json` 升级为 `dshenv-state/v2`：插件所有权（原 `ownership`）与 skill 的同步基线（原 `skills`）合并到 `resources.plugin` 与 `resources.skill`。新版本照常读取旧格式，下次写 state 时自动转换；但转换后 0.4.x 读不了，会以 `Invalid state schema: apiVersion` 退出。打算退回 0.4.x 的话，升级前先备份 `envctl/state.json`，退回时放回去。
+- `state.json` 的结构不兼容 0.4.x（`apiVersion` 仍为 `dshenv-state/v1`）：顶层的插件所有权 `ownership` 与 skill 基线 `skills` 移到 `resources` 下，新版本不读旧结构，遇到会报 `Invalid state schema: : Unrecognized keys: "ownership", "skills"` 并以退出码 3 退出，`rollback` 到升级前的快照也会因此失败。升级后先把 `envctl/state.json` 手工改成新结构：
+  - `"ownership": { <profile>: { <包名>: {…} } }` 改为 `"resources": { "plugin": { <profile>: { <包名>: {…} } } }`，记录内容不变；
+  - `"skills": { <名字>: "<摘要>" }` 改为 `"resources": { "skill": { <名字>: { "digest": "<摘要>" } } }`；
+  - 两者都有时合在同一个 `resources` 里。改完运行 `dshenv status` 确认能读取。
 
 ### 变更
 
-- `state.json` 按资源类型记录 dshenv 拥有的资源（见「升级须知」），为插件、profile patch、skill 统一生命周期做准备；命令的输出与行为不变。
+- `state.json` 按资源类型记录 dshenv 拥有的资源（`resources.plugin`、`resources.skill`，见「升级须知」），为插件、profile patch、skill 统一生命周期做准备；命令的输出与行为不变。
 
 ### 修复
 

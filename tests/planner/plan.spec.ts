@@ -149,7 +149,7 @@ describe('buildPlan', () => {
       }
     };
     const state: EnvironmentState = {
-      apiVersion: 'dshenv-state/v2',
+      apiVersion: 'dshenv-state/v1',
       lastApplied: '2026-01-01T00:00:00.000Z',
       appliedLockHash: '',
       profiles: {},
@@ -913,7 +913,7 @@ describe('plan edge cases around profiles and in-box listings', () => {
       }
     };
     const state: EnvironmentState = {
-      apiVersion: 'dshenv-state/v2',
+      apiVersion: 'dshenv-state/v1',
       lastApplied: '',
       appliedLockHash: '',
       profiles: {},

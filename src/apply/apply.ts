@@ -492,7 +492,7 @@ async function planAndApply(
   // DSH cannot take an install back, so each one is owned as soon as it succeeds, even if apply then fails or is killed.
   const installed: PluginOperation[] = [];
   const recordInstalled = async (): Promise<void> => {
-    const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v2', lastApplied: '', appliedLockHash: '', profiles: {} };
+    const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v1', lastApplied: '', appliedLockHash: '', profiles: {} };
     const plugin = recordInstalledOwnership(base.resources?.plugin, installed, manifest, now, operationId);
     await writeAtomic(paths.stateFile, serializeState(withResources(base, { plugin })), 'overwrite');
   };
@@ -555,7 +555,7 @@ async function planAndApply(
 
     const nextState = withResources(
       {
-        apiVersion: 'dshenv-state/v2',
+        apiVersion: 'dshenv-state/v1',
         lastApplied: now,
         appliedLockHash: lockHash,
         profiles: recordRestartState(state?.profiles, plan, verifiedInventory, now, restart),

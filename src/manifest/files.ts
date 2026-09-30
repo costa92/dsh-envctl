@@ -4,8 +4,7 @@ import { ValidationError } from '../errors.js';
 import {
   ManifestSchema,
   LockSchema,
-  StateSchema,
-  StateV1Schema
+  StateSchema
 } from './schema.js';
 import { OverlaySchema } from '../overlay/schema.js';
 import type {
@@ -93,20 +92,12 @@ export function loadState(content: string): EnvironmentState {
   } catch (err) {
     throw new ValidationError(`Invalid JSON in state file: ${err instanceof Error ? err.message : String(err)}`);
   }
-  const isV1 = raw !== null && typeof raw === 'object' && (raw as Record<string, unknown>).apiVersion === 'dshenv-state/v1';
-  const res = isV1 ? StateV1Schema.safeParse(raw) : StateSchema.safeParse(raw);
+  const res = StateSchema.safeParse(raw);
   if (!res.success) {
     const issues = res.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
     throw new ValidationError(`Invalid state schema: ${issues}`);
   }
-  if (res.data.apiVersion === 'dshenv-state/v2') {
-    return res.data as EnvironmentState;
-  }
-  const { ownership, skills, apiVersion: _v1, ...rest } = res.data;
-  return withResources({ ...rest, apiVersion: 'dshenv-state/v2' } as EnvironmentState, {
-    plugin: ownership,
-    skill: skills && Object.fromEntries(Object.entries(skills).map(([name, digest]) => [name, { digest }]))
-  });
+  return res.data as EnvironmentState;
 }
 
 // Replaces the given kinds of owned resources; a kind that owns nothing is left out, and so are empty resources.

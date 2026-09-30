@@ -50,7 +50,7 @@ async function keepInstalledOwnership(paths: EnvironmentPaths, before: Environme
     return;
   }
   const inventory = await readEnvironmentInventory(paths);
-  const next: EnvironmentState = restored ?? { apiVersion: 'dshenv-state/v2', lastApplied: '', appliedLockHash: '', profiles: {} };
+  const next: EnvironmentState = restored ?? { apiVersion: 'dshenv-state/v1', lastApplied: '', appliedLockHash: '', profiles: {} };
   const plugin = structuredClone(next.resources?.plugin ?? {});
   let changed = false;
   for (const [profile, packages] of Object.entries(before.resources.plugin)) {

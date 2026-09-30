@@ -145,7 +145,7 @@ export interface OwnedResources {
 export type PluginOwnership = NonNullable<OwnedResources['plugin']>;
 
 export interface EnvironmentState {
-  apiVersion: 'dshenv-state/v2';
+  apiVersion: 'dshenv-state/v1';
   lastApplied: string;
   appliedLockHash: string;
   profiles: Record<
