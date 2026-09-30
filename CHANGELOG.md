@@ -11,6 +11,10 @@
   - `"skills": { <名字>: "<摘要>" }` 改为 `"resources": { "skill": { <名字>: { "digest": "<摘要>" } } }`；
   - 两者都有时合在同一个 `resources` 里。改完运行 `dshenv status` 确认能读取。
 
+### 新增
+
+- `apply --yes --verify`：应用之后核对每个有改动的 Profile 在运行中的 `dsh web` 里是否真的加载了（与 `runtime` 相同的检查），热加载中的插件最多等 `--verify-timeout` 秒（默认 30）；退出码与 `runtime` 相同，没有运行中的 `dsh web` 时注明未核对。
+
 ### 变更
 
 - `state.json` 按资源类型记录 dshenv 拥有的资源（`resources.plugin`、`resources.skill`，见「升级须知」），为插件、profile patch、skill 统一生命周期做准备；命令的输出与行为不变。
