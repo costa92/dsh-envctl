@@ -67,7 +67,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
 
   program
     .command('rollback [operationId]')
-    .description('Restore envctl management files from an apply snapshot')
+    .description('Restore the envctl files (manifest, lock, overlays) from an apply snapshot; apply then brings DSH in line')
     .option('--dry-run', 'show which snapshot would be restored; exit code 2')
     .option('-y, --yes', 'restore; without it rollback only previews, like --dry-run')
     .action(async (operationId: string | undefined, cmdOpts) => {
@@ -81,6 +81,9 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         writeOut(JSON.stringify(result, null, 2) + '\n');
       } else {
         writeOut(`${result.message}\n`);
+        if (result.rolledBack && !result.dryRun) {
+          writeOut('DSH itself is unchanged. Next: dshenv plan, then dshenv apply --yes.\n');
+        }
       }
       reportPreview(ctx, { json: opts.json, dryRun: cmdOpts.dryRun, pending: result.dryRun, action: 'restore it' });
     });
@@ -88,7 +91,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
   program
     .command('purge')
     .argument('<alias>', 'plugin alias or package name')
-    .description('Move owned managed patch (and envctl/sources clone) into trash')
+    .description("Move a plugin's managed config patch and envctl/sources clone into trash (gc empties it)")
     .addOption(targetProfile())
     .option('--dry-run', 'list resources that would be moved; exit code 2 when there are any')
     .option('-y, --yes', 'move them; without it purge only previews, like --dry-run')

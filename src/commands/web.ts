@@ -157,7 +157,8 @@ export function registerWebCommands(ctx: CommandContext): void {
     });
 
   web
-    .command('status')
+    .command('list')
+    .alias('status')
     .description('List the dsh web servers dshenv web start left running (never their token)')
     .addOption(filterProfile())
     .action(async (cmdOpts: { profile?: string }) => {

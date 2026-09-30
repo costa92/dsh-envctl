@@ -120,7 +120,7 @@ DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容�
 `-p, --profile <name>` 是 DSH Profile 的名字，即 `profiles/<name>/` 的目录名和清单 `profiles:` 下的键。所有命令用同一套规则：
 
 - 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`runtime`、`web start`、`web stop` 在清单只声明一个 Profile 时直接用它。
-- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web status`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝，不会把拼错的名字报成“已同步”。
+- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web list`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝，不会把拼错的名字报成“已同步”。
 - `source`、`new` 的 `-p` 表示把克隆或新建的包登记到该 Profile，不写就不登记。
 
 - 写入命令（`install`、`new -p`、`source clone -p`）指定一个清单没声明、DSH 也没创建的 Profile 时，默认按拼写错误拒绝并给出相近的名字；确实要新建时加 `--new-profile`。
@@ -326,12 +326,12 @@ dshenv status --json
 ```bash
 dshenv source clone https://github.com/ex/plugin.git --profile web --as demo
 dshenv source clone https://github.com/ex/plugin.git ./external-checkout
-dshenv source status -p web --as demo          # 受管 clone 的 Git 状态（是否有未提交改动、commit、分支）与源码摘要
+dshenv source show -p web --as demo            # 受管 clone 的 Git 状态（是否有未提交改动、commit、分支）与源码摘要
 dshenv source pull -p web --as demo            # 快进受管 clone，并把新的 HEAD commit 写入 lock
 dshenv source pull -p web --as demo --ref v1.2.0
 ```
 
-`source status` / `source pull` 不带 `--profile` 时作用于给出的目录（默认当前目录），`pull` 只快进、不写 lock。带 `--profile` 时，Profile 里恰好有一个 Git 插件可省略 `--as`；`pull` 总是按清单中的 URL 写入完整的 lock 条目，之后 `apply --yes` 安装新 commit。
+`source show` / `source pull` 不带 `--profile` 时作用于给出的目录（默认当前目录），`pull` 只快进、不写 lock。带 `--profile` 时，Profile 里恰好有一个 Git 插件可省略 `--as`；`pull` 总是按清单中的 URL 写入完整的 lock 条目，之后 `apply --yes` 安装新 commit。
 
 不是 DSH bundle 的插件包（`package.json` 没有 `dsh.bundle`，例如 [dsh-session-search](https://github.com/Tieboyh/dsh-session-search)）不能放进 bundle 列表，DSH 会跳过它。dshenv 在安装后检查包类型，这类插件改为在 `cordis.patch.yml` 里写一个受管的 `insert` 行挂载（`# dshenv:begin ... plugin=@mount:<alias>`），`enable`/`disable` 切换这一行，`runtime` 按已加载的插件条目判断。
 
@@ -495,7 +495,7 @@ dshenv apply --yes                                         # 写进 DSH
 
 ```bash
 dshenv web start -p web            # 后台启动，打印浏览器地址；--port 3080 指定端口，默认随机空闲端口
-dshenv web status                  # 列出 dshenv 启动的 dsh web：运行状态、pid、地址（不含 token）；-p 只看一个 Profile
+dshenv web list                    # 列出 dshenv 启动的 dsh web：运行状态、pid、地址（不含 token）；-p 只看一个 Profile
 dshenv runtime -p web              # 没设 DSHENV_DSH_URL 时自动连这个 dsh web
 dshenv web stop -p web             # 停止它以及它启动的子进程（如 stdio MCP 服务），等全部退出后返回
 ```
@@ -547,7 +547,7 @@ dshenv remove agent-teams -p web
 ## 安全边界与约束
 
 1. **路径约束**：清单中的本地链接和本地文件路径必须为绝对路径；仍应只使用可信源码目录和规范的 npm 包名。Profile 名（清单、overlay、lock 与 `-p`）只能含字母、数字、`.`、`_`、`-`，不能以 `-` 开头，也不能是 `.` 或 `..`；Git 地址与 ref 不能以 `-` 开头，清单中的 `commit` 必须是 7-64 位十六进制 commit id。
-2. **凭据使用约束**：不要把明文密钥写入清单、锁文件、patch 配置或源码 `package.json`。清单与 lock 中带账号密码或 token 的 git URL 会被 schema 拒绝，`capture` 会跳过这类依赖并告警。`doctor` 不回显 `DSH_CLI` 参数，但 `source status --json` 会输出源码包摘要，使用前应检查其中是否含敏感字段。
+2. **凭据使用约束**：不要把明文密钥写入清单、锁文件、patch 配置或源码 `package.json`。清单与 lock 中带账号密码或 token 的 git URL 会被 schema 拒绝，`capture` 会跳过这类依赖并告警。`doctor` 不回显 `DSH_CLI` 参数，但 `source show --json` 会输出源码包摘要，使用前应检查其中是否含敏感字段。
 3. **非受管保护**：实际 Profile 中未写入 `manifest.yaml` 的插件保持 `unmanaged`，不会被自动删除（DSH 创建 Profile 时自带的 base/app bundle 不算 `unmanaged`）。
 4. **锁与管理文件快照**：所有写 `manifest`/overlay/`lock`/`state` 的命令都先获取环境锁（最多等 5 秒）。`apply` 执行前备份当时已经存在的管理文件；失败时只原子恢复它自己会写的 `lock.json` 与 `state.json`（快照中不存在的会被删除），`manifest.yaml`、overlay 与 `envctl/skills` 保持原样，以免覆盖 apply 期间的手工修改；已成功安装的插件在恢复后仍记入所有权；恢复本身失败时错误信息会提示运行 `dshenv rollback <id> --yes`。某一步失败时，错误信息写明失败的步骤（如 `[web] install cc (cc), step 2 of 2`）、本次的 operation id、仍然留在 Profile 里的已装插件，以及回到上一次成功 apply 所用清单的命令 `dshenv rollback <上次的 id> --yes`。apply 还会逆序撤销本工具对 Profile `dsh.profile.bundles` 与 `cordis.patch.yml` 的改动；DSH CLI 已完成的包安装、更新或卸载不会撤销，已成功卸载的包也不会恢复其 bundle 与受管块。失败后应重新运行 `status` 与 `plan`。
 
