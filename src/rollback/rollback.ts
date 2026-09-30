@@ -7,6 +7,7 @@ import {
   listEnvironmentSnapshots,
   readAbsentKeys,
   restoreEnvironmentSnapshot,
+  snapshotOverlayKeys,
   type EnvironmentSnapshot
 } from '../io/backup.js';
 import { appendJournalEntry, readJournalEntries } from '../io/journal.js';
@@ -140,7 +141,11 @@ export async function rollbackEnvironment(
   }
   const { snapshot, skipped } = picked;
   assertSnapshotReadable(snapshot.snapshotId, snapshot.snapshotDir);
-  const target = `before ${snapshotOperationId(snapshot.snapshotId)} (snapshot ${snapshot.snapshotId})`;
+  // "As they were before apply-X" read as undoing apply-X; the snapshot holds the manifest it applied.
+  const snapshotOf = snapshotOperationId(snapshot.snapshotId);
+  const target = snapshotOf.startsWith('apply-')
+    ? `saved when ${snapshotOf} started (snapshot ${snapshot.snapshotId}): the manifest it applied, with lock.json and state.json from before it ran`
+    : `saved when ${snapshotOf} started (snapshot ${snapshot.snapshotId})`;
   const skippedNote =
     skipped.length > 0 ? `; skipped ${skipped.join(', ')}, which failed and had already undone its own changes` : '';
 
@@ -150,7 +155,7 @@ export async function rollbackEnvironment(
       dryRun: true,
       snapshotId: snapshot.snapshotId,
       operationId: options.operationId,
-      message: `Would restore the envctl files as they were ${target}${skippedNote}`
+      message: `Would restore the envctl files ${target}${skippedNote}`
     };
   }
 
@@ -164,9 +169,9 @@ export async function rollbackEnvironment(
       details: { snapshotId: snapshot.snapshotId, targetOperationId: options?.operationId }
     });
     // A fresh id, so lookups by the restored snapshot's operation id never match this backup.
-    // Files the restore deletes as absent may be local by now, so the backup must hold them too.
+    // Overlays the restore overwrites or deletes may hold local edits by now, so the backup must hold them too.
     const backup = await createEnvironmentSnapshot(paths, `pre-rollback-${crypto.randomBytes(6).toString('hex')}`, {
-      overlayKeys: readAbsentKeys(snapshot)
+      overlayKeys: snapshotOverlayKeys(snapshot)
     });
     const before = readState(paths);
     await restoreEnvironmentSnapshot(snapshot, paths);
@@ -188,7 +193,7 @@ export async function rollbackEnvironment(
       snapshotId: snapshot.snapshotId,
       operationId: options?.operationId,
       backupSnapshotId: backup.snapshotId,
-      message: `Restored the envctl files as they were ${target}; replaced files saved as snapshot ${backup.snapshotId}${skippedNote}`
+      message: `Restored the envctl files ${target}; the files it replaced are saved as snapshot ${backup.snapshotId}${skippedNote}`
     };
   } finally {
     await lockHandle.release();

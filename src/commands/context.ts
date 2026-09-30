@@ -119,8 +119,16 @@ export function missingProfileError(paths: EnvironmentPaths, opts: { overlay?: s
 }
 
 const targetProfileOptions = new WeakSet<Option>();
+const filterProfileOptions = new WeakSet<Option>();
 const singleProfileOptions = new WeakSet<Option>();
 const writeLayerOptions = new WeakSet<Option>();
+
+// -p that narrows a report; a name no one declared or created would report an empty, healthy environment instead.
+export function filterProfile(): Option {
+  const option = new Option('-p, --profile <name>', PROFILE_FILTER_HELP).argParser(profileOption);
+  filterProfileOptions.add(option);
+  return option;
+}
 
 // -p for a command that works on one profile; defaultTargetProfile fills it in when it is left out. With
 // singleDeclared, as for runtime, the one profile the manifest declares is used when neither -p nor the env names one.
@@ -159,6 +167,15 @@ export function defaultTargetProfile(program: Command, writeErr: (chunk: string)
     const note = (text: string) => {
       if (writes && !opts.json) writeErr(`${text}\n`);
     };
+    const filtered = action.opts().profile;
+    if (action.options.some((option) => filterProfileOptions.has(option)) && typeof filtered === 'string') {
+      const names = knownProfiles(resolveCliPaths(opts), opts);
+      if (!names.includes(filtered)) {
+        throw new ValidationError(
+          `Profile '${filtered}' is neither declared in the manifest nor created by DSH${didYouMean(filtered, names)} (${knownProfilesText(names)})`
+        );
+      }
+    }
     const profileOptionOf = action.options.find((option) => targetProfileOptions.has(option));
     if (profileOptionOf && action.opts().profile === undefined) {
       const profile = profileFromEnv();
@@ -176,21 +193,25 @@ export function defaultTargetProfile(program: Command, writeErr: (chunk: string)
     }
     // new and source clone write the manifest only with -p, and refuse --layer without it.
     if (action.options.some((option) => writeLayerOptions.has(option)) && action.opts().layer === undefined && action.opts().profile !== undefined) {
-      const layer = layerFromEnv();
-      if (layer === undefined) {
+      if (!process.env[LAYER_ENV]) {
         return;
       }
-      let overlayActive = false;
+      let overlayActive: boolean;
       try {
         overlayActive = resolveCliOverlay(opts, resolveCliPaths(opts)) !== null;
       } catch {
         // The command reports a broken overlay selection itself.
+        return;
       }
-      // Only an active overlay makes --layer matter; without one the write goes to the base as always.
       if (overlayActive) {
+        const layer = layerFromEnv();
         action.setOptionValue('layer', layer);
         note(`Using layer '${layer}' from ${LAYER_ENV}`);
+      } else if (process.env[LAYER_ENV] === 'overlay') {
+        // A change meant for this machine must not land in the base the team shares.
+        throw new ValidationError(`--layer overlay requires an active overlay (use --overlay or dshenv overlay use) (from ${LAYER_ENV})`);
       }
+      // Otherwise the write goes to the base as always, so the variable has no effect.
     }
   });
 }

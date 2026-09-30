@@ -110,6 +110,10 @@ function assertListedTool(tree: ProfilePatch[], profile: string, toolId: string)
   }
 }
 
+function isTombstone(entry: object): boolean {
+  return (entry as { remove?: unknown }).remove === true;
+}
+
 function upsertPatch(list: ProfilePatch[] | undefined, patch: ProfilePatch): ProfilePatch[] {
   const next = [...(list ?? [])];
   const index = next.findIndex((entry) => overrideKey(entry) === patch.id);
@@ -230,6 +234,11 @@ export function registerToolsCommands(ctx: CommandContext): void {
       const target = locateTool(tree, tool, cmdOpts.preset);
       const config = declaredToolRow(tree, declaredPatches(paths, resolveCliOverlay(opts, paths), cmdOpts.profile), target).config ?? {};
       const shown = dottedPath === undefined ? config : getAtPath(config as Record<string, unknown>, dottedPath);
+      if (dottedPath !== undefined && shown === undefined) {
+        throw new ValidationError(
+          `The config of tool '${tool}' in profile '${cmdOpts.profile}' has no '${dottedPath}'${didYouMean(dottedPath.split('.')[0], Object.keys(config))}`
+        );
+      }
       writeOut(`${JSON.stringify(shown ?? null, null, 2)}\n`);
     });
 
@@ -247,25 +256,28 @@ export function registerToolsCommands(ctx: CommandContext): void {
       const target = locateTool(tree, toolId, cmdOpts.preset);
       const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
       const patchId = target.location.kind === 'preset' ? target.location.entry : String(target.row.id);
+      // A tombstone only hides the base entry, so a base write under it is not lost.
       const overlayDeclares = (name: string) =>
-        readOverlay(paths, name).profiles?.[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId) ?? false;
+        readOverlay(paths, name).profiles?.[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId && !isTombstone(entry)) ?? false;
       if (!overlay && selection && overlayDeclares(selection.name)) {
         throw new ValidationError(`The active overlay '${selection.name}' declares '${patchId}', which overrides the base; use --layer overlay`);
       }
       const outcome = overlay
         ? await writeOverlay(paths, overlay, (doc, base) => {
+            const entries = doc.profiles?.[cmdOpts.profile]?.patches ?? [];
+            const mine = entries.find((entry) => overrideKey(entry) === patchId);
+            // Already dropped from the effective manifest; removing the tombstone would bring the base patch back.
+            if (mine && isTombstone(mine)) {
+              return 'unchanged' as const;
+            }
+            // While the base declares it, the overlay can only drop it from the effective manifest.
+            const baseDeclares = base.profiles[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId) ?? false;
+            if (!mine && !baseDeclares) {
+              return 'unchanged' as const;
+            }
             const profile = ((doc.profiles ??= {})[cmdOpts.profile] ??= {});
-            const own = profile.patches?.filter((entry) => overrideKey(entry) !== patchId);
-            if (own && own.length !== (profile.patches?.length ?? 0)) {
-              profile.patches = own;
-              return 'removed' as const;
-            }
-            // The base declares it: the overlay can only drop it from the effective manifest.
-            if (base.profiles[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId)) {
-              profile.patches = [...(profile.patches ?? []), { id: patchId, remove: true }];
-              return 'removed' as const;
-            }
-            return 'unchanged' as const;
+            profile.patches = [...entries.filter((entry) => overrideKey(entry) !== patchId), ...(baseDeclares ? [{ id: patchId, remove: true as const }] : [])];
+            return 'removed' as const;
           })
         : await writeBase(paths, selection, (manifest) => {
             const profile = manifest.profiles[cmdOpts.profile];

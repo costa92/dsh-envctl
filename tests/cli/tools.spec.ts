@@ -196,4 +196,42 @@ profiles:
     expect((await run(['tools', 'reset', 'tool-web', '-p', 'headless'])).stdout).toMatch(/^Removed patch 'tool-web' for tool 'tool-web' in profile 'headless'/);
     expect(manifest().profiles.headless.patches).toBeUndefined();
   });
+
+  it('resets a base patch in an overlay once, and a second reset leaves the tombstone in place', async () => {
+    await run(['tools', 'disable', 'tool-web', '-p', 'headless']);
+    const overlayFile = path.join(tempHome, 'envctl', 'overlays', 'local.yaml');
+    fs.mkdirSync(path.dirname(overlayFile), { recursive: true });
+    fs.writeFileSync(overlayFile, 'apiVersion: dshenv-overlay/v1\n');
+    const reset = (layer: string) => run(['tools', 'reset', 'tool-web', '-p', 'headless', '--overlay', 'local', '--layer', layer]);
+
+    expect((await reset('overlay')).stdout).toMatch(/^Removed patch 'tool-web'/);
+    const tombstoned = fs.readFileSync(overlayFile, 'utf8');
+    expect(tombstoned).toMatch(/id: tool-web\n\s+remove: true/);
+    // Dropping the tombstone would bring the base patch back while saying it was removed.
+    const again = await reset('overlay');
+    expect(again.code).toBe(0);
+    expect(again.stdout).toMatch(/nothing to reset/);
+    expect(fs.readFileSync(overlayFile, 'utf8')).toBe(tombstoned);
+    // A tombstone is not an overlay patch the base write would hide, so the base can be cleaned up too.
+    expect((await reset('base')).code).toBe(0);
+    expect(manifest().profiles.headless?.patches).toBeUndefined();
+  });
+
+  it('leaves an overlay untouched when it has nothing to reset', async () => {
+    const overlayFile = path.join(tempHome, 'envctl', 'overlays', 'local.yaml');
+    fs.mkdirSync(path.dirname(overlayFile), { recursive: true });
+    fs.writeFileSync(overlayFile, 'apiVersion: dshenv-overlay/v1\n');
+    const out = await run(['tools', 'reset', 'tool-web', '-p', 'headless', '--overlay', 'local', '--layer', 'overlay']);
+    expect(out.stdout).toMatch(/nothing to reset/);
+    expect(fs.readFileSync(overlayFile, 'utf8')).toBe('apiVersion: dshenv-overlay/v1\n');
+  });
+
+  it('refuses a config key the tool does not have, like config get', async () => {
+    const out = await run(['tools', 'config', 'tool-web', 'fetchMaxOutputChar', '-p', 'headless']);
+    expect(out.code).toBe(3);
+    expect(out.stderr).toMatch(/has no 'fetchMaxOutputChar'; did you mean 'fetchMaxOutputChars'\?/);
+    const json = await run(['tools', 'config', 'tool-web', 'nosuch', '-p', 'headless', '--json']);
+    expect(json.code).toBe(3);
+    expect(JSON.parse(json.stderr).error).toMatchObject({ type: 'ValidationError', exitCode: 3 });
+  });
 });

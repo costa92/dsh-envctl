@@ -192,18 +192,10 @@ async function executeWithDsh(
   hmrByProfile: ReadonlyMap<string, HmrStatus>,
   onInstalled: (operation: PlanOperation) => Promise<void>,
   signal: AbortSignal | undefined,
+  command: CommandSpec | null,
   options?: ApplyOptions
 ): Promise<{ success: boolean; error?: string; failedAt?: string }> {
   assertSupportedPlan(plan);
-
-  const needsCli = planNeedsDshCli(plan, inventory);
-  const command = needsCli ? dshCommandFor(manifest, options) : null;
-  if (needsCli && !command) {
-    throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
-  }
-  if (command) {
-    await assertSupportedDsh(command, manifest, options);
-  }
 
   const commandTimeoutMs = options?.dshCommandTimeoutMs ?? DSH_COMMAND_TIMEOUT_MS;
   // A plugin that is not a DSH bundle is switched by its insert row; it never belongs in the bundle list.
@@ -534,10 +526,11 @@ function assertSupportedPlan(plan: EnvironmentPlan): void {
 async function recoveryHint(paths: EnvironmentPaths, operationId: string, installed: PlanOperation[]): Promise<string> {
   const kept = installed.length > 0 ? `; plugins it installed before failing stay installed: ${installed.map((op) => op.alias).join(', ')}` : '';
   const lines = [`Apply ${operationId} put lock.json and state.json back${kept}.`];
-  const previous = await lastSuccessfulApply(paths);
+  // Only a pointer onward; a lookup failure must not read as a failed restore.
+  const previous = await lastSuccessfulApply(paths).catch(() => null);
   lines.push(
     previous
-      ? `The manifest still declares what failed: fix it and apply again, or go back to the manifest apply ${previous} applied with: dshenv rollback ${previous} --yes`
+      ? `The manifest still declares what failed: fix it and apply again, or go back to the manifest apply ${previous} applied (dropping every manifest change made since) with: dshenv rollback ${previous} --yes`
       : 'The manifest still declares what failed: fix it and apply again.'
   );
   return `\n${lines.join('\n')}`;
@@ -660,6 +653,16 @@ async function planAndApply(
     };
   }
 
+  // Checked before the snapshot and journal entry, so a refused DSH leaves nothing for rollback to pick.
+  const needsCli = !options?.executor && planNeedsDshCli(plan, inventory);
+  const command = needsCli ? dshCommandFor(manifest, options) : null;
+  if (needsCli && !command) {
+    throw new CapabilityError('DSH CLI was not found; configure DSH_CLI or --harness-source');
+  }
+  if (command) {
+    await assertSupportedDsh(command, manifest, options);
+  }
+
   const operationId = `apply-${crypto.randomBytes(6).toString('hex')}`;
   const now = new Date().toISOString();
 
@@ -701,7 +704,7 @@ async function planAndApply(
     // 3. Execute operations via executor (or the DSH CLI adapter)
     const execRes = options?.executor
       ? await options.executor(plan, paths)
-      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, hmrByProfile, onInstalled, signal, options);
+      : await executeWithDsh(plan, paths, manifest, lock, inventory, rollback, hmrByProfile, onInstalled, signal, command, options);
     if (!execRes.success) {
       failedStep = true;
       const at = 'failedAt' in execRes && execRes.failedAt ? ` at ${execRes.failedAt}` : '';
@@ -786,14 +789,14 @@ async function planAndApply(
             reason: err instanceof Error ? err.message : String(err)
           }
         });
-        if (failedStep) {
-          failureNote = await recoveryHint(paths, operationId, installed);
-        }
       } catch (restoreErr) {
         const reason = restoreErr instanceof Error ? restoreErr.message : String(restoreErr);
         failureNote =
           `; restoring lock.json and state.json from snapshot ${snapshot.snapshotId} also failed (${reason}), ` +
           `run dshenv rollback ${operationId} --yes`;
+      }
+      if (failedStep && !failureNote) {
+        failureNote = await recoveryHint(paths, operationId, installed);
       }
     }
 

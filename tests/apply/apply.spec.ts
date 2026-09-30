@@ -263,6 +263,9 @@ process.exit(0);
     await expect(applyEnvironment(paths)).rejects.toThrow(
       'Unsupported DSH version 0.1.70: dshenv supports DSH 0.1.7 (e.g. 0.1.7-rc.2). Point DSH_CLI at a supported DSH, or pass --allow-untested-dsh to use this one anyway.'
     );
+    // Refused before it started: no snapshot for rollback to pick, no journal entry.
+    expect(fs.existsSync(paths.backupsDir) ? fs.readdirSync(paths.backupsDir) : []).toEqual([]);
+    expect(fs.existsSync(path.join(paths.logsDir, 'journal.jsonl'))).toBe(false);
     // A preview checks the version too, so it does not promise a plan the real apply then refuses.
     await expect(applyEnvironment(paths, { dryRun: true })).rejects.toThrow(/^Unsupported DSH version 0\.1\.70:/);
     await expect(applyEnvironment(paths, { dryRun: true, allowUntested: true })).resolves.toMatchObject({ dryRun: true });
