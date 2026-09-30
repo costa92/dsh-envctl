@@ -9,6 +9,7 @@ import {
   capabilitiesFor,
   type CommandSpec
 } from '../../src/dsh/index.js';
+import { reaped } from '../helpers/process.js';
 
 describe('probeDsh', () => {
   const cmd: CommandSpec = { file: 'dsh', args: [] };
@@ -37,17 +38,21 @@ describe('probeDsh', () => {
       // Like pnpm: the grandchild shares the output pipes, so they stay open after the wrapper is killed.
       fs.writeFileSync(wrapper, `
 import { spawn } from 'node:child_process';
-spawn(process.execPath, ['-e', \`require('fs').writeFileSync(\${JSON.stringify(${JSON.stringify(pidFile)})}, String(process.pid)); setTimeout(() => {}, 15000)\`], { stdio: 'inherit' });
+spawn(process.execPath, ['-e', \`require('fs').writeFileSync(\${JSON.stringify(${JSON.stringify(pidFile)})}, String(process.pid)); setTimeout(() => {}, 60000)\`], { stdio: 'inherit' });
 setInterval(() => {}, 1000);
 `);
       const started = Date.now();
-      await expect(probeDsh({ file: process.execPath, args: [wrapper] }, undefined, 300)).rejects.toThrow('DSH runtime probe execution failed');
-      expect(Date.now() - started).toBeLessThan(5_000);
-      expect(() => process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 0)).toThrow();
+      // Long enough for the grandchild to start even on a slow Windows runner, so there is a tree to stop.
+      await expect(probeDsh({ file: process.execPath, args: [wrapper] }, undefined, 3_000)).rejects.toThrow('DSH runtime probe execution failed');
+      // Far short of the grandchild's 60 s: the probe did not wait for the pipes it holds.
+      expect(Date.now() - started).toBeLessThan(20_000);
+      // Read outside any toThrow callback, so a grandchild that never started fails here instead of passing.
+      expect(fs.existsSync(pidFile)).toBe(true);
+      expect(await reaped(Number(fs.readFileSync(pidFile, 'utf8')))).toBe(true);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
-  }, 20_000);
+  }, 30_000);
 });
 
 describe('resolveDshCommand', () => {

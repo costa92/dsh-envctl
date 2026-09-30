@@ -26,9 +26,15 @@ describe('file writes while another process reads the file', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dshenv-readers-'));
   });
 
-  afterEach(() => {
-    reader?.kill();
-    fs.rmSync(dir, { recursive: true, force: true });
+  afterEach(async () => {
+    // Windows cannot remove the directory while the reader still has a file in it open.
+    if (reader && reader.exitCode === null && reader.signalCode === null) {
+      const exited = new Promise((resolve) => reader!.once('exit', resolve));
+      reader.kill();
+      await exited;
+    }
+    reader = undefined;
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('replaces the file every time', async () => {

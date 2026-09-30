@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { releaseProfileLockOfStopped, withProfilePackageLock } from '../../src/io/profile-lock.js';
 
 describe('withProfilePackageLock', () => {
@@ -86,12 +87,13 @@ describe('withProfilePackageLock', () => {
   });
 
   it('removes a lock left by a process dshenv stopped, and no other', async () => {
-    // 999999 stands for a stopped process: no pid that high is running.
-    fs.writeFileSync(lockPath, '999999\n');
-    await releaseProfileLockOfStopped(packageJson, [123, 999999]);
+    // A process that has exited and been reaped stands for one dshenv stopped; a fixed pid could be running.
+    const stopped = spawnSync(process.execPath, ['-e', '']).pid;
+    fs.writeFileSync(lockPath, `${stopped}\n`);
+    await releaseProfileLockOfStopped(packageJson, [123, stopped]);
     expect(fs.existsSync(lockPath)).toBe(false);
 
-    fs.writeFileSync(lockPath, '999999\n');
+    fs.writeFileSync(lockPath, `${stopped}\n`);
     await releaseProfileLockOfStopped(packageJson, [123]);
     expect(fs.existsSync(lockPath)).toBe(true);
 

@@ -27,7 +27,7 @@ describe('CLI source clone --profile', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('should clone into envctl/sources and lock the commit so plan is install not blocked', async () => {

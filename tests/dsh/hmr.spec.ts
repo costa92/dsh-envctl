@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { parseHmrFromDump, probeProfileHmr } from '../../src/dsh/hmr.js';
 import { resolveDshCommand } from '../../src/dsh/command.js';
+import { reaped } from '../helpers/process.js';
 
 const header = `# == @deepseek-ai/dsh-base
 - id: tool-plugin-manager
@@ -175,18 +176,20 @@ process.stdout.write(${JSON.stringify(dumpWithHmr("  disabled: !!js '!ctx.get(''
     // Like pnpm: the grandchild shares the output pipes, so they stay open after the wrapper is killed.
     const command = fakeDsh(`
 import { spawn } from 'node:child_process';
-spawn(process.execPath, ['-e', \`require('fs').writeFileSync(\${JSON.stringify(${JSON.stringify(pidFile)})}, String(process.pid)); setTimeout(() => {}, 15000)\`], { stdio: 'inherit' });
+spawn(process.execPath, ['-e', \`require('fs').writeFileSync(\${JSON.stringify(${JSON.stringify(pidFile)})}, String(process.pid)); setTimeout(() => {}, 60000)\`], { stdio: 'inherit' });
 setInterval(() => {}, 1000);
 `);
     const started = Date.now();
-    expect(await probeProfileHmr('web', { command, dshHome: dir, timeoutMs: 300 })).toEqual({
+    // Long enough for the grandchild to start even on a slow Windows runner, so there is a tree to stop.
+    expect(await probeProfileHmr('web', { command, dshHome: dir, timeoutMs: 3_000 })).toEqual({
       state: 'unknown',
-      reason: 'dsh --dump-config timed out after 300 ms'
+      reason: 'dsh --dump-config timed out after 3000 ms'
     });
-    expect(Date.now() - started).toBeLessThan(5_000);
-    const grandchild = Number(fs.readFileSync(pidFile, 'utf8'));
-    expect(() => process.kill(grandchild, 0)).toThrow();
-  }, 20_000);
+    // Far short of the grandchild's 60 s: the probe did not wait for the pipes it holds.
+    expect(Date.now() - started).toBeLessThan(20_000);
+    expect(fs.existsSync(pidFile)).toBe(true);
+    expect(await reaped(Number(fs.readFileSync(pidFile, 'utf8')))).toBe(true);
+  }, 30_000);
 
   it('reads the dump of a source checkout run through pnpm without pnpm script banners', async () => {
     const source = path.join(dir, 'source');
@@ -195,7 +198,7 @@ setInterval(() => {}, 1000);
     fs.writeFileSync(path.join(source, 'cli.mjs'), `process.stdout.write(${JSON.stringify(dumpWithHmr('  disabled: true\n'))});`);
     const command = resolveDshCommand({ cliHarnessSource: source });
     expect(await probeProfileHmr('web', { command, dshHome: dir })).toEqual({ state: 'off' });
-  }, 20_000);
+  }, 30_000);
 
   it('reports unparseable output as unknown', async () => {
     const command = fakeDsh(`process.stdout.write('- id: hmr\\n  name: [unclosed\\n');`);

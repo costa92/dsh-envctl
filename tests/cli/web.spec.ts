@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { execa } from 'execa';
 import { runCli } from '../../src/cli.js';
 import { startFakeDshWeb, type FakeDshWeb } from '../helpers/fake-dsh-web.js';
+import { alive, reaped } from '../helpers/process.js';
 
 const PKG = '@nanmicoder/dsh-agent-teams';
 
@@ -29,17 +30,8 @@ describe('CLI web', () => {
   };
   const recordFile = (profile = 'web') => path.join(tempHome, 'envctl', 'run', `${profile}.json`);
   const record = (profile = 'web') => JSON.parse(fs.readFileSync(recordFile(profile), 'utf8')) as { pid: number; url: string };
-  const alive = (pid: number): boolean => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
   // Windows has no process groups; there the fake dsh web is node itself, with nothing under it.
   const killDsh = (pid: number) => process.kill(process.platform === 'win32' ? pid : -pid, 'SIGKILL');
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const withEnv = async (name: string, value: string, fn: () => Promise<void>) => {
     const previous = process.env[name];
     process.env[name] = value;
@@ -138,7 +130,7 @@ describe('CLI web', () => {
     const stopped = await run(['web', 'stop', '-p', 'web']);
     expect(stopped.code).toBe(0);
     expect(stopped.stdout).toBe(`Stopped dsh web for profile web (pid ${pid})\n`);
-    expect(alive(pid)).toBe(false);
+    expect(await reaped(pid)).toBe(true);
     expect(fs.existsSync(recordFile())).toBe(false);
     expect((await run(['web', 'stop', '-p', 'web'])).stdout).toBe('No dsh web started by dshenv is running for profile web.\n');
   });
@@ -148,7 +140,7 @@ describe('CLI web', () => {
     await run(['web', 'start', '-p', 'web']);
     const { pid } = record();
     killDsh(pid);
-    while (alive(pid)) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await reaped(pid)).toBe(true);
 
     expect((await run(['web', 'status'])).stdout).toBe(`web  not running  pid ${pid}\n`);
     const runtime = await run(['runtime', '-p', 'web']);
@@ -210,7 +202,7 @@ describe('CLI web', () => {
       expect((await run(['web', 'status'])).stdout).toMatch(/^web {2}running {2}pid /);
       expect((await run(['web', 'stop', '-p', 'web'])).stdout).toBe(`Stopped dsh web for profile web (pid ${pid})\n`);
     });
-    expect(alive(pid)).toBe(false);
+    expect(await reaped(pid)).toBe(true);
   });
 
   it('leaves alone a process that later got the recorded pid, even where ps is missing', async () => {
@@ -218,7 +210,7 @@ describe('CLI web', () => {
     await run(['web', 'start', '-p', 'web']);
     const stale = record();
     killDsh(stale.pid);
-    while (alive(stale.pid)) await sleep(20);
+    expect(await reaped(stale.pid)).toBe(true);
     // Whatever gets the pid next, in a process group of its own like dsh web's.
     const other = execa(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore', reject: false });
     const otherPid = other.pid!;
@@ -259,14 +251,14 @@ setInterval(() => {}, 1000);`);
     const { pid } = record();
     const child = Number(fs.readFileSync(childPidFile, 'utf8'));
     process.kill(pid, 'SIGKILL');
-    while (alive(pid)) await sleep(20);
+    expect(await reaped(pid)).toBe(true);
     expect(alive(child)).toBe(true);
 
     expect((await run(['web', 'status'])).stdout).toBe(`web  not running (leftover processes)  pid ${pid}\n`);
     expect((await run(['runtime', '-p', 'web'])).code).toBe(3);
     const restarted = await run(['web', 'start', '-p', 'web']);
     expect(restarted.stdout).toMatch(/^Started dsh web/);
-    expect(alive(child)).toBe(false);
+    expect(await reaped(child)).toBe(true);
     expect(record().pid).not.toBe(pid);
   });
 });

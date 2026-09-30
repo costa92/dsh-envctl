@@ -25,7 +25,7 @@ describe('package names come from the source when it can be read', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('reads the package name of a local directory', async () => {

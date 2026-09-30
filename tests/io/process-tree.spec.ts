@@ -40,5 +40,5 @@ setInterval(() => {}, 1000);
     await killProcessTree(child.pid!);
     expect(alive(grandchild)).toBe(false);
     expect((await child).signal).toBe('SIGTERM');
-  }, 20_000);
+  }, 30_000);
 });

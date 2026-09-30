@@ -24,7 +24,7 @@ describe('snapshots with a remote subscription', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('saves only the manifest, lock and state without remote.json', async () => {

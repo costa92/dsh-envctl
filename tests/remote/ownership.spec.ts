@@ -28,7 +28,7 @@ describe('remote ownership', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('reports no drift for untouched files and entries', () => {

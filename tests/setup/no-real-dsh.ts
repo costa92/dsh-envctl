@@ -18,6 +18,13 @@ export default function setup(): () => void {
   delete process.env.DSHENV_PROFILE;
   const originalLayer = process.env.DSHENV_LAYER;
   delete process.env.DSHENV_LAYER;
+  // The same goes for the rest of the environment dshenv reads: an overlay, a dsh web URL or a DSH home in the
+  // developer's shell would point tests at the developer's own setup.
+  const dropped = ['DSHENV_OVERLAY', 'DSHENV_DSH_URL', 'DSH_HOME', 'DSH_PLUGIN_SOURCE_HOME'].map((name) => {
+    const value = process.env[name];
+    delete process.env[name];
+    return [name, value] as const;
+  });
   // install asks npm whether a version exists; tests must not depend on the registry, so they opt in per test.
   const originalNpmCheck = process.env.DSHENV_NPM_CHECK;
   process.env.DSHENV_NPM_CHECK = 'off';
@@ -32,6 +39,9 @@ export default function setup(): () => void {
     if (originalDshCli !== undefined) process.env.DSH_CLI = originalDshCli;
     if (originalProfile !== undefined) process.env.DSHENV_PROFILE = originalProfile;
     if (originalLayer !== undefined) process.env.DSHENV_LAYER = originalLayer;
+    for (const [name, value] of dropped) {
+      if (value !== undefined) process.env[name] = value;
+    }
     if (originalNpmCheck === undefined) delete process.env.DSHENV_NPM_CHECK;
     else process.env.DSHENV_NPM_CHECK = originalNpmCheck;
     fs.rmSync(binDir, { recursive: true, force: true });
