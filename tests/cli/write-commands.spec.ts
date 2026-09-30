@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { runCli } from '../../src/cli.js';
-import { loadManifest } from '../../src/manifest/files.js';
+import { loadManifest, serializeManifest } from '../../src/manifest/files.js';
 import { OverlaySchema } from '../../src/overlay/schema.js';
 import { parse as parseYaml } from 'yaml';
 
@@ -235,26 +235,68 @@ describe('CLI manifest write commands', () => {
       useOverlay('laptop');
       await run(['config', 'set', 'agent-teams', 'mode', 'fast', '-p', 'web', '--layer', 'overlay']);
       expect((await run(['config', 'unset', 'agent-teams', 'mode', '-p', 'web', '--layer', 'overlay'])).code).toBe(0);
-      expect(overlay('laptop').profiles?.web?.plugins?.['agent-teams']?.patches?.[0].config).toEqual({});
+      // A patch left with nothing to set is dropped, not kept as `config: {}`.
+      expect(overlay('laptop').profiles?.web?.plugins?.['agent-teams']?.patches).toBeUndefined();
       const base = await run(['config', 'unset', 'agent-teams', 'team.lead', '-p', 'web', '--layer', 'overlay']);
       expect(base.code).toBe(3);
       expect(base.stderr).toBe("'team.lead' of 'agent-teams' is set in the base manifest, which an overlay cannot remove; use --layer base\n");
     });
 
-    it('refuses a key DSH does not compose for the plugin, unless --force', async () => {
+    it('warns about a key DSH does not compose for the plugin but sets it, and --force keeps quiet', async () => {
       const fakeDsh = path.join(tempHome, 'fake-dsh.mjs');
       fs.writeFileSync(
         fakeDsh,
         `if (process.argv.includes('--dump-config')) { process.stdout.write(${JSON.stringify(`- id: agent-teams\n  name: '${PKG}'\n  config:\n    taskPlanning: auto\n    team: {}\n`)}); process.exit(0); }\nprocess.exit(1);\n`
       );
       process.env.DSH_CLI = JSON.stringify([process.execPath, fakeDsh]);
+      // DSH composes only the keys that have defaults, so a key it does not show can still be real.
       const typo = await run(['config', 'set', 'agent-teams', 'taskPlaning', 'captain', '-p', 'web']);
-      expect(typo.code).toBe(3);
+      expect(typo.code).toBe(0);
       expect(typo.stderr).toBe(
-        `'taskPlaning' is not a config key of ${PKG}; did you mean 'taskPlanning'? (DSH composes: taskPlanning, team); pass --force to set it anyway\n`
+        `'taskPlaning' is not among the keys DSH composes for ${PKG} (taskPlanning, team); did you mean 'taskPlanning'? Set it anyway; pass --force to skip this check\n`
       );
-      expect((await run(['config', 'set', 'agent-teams', 'taskPlanning', 'captain', '-p', 'web'])).code).toBe(0);
-      expect((await run(['config', 'set', 'agent-teams', 'taskPlaning', 'captain', '-p', 'web', '--force'])).code).toBe(0);
+      expect(manifest().profiles.web.plugins['agent-teams'].patches?.[0].config).toMatchObject({ taskPlaning: 'captain' });
+      expect((await run(['config', 'set', 'agent-teams', 'taskPlanning', 'captain', '-p', 'web'])).stderr).toBe('');
+      expect((await run(['config', 'set', 'agent-teams', 'maxRounds', '3', '-p', 'web', '--force'])).stderr).toBe('');
+    });
+
+    it('refuses __proto__, prototype and constructor in a path and never reaches inherited keys', async () => {
+      for (const args of [
+        ['config', 'set', 'agent-teams', '__proto__.polluted', 'yes', '-p', 'web'],
+        ['config', 'set', 'agent-teams', 'team.constructor.prototype', 'yes', '-p', 'web', '--force'],
+        ['config', 'unset', 'agent-teams', '__proto__.toString', '-p', 'web'],
+        ['config', 'get', 'agent-teams', 'constructor', '-p', 'web']
+      ]) {
+        const out = await run(args);
+        expect(out.code, args.join(' ')).toBe(3);
+        expect(out.stderr).toMatch(/^Invalid config path: /);
+      }
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect(typeof Object.prototype.toString).toBe('function');
+
+      const inherited = await run(['config', 'unset', 'agent-teams', 'toString', '-p', 'web']);
+      expect(inherited.code).toBe(3);
+      expect(inherited.stderr).toBe("The config of 'agent-teams' in profile 'web' has no 'toString'\n");
+      expect((await run(['config', 'get', 'agent-teams', 'hasOwnProperty', '-p', 'web'])).code).toBe(3);
+    });
+
+    it('refuses an empty config path instead of printing the whole config', async () => {
+      const out = await run(['config', 'get', 'agent-teams', '', '-p', 'web']);
+      expect(out.code).toBe(3);
+      expect(out.stderr).toBe('Invalid config path: \n');
+    });
+
+    it('unsets a key from any declared patch and drops a patch it leaves empty', async () => {
+      const doc = manifest();
+      doc.profiles.web.plugins['agent-teams'].patches = [
+        { id: 'agent-teams', config: { team: { lead: 'captain' } } },
+        { id: 'agent-teams-extra', config: { mode: 'fast' } }
+      ];
+      fs.writeFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), serializeManifest(doc));
+      expect((await run(['config', 'unset', 'agent-teams', 'mode', '-p', 'web'])).code).toBe(0);
+      expect(manifest().profiles.web.plugins['agent-teams'].patches).toEqual([{ id: 'agent-teams', config: { team: { lead: 'captain' } } }]);
+      expect((await run(['config', 'unset', 'agent-teams', 'team.lead', '-p', 'web'])).code).toBe(0);
+      expect(manifest().profiles.web.plugins['agent-teams'].patches).toBeUndefined();
     });
   });
 
@@ -331,31 +373,95 @@ describe.skipIf(process.platform === 'win32')('CLI install checks npm', () => {
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
+  const npmCalls = () => {
+    const log = path.join(tempHome, 'npm-calls.log');
+    return fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [];
+  };
+  // Every fake npm records its arguments, then runs the case body on "$*".
+  const npmCases = (body: string) => fakeNpm(`echo "$*" >> '${path.join(tempHome, 'npm-calls.log')}'\ncase "$*" in\n${body}\nesac`);
+
   it('refuses a version npm does not have and names the latest', async () => {
-    fakeNpm(`case "$2" in *@9.9.9) exit 0 ;; *) echo 0.1.22 ;; esac`);
+    npmCases(`*@9.9.9*) exit 0 ;;\n*) echo 0.1.22 ;;`);
     const out = await run(['install', `${PKG}@9.9.9`, '-p', 'web']);
     expect(out.code).toBe(3);
     expect(out.stderr).toBe(`npm has no version 9.9.9 of ${PKG}; the latest is 0.1.22\n`);
   });
 
-  it('refuses a package npm does not have', async () => {
-    fakeNpm(`echo "npm error code E404" >&2; exit 1`);
-    const out = await run(['install', '@nobody/nothing@1.0.0', '-p', 'web']);
+  it('tells a missing version from a missing package when npm answers E404 for both', async () => {
+    // npm 10 answers E404 for a version it does not have, as for a package it does not have.
+    npmCases(`*@9.9.9*) echo "npm error code E404" >&2; exit 1 ;;\n*) echo 0.1.22 ;;`);
+    const out = await run(['install', `${PKG}@9.9.9`, '-p', 'web']);
     expect(out.code).toBe(3);
-    expect(out.stderr).toBe('npm has no package @nobody/nothing\n');
+    expect(out.stderr).toBe(`npm has no version 9.9.9 of ${PKG}; the latest is 0.1.22\n`);
+    expect(npmCalls()).toEqual([`view -- ${PKG}@9.9.9 version --json --fetch-retries=0`, `view -- ${PKG} version --fetch-retries=0`]);
+  });
+
+  it('warns but goes ahead for a package npm cannot see, which may be private', async () => {
+    npmCases(`*) echo "npm error code E404" >&2; exit 1 ;;`);
+    const out = await run(['install', '@acme/private-plugin@1.0.0', '-p', 'web', '--new-profile']);
+    expect(out.code).toBe(0);
+    expect(out.stderr).toBe(
+      'npm cannot see @acme/private-plugin (a private package needs npm credentials); apply fails if it does not exist. Skip this check with --no-npm-check or DSHENV_NPM_CHECK=off\n'
+    );
+  });
+
+  it('warns but goes ahead when npm refuses the credentials', async () => {
+    npmCases(`*) echo "npm error code E403" >&2; exit 1 ;;`);
+    const out = await run(['install', `${PKG}@0.1.21`, '-p', 'web', '--new-profile', '--json']);
+    expect(out.code).toBe(0);
+    expect(JSON.parse(out.stdout).npmCheck).toBe('unverified');
   });
 
   it('warns and goes ahead when npm cannot be asked', async () => {
-    fakeNpm(`echo "npm error code ENOTFOUND" >&2; exit 1`);
-    const out = await run(['install', `${PKG}@0.1.21`, '-p', 'web']);
+    npmCases(`*) echo "npm error code ENOTFOUND" >&2; exit 1 ;;`);
+    const out = await run(['install', `${PKG}@0.1.21`, '-p', 'web', '--new-profile']);
     expect(out.code).toBe(0);
-    expect(out.stderr).toBe(`Could not check ${PKG}@0.1.21 on npm (npm view failed); apply fails if it does not exist\n`);
+    expect(out.stderr).toBe(
+      `Could not check ${PKG}@0.1.21 on npm (npm view failed); apply fails if it does not exist. Skip this check with --no-npm-check or DSHENV_NPM_CHECK=off\n`
+    );
   });
 
-  it('accepts a version npm has', async () => {
-    fakeNpm(`echo '"0.1.21"'`);
-    const out = await run(['install', `${PKG}@0.1.21`, '-p', 'web']);
+  it('accepts a version npm has and says so in --json', async () => {
+    npmCases(`*) echo '"0.1.21"' ;;`);
+    const out = await run(['install', `${PKG}@0.1.21`, '-p', 'web', '--new-profile', '--json']);
     expect(out.code).toBe(0);
     expect(out.stderr).toBe('');
+    expect(JSON.parse(out.stdout).npmCheck).toBe('verified');
+  });
+
+  it('never hands npm a package name that could read as an option', async () => {
+    npmCases(`*) echo '"1.0.0"' ;;`);
+    for (const spec of ['--registry=https://evil.example@1.0.0', '-x@1.0.0', 'UPPER@1.0.0']) {
+      let stderr = '';
+      // After `--` commander hands even an option-like spec to install.
+      const code = await runCli(['--dsh-home', tempHome, 'install', '-p', 'web', '--new-profile', '--', spec], {
+        stdout: () => {},
+        stderr: (chunk) => {
+          stderr += chunk;
+        }
+      });
+      expect(code, spec).toBe(3);
+      expect(stderr).toMatch(/^Invalid npm package name/);
+    }
+    expect(npmCalls()).toEqual([]);
+  });
+
+  it('skips the check with --no-npm-check', async () => {
+    npmCases(`*) echo "npm error code E404" >&2; exit 1 ;;`);
+    const out = await run(['install', `${PKG}@9.9.9`, '-p', 'web', '--new-profile', '--no-npm-check', '--json']);
+    expect(out.code).toBe(0);
+    expect(JSON.parse(out.stdout).npmCheck).toBe('skipped');
+    expect(npmCalls()).toEqual([]);
+  });
+
+  it('checks update --to the same way', async () => {
+    npmCases(`*@0.1.21*) echo '"0.1.21"' ;;\n*@9.9.9*) echo "npm error code E404" >&2; exit 1 ;;\n*) echo 0.1.22 ;;`);
+    expect((await run(['install', `${PKG}@0.1.21`, '-p', 'web', '--new-profile'])).code).toBe(0);
+    const missing = await run(['update', 'agent-teams', '--to', '9.9.9', '-p', 'web']);
+    expect(missing.code).toBe(3);
+    expect(missing.stderr).toBe(`npm has no version 9.9.9 of ${PKG}; the latest is 0.1.22\n`);
+    const skipped = await run(['update', 'agent-teams', '--to', '9.9.9', '-p', 'web', '--no-npm-check', '--json']);
+    expect(skipped.code).toBe(0);
+    expect(JSON.parse(skipped.stdout)).toMatchObject({ status: 'updated', version: '9.9.9', npmCheck: 'skipped' });
   });
 });
