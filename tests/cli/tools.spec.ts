@@ -133,6 +133,8 @@ profiles:
 `
     );
     expect((await run(['tools', 'disable', 'tool-web', '-p', 'web', '--overlay', 'local'])).stderr).toMatch(/--layer base or --layer overlay/);
+    // A wrong id is the first thing to fix, before choosing where to write it.
+    expect((await run(['tools', 'disable', 'web', '-p', 'web', '--overlay', 'local'])).stderr).toMatch(/^'web' is not a tool in profile 'web'; did you mean 'tool-web'\?/);
     const refused = await run(['tools', 'disable', 'tool-web', '-p', 'web', '--overlay', 'local', '--layer', 'base']);
     expect(refused.code).not.toBe(0);
     expect(refused.stderr).toMatch(/overlay 'local' declares 'preset-standard'.*--layer overlay/);

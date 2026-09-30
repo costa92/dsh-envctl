@@ -27,7 +27,7 @@
 - `purge`、`status` 的参数在帮助里改名为 `<alias>`（接受别名或包名，行为不变）。
 - `install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable|disable|config` 的输出说明只改了清单并给出下一步：如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`；同一别名重新 `install` 换了版本时说 `Changed agent-teams in profile 'web' from 0.1.20 to 0.1.21`。`--json` 输出不变。
 - `install` 的 npm 版本先用 `npm view` 核对：包或版本不存在时以退出码 3 报错并给出最新版本；npm 查询不了（离线等）时只警告。设 `DSHENV_NPM_CHECK=off` 跳过。
-- `tools enable|disable|config` 只接受 `tools list --all` 列出的工具 id，其他 id（如 DSH 的 web 能力层 `web`）以退出码 3 拒绝并给出相近的 id。
+- `tools enable|disable|config` 只接受 `tools list --all` 列出的工具 id，其他 id（如 DSH 的 web 能力层 `web`）以退出码 3 拒绝并给出相近的 id；有生效的 overlay 时也先检查 id，再要求选择 `--layer`。
 - 插件别名写错时报错给出相近的别名，也接受包名；插件只在 overlay 里却写 base 时，提示改用 `--layer overlay`；Profile 未声明时直接说明，而不是说找不到插件。
 - 需要 DSH 已创建 Profile 的命令（`tools`、`web start`、`runtime --start`）：Profile 已声明时仍提示先用 `--profile` 启动 DSH 一次；未声明时列出已知 Profile 和相近的名字，不再引导去创建拼错的 Profile。
 - `runtime`：`DSHENV_PROFILE` 指向未声明的 Profile 时报错注明来源；缺 `-p` 时只列出清单声明的 Profile；清单没有 Profile 时仍报 `The manifest declares no profiles`。

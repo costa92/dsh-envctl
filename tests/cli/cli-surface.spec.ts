@@ -110,6 +110,9 @@ describe('CLI surface', () => {
         expect(help).toContain(name);
       }
       expect(help).toMatch(/remote sync\s+team repository -> local envctl/);
+      // Every command sits in a named group; none is left under commander's default heading.
+      expect(help).not.toMatch(/^Commands:/m);
+      expect(help).toMatch(/Getting started:[\s\S]*help \[command\][\s\S]*Everyday:/);
       // Kept for old scripts, but not advertised.
       expect(help).not.toMatch(/^\s+sync\b/m);
       expect(help).not.toMatch(/^\s+restarted\b/m);

@@ -12,7 +12,7 @@ permissions:
 jobs:
   # Installs, tests and packs with read-only permissions: nothing a dependency runs here can publish.
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,7 +72,7 @@ jobs:
   # Publishes the tarball the build job packed; it checks out and installs nothing.
   publish:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write

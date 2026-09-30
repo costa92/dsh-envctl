@@ -164,10 +164,10 @@ export function registerToolsCommands(ctx: CommandContext): void {
   ): Promise<void> {
     const opts: CliOpts = program.opts();
     const paths = resolveCliPaths(opts);
-    const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
     const tree = await composedProfile(paths, opts, cmdOpts.profile);
     assertListedTool(tree, cmdOpts.profile, toolId);
     const target = locateTool(tree, toolId, cmdOpts.preset);
+    const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
     const patchId = target.location.kind === 'preset' ? target.location.entry : String(target.row.id);
     // The overlay's entry replaces the base one with the same id, so a base write under it would change nothing.
     if (!overlay && selection && readOverlay(paths, selection.name).profiles?.[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId)) {
@@ -242,10 +242,10 @@ export function registerToolsCommands(ctx: CommandContext): void {
     .action(async (toolId: string, cmdOpts: { profile: string; preset?: string; layer?: string }) => {
       const opts: CliOpts = program.opts();
       const paths = resolveCliPaths(opts);
-      const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
       const tree = await composedProfile(paths, opts, cmdOpts.profile);
       assertListedTool(tree, cmdOpts.profile, toolId);
       const target = locateTool(tree, toolId, cmdOpts.preset);
+      const { selection, overlay } = resolveWrite(opts, paths, cmdOpts.layer);
       const patchId = target.location.kind === 'preset' ? target.location.entry : String(target.row.id);
       const overlayDeclares = (name: string) =>
         readOverlay(paths, name).profiles?.[cmdOpts.profile]?.patches?.some((entry) => overrideKey(entry) === patchId) ?? false;
