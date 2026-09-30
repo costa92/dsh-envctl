@@ -195,7 +195,7 @@ describe('CLI output hygiene', () => {
 
   it('keeps the deprecated positional ref out of source pull usage', async () => {
     const help = (await run(['source', 'pull', '--help'], false)).stdout;
-    expect(help).toMatch(/^Usage: dshenv source pull \[options\] \[dir\]\n/);
+    expect(help).toMatch(/^Usage: dshenv source sync \[options\] \[dir\]\n/);
     expect((await run(['source', '--help'], false)).stdout).not.toContain('targetRef');
   });
 });

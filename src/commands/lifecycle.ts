@@ -21,7 +21,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
     .description('Apply declared environment manifest to DSH profile installations')
     .option('--dry-run', 'show the plan without changing anything; exit code 2 when it has changes')
     .option('-y, --yes', 'apply; without it apply only previews, like --dry-run')
-    .option('--verify', 'then ask the running dsh web of each changed profile whether its plugins are loaded; exit code as runtime')
+    .option('--verify', 'then ask the running dsh web of each changed profile whether its plugins are loaded; exit code as verify')
     .option('--verify-timeout <seconds>', 'how long --verify waits for DSH to hot-reload a plugin', '30')
     .action(async (cmdOpts) => {
       const opts = program.opts();
@@ -29,7 +29,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
       const allowUntested = Boolean(opts.allowUntestedDsh);
       const preview = Boolean(cmdOpts.dryRun) || !cmdOpts.yes;
       if (cmdOpts.verify && preview) {
-        throw new ValidationError('--verify checks what apply --yes changed; add --yes, or run dshenv runtime to check without applying');
+        throw new ValidationError('--verify checks what apply --yes changed; add --yes, or run dshenv verify to check without applying');
       }
       if (!/^\d+(\.\d+)?$/.test(cmdOpts.verifyTimeout)) {
         throw new ValidationError(`Invalid --verify-timeout value: ${cmdOpts.verifyTimeout}`);

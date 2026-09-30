@@ -115,19 +115,21 @@ DSH 发布新版本时，用 `make smoke-dsh DSH_VERSION=<版本>` 验证兼容�
 
 ## 命令参考
 
+插件命令也可以写在 `plugins` 下（`dshenv plugins install|update|remove|enable|disable|list|config`），与 `tools`、`web`、`source` 等命令组写法一致；`install`、`update`、`remove`、`enable`、`disable` 同时保留在顶层。旧命令名 `list`、`config`、`runtime`、`source pull` 仍可使用，但不再出现在帮助里，分别对应 `plugins list`、`plugins config`、`verify`、`source sync`。
+
 ### 选择 Profile（`-p`）
 
 `-p, --profile <name>` 是 DSH Profile 的名字，即 `profiles/<name>/` 的目录名和清单 `profiles:` 下的键。所有命令用同一套规则：
 
-- 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`runtime`、`web start`、`web stop` 在清单只声明一个 Profile 时直接用它。
-- 按 Profile 过滤的命令（`list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web list`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝，不会把拼错的名字报成“已同步”。
+- 作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`plugins config`、`tools`、`verify`、`web start`、`web stop`）：不写 `-p` 时取环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报错并列出可选的 Profile（清单声明的与 DSH 已创建的）。`verify`、`web start`、`web stop` 在清单只声明一个 Profile 时直接用它。
+- 按 Profile 过滤的命令（`plugins list`、`plan`、`status`、`pull`、`capture`、`overlay show`、`mark-restarted`、`web list`）：不写 `-p` 表示全部 Profile，`DSHENV_PROFILE` 对它们不生效；`-p` 写了清单没声明、DSH 也没创建的名字时以退出码 3 拒绝，不会把拼错的名字报成“已同步”。
 - `source`、`new` 的 `-p` 表示把克隆或新建的包登记到该 Profile，不写就不登记。
 
 - 写入命令（`install`、`new -p`、`source clone -p`）指定一个清单没声明、DSH 也没创建的 Profile 时，默认按拼写错误拒绝并给出相近的名字；确实要新建时加 `--new-profile`。
-- 写入类命令用了 `DSHENV_PROFILE` 时，会在 stderr 提示 `Using profile 'web' from DSHENV_PROFILE`（`--json` 时不提示）；只读命令（`config get`、`tools list`、`runtime`、`web start` 等）不提示。
+- 写入类命令用了 `DSHENV_PROFILE` 时，会在 stderr 提示 `Using profile 'web' from DSHENV_PROFILE`（`--json` 时不提示）；只读命令（`plugins config get`、`tools list`、`verify`、`web start` 等）不提示。
 
 ```bash
-export DSHENV_PROFILE=web      # 之后 dshenv web start、dshenv runtime 等可以省略 -p
+export DSHENV_PROFILE=web      # 之后 dshenv web start、dshenv verify 等可以省略 -p
 dshenv disable agent-teams     # 等同于 dshenv disable agent-teams -p web
 ```
 
@@ -135,8 +137,8 @@ dshenv disable agent-teams     # 等同于 dshenv disable agent-teams -p web
 
 哪些命令要加 `--yes`，只看一条规则：
 
-- **只改 envctl 声明（清单、overlay、lock）的命令直接写入**：`install`、`update`、`remove`、`enable`、`disable`、`config set|unset`、`tools enable|disable|config|reset`、`overlay create|use`、`pull`、`new -p`、`source clone -p`、`source pull -p`。它们不碰 DSH profile，改错了再改回来即可，DSH 要等 `apply --yes` 才变；`pull` 另有 `--dry-run` 只预览。
-- **会改 DSH、批量接管或覆盖文件的命令要 `--yes`**：`apply`、`adopt`、`rollback`、`gc`、`purge`、`remote add|sync|remove`。不加 `--yes` 时只预览、什么都不写；有待执行的内容时退出码为 2，并在 stderr 提示加 `--yes` 重跑，所以 CI 里可以直接用不带 `--yes` 的命令检查漂移。
+- **只改 envctl 声明（清单、overlay、lock）的命令直接写入**：`install`、`update`、`remove`、`enable`、`disable`、`plugins config set|unset`、`tools enable|disable|config|reset`、`overlay create|use`、`new -p`、`source clone -p`、`source sync -p`。它们不碰 DSH profile，改错了再改回来即可，DSH 要等 `apply --yes` 才变。
+- **会改 DSH、批量接管或覆盖文件的命令要 `--yes`**：`apply`、`adopt`、`pull`、`rollback`、`gc`、`purge`、`remote add|sync|remove`。不加 `--yes` 时只预览、什么都不写；有待执行的内容时退出码为 2，并在 stderr 提示加 `--yes` 重跑，所以 CI 里可以直接用不带 `--yes` 的命令检查漂移。
 
 `remove` 仍接受 `-y`（旧脚本兼容），但它只改清单，加不加都一样。
 
@@ -243,7 +245,7 @@ Then run: dshenv mark-restarted
 
 `--dry-run` 在每个计划操作后标注 `(no restart)` 或 `(restart required: <原因>)`。`--json` 结果新增 `restart: { notRequired, required }`，每项为 `{ profile, package, kind, reason, detail? }`，`reason` 取 `hmr-on`、`package-update`、`hmr-off`、`hmr-unknown`，`detail` 只在 `hmr-unknown` 时出现，为探测失败的原因。Profile 尚未创建时不运行探测（`--dump-config` 会创建 Profile），按无法判断处理。
 
-`apply --yes --verify` 在应用之后，对每个有操作的 Profile 像 `runtime` 一样核对运行中的 `dsh web`（先看 `DSHENV_DSH_URL`，否则用 `dshenv web start` 启动的那个），并输出同样的核对结果。结果仍可能随热加载改变（`loading`、`not-loaded`、`still-loaded`）时每秒再问一次，最多等 `--verify-timeout <秒>`（默认 30）；`failed`、`missing` 等立即报告。退出码与 `runtime` 相同：都已加载为 0，超时仍在加载为 2，加载失败或核对出错为 5。没有 `dsh web` 在运行的 Profile 在 stderr 注明 `Not verified`，不影响退出码；不带 `--yes` 时拒绝 `--verify`（退出码 3）。`--json` 结果新增 `verify`，每项为 `{ profile, endpoint, results }`、`{ profile, skipped }` 或 `{ profile, error }`。
+`apply --yes --verify` 在应用之后，对每个有操作的 Profile 像 `verify` 一样核对运行中的 `dsh web`（先看 `DSHENV_DSH_URL`，否则用 `dshenv web start` 启动的那个），并输出同样的核对结果。结果仍可能随热加载改变（`loading`、`not-loaded`、`still-loaded`）时每秒再问一次，最多等 `--verify-timeout <秒>`（默认 30）；`failed`、`missing` 等立即报告。退出码与 `verify` 相同：都已加载为 0，超时仍在加载为 2，加载失败或核对出错为 5。没有 `dsh web` 在运行的 Profile 在 stderr 注明 `Not verified`，不影响退出码；不带 `--yes` 时拒绝 `--verify`（退出码 3）。`--json` 结果新增 `verify`，每项为 `{ profile, endpoint, results }`、`{ profile, skipped }` 或 `{ profile, error }`。
 
 dshenv 改写 Profile `package.json`（启用、停用、卸载前移出 bundle）或 `cordis.patch.yml`（写入、清除受管块及回滚恢复）时持有 DSH 的 `package.json.lock`，被占用时最多等 30 秒。热加载开启时卸载插件会先移出 bundle、等待 3 秒让 DSH 卸下插件，再调用 `dsh plugin remove`；插件本来就不在 bundle 列表中时不等待。apply 失败回滚 `cordis.patch.yml` 时，如果 DSH 在 dshenv 写入之后又改过该文件，只把该插件的受管块恢复原样，DSH 的改动保留。
 
@@ -280,12 +282,12 @@ dshenv purge agent-teams --profile web --dry-run
 dshenv purge agent-teams --profile web --yes
 ```
 
-### 10. `dshenv list`
+### 10. `dshenv plugins list`
 以表格列出清单中的插件（`PROFILE ALIAS PACKAGE VERSION ENABLED INSTALLED`，有生效 overlay 时加 `ORIGIN` 列），以及 plan 标出的 unmanaged 包（别名显示为 `(unmanaged)`）。非 npm 来源的 `VERSION` 列写来源类型；没有插件时提示如何添加。
 
 ```bash
-dshenv list
-dshenv list --profile web --json
+dshenv plugins list
+dshenv plugins list --profile web --json
 ```
 
 ### 11. `dshenv update`
@@ -295,15 +297,15 @@ dshenv list --profile web --json
 dshenv update agent-teams --profile web --to 0.1.22
 ```
 
-### 12. `dshenv config`
+### 12. `dshenv plugins config`
 读取或改清单中的插件配置。`set` 只写 manifest；`apply` 才会落到 `cordis.patch.yml`。
 
 ```bash
-dshenv config get agent-teams --profile web
-dshenv config get agent-teams taskPlanning --profile web   # 只读一个字段
-dshenv config validate agent-teams --profile web
-dshenv config set agent-teams taskPlanning captain --profile web
-dshenv config unset agent-teams taskPlanning --profile web     # 删掉一个键
+dshenv plugins config get agent-teams --profile web
+dshenv plugins config get agent-teams taskPlanning --profile web   # 只读一个字段
+dshenv plugins config validate agent-teams --profile web
+dshenv plugins config set agent-teams taskPlanning captain --profile web
+dshenv plugins config unset agent-teams taskPlanning --profile web     # 删掉一个键
 ```
 
 - 值按 JSON 解析（`3`、`true`、`{"a":1}`），解析不了时当作字符串；要写字符串 `"3"` 就传 `'"3"'`。
@@ -329,13 +331,13 @@ dshenv status --json
 dshenv source clone https://github.com/ex/plugin.git --profile web --as demo
 dshenv source clone https://github.com/ex/plugin.git ./external-checkout
 dshenv source show -p web --as demo            # 受管 clone 的 Git 状态（是否有未提交改动、commit、分支）与源码摘要
-dshenv source pull -p web --as demo            # 快进受管 clone，并把新的 HEAD commit 写入 lock
-dshenv source pull -p web --as demo --ref v1.2.0
+dshenv source sync -p web --as demo            # 快进受管 clone，并把新的 HEAD commit 写入 lock
+dshenv source sync -p web --as demo --ref v1.2.0
 ```
 
-`source show` / `source pull` 不带 `--profile` 时作用于给出的目录（默认当前目录），`pull` 只快进、不写 lock；不给 `--ref` 时快进到当前分支对应的远端分支，处于 detached HEAD 时须给 `--ref`。带 `--profile` 时，Profile 里恰好有一个 Git 插件可省略 `--as`；`pull` 总是按清单中的 URL 写入完整的 lock 条目，之后 `apply --yes` 安装新 commit。
+`source show` / `source sync` 不带 `--profile` 时作用于给出的目录（默认当前目录），`sync` 只快进、不写 lock；不给 `--ref` 时快进到当前分支对应的远端分支，处于 detached HEAD 时须给 `--ref`。带 `--profile` 时，Profile 里恰好有一个 Git 插件可省略 `--as`；`sync` 总是按清单中的 URL 写入完整的 lock 条目，之后 `apply --yes` 安装新 commit。
 
-不是 DSH bundle 的插件包（`package.json` 没有 `dsh.bundle`，例如 [dsh-session-search](https://github.com/Tieboyh/dsh-session-search)）不能放进 bundle 列表，DSH 会跳过它。dshenv 在安装后检查包类型，这类插件改为在 `cordis.patch.yml` 里写一个受管的 `insert` 行挂载（`# dshenv:begin ... plugin=@mount:<alias>`），`enable`/`disable` 切换这一行，`runtime` 按已加载的插件条目判断。
+不是 DSH bundle 的插件包（`package.json` 没有 `dsh.bundle`，例如 [dsh-session-search](https://github.com/Tieboyh/dsh-session-search)）不能放进 bundle 列表，DSH 会跳过它。dshenv 在安装后检查包类型，这类插件改为在 `cordis.patch.yml` 里写一个受管的 `insert` 行挂载（`# dshenv:begin ... plugin=@mount:<alias>`），`enable`/`disable` 切换这一行，`verify` 按已加载的插件条目判断。
 
 ### 15. `dshenv overlay`
 按机器/环境在 base 清单（`envctl/manifest.yaml`）之上叠加 `envctl/overlays/<name>.yaml`。
@@ -366,7 +368,7 @@ profiles:
         remove: true              # 本机不装 base 中的这个插件
 ```
 
-选择优先级：`--overlay` 或 `--no-overlay`（两者同时使用时报错，退出码 3）> `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable/disable/config`、`source clone --profile`、`new -p`、`adopt`）必须带 `--layer base` 或 `--layer overlay`；也可以设环境变量 `DSHENV_LAYER` 作为默认值，它只在有生效 overlay 时起作用，使用时会在 stderr 提示。`adopt` 只写 base。
+选择优先级：`--overlay` 或 `--no-overlay`（两者同时使用时报错，退出码 3）> `DSHENV_OVERLAY` > 本机选择文件。选中的 overlay 不存在或无效时报错，不会退回只用 base。有生效 overlay 时，改清单的命令（`install`、`update`、`enable`、`disable`、`remove`、`plugins config set`、`tools enable/disable/config`、`source clone --profile`、`new -p`、`adopt`）必须带 `--layer base` 或 `--layer overlay`；也可以设环境变量 `DSHENV_LAYER` 作为默认值，它只在有生效 overlay 时起作用，使用时会在 stderr 提示。`adopt` 只写 base。
 
 ### 16. `dshenv mark-restarted`
 `apply` 输出 `Restart DSH to load:` 分组时，其中插件的状态标为 `restart-required`（升级了已装插件，或该 Profile 的热加载关闭、无法判断）。热加载开启时的安装、启用、停用、配置与卸载当场生效，不需要本命令。重启 DSH 后运行本命令确认，清除该状态（已卸载插件的条目一并删除）。dshenv 无法自行判断 DSH 是否已重启。
@@ -383,15 +385,15 @@ dshenv mark-restarted --profile web --json
 
 #### runtime：核对运行中的 DSH 是否已加载
 
-`apply` 只能推断改动是否已被热加载。`dshenv runtime` 登录运行中的 `dsh web`，读取 Plugin Manager 报告的真实加载状态，与清单对比：
+`apply` 只能推断改动是否已被热加载。`dshenv verify` 登录运行中的 `dsh web`，读取 Plugin Manager 报告的真实加载状态，与清单对比：
 
 ```bash
 export DSHENV_DSH_URL='http://127.0.0.1:3080/?token=...'   # dsh web 启动时打印的地址
-dshenv runtime --profile web
+dshenv verify --profile web
 ```
 
 - 没有设置 `DSHENV_DSH_URL` 时，使用 `dshenv web start` 为该 Profile 启动并仍在运行的 dsh web（见第 24 节）。
-- 也可以用 `dshenv runtime --profile web --start` 临时启动一个（`dsh --profile web --no-open --port 0`），核对完即停止；它不读取 `DSHENV_DSH_URL`，Profile 须已存在。
+- 也可以用 `dshenv verify --profile web --start` 临时启动一个（`dsh --profile web --no-open --port 0`），核对完即停止；它不读取 `DSHENV_DSH_URL`，Profile 须已存在。
 - 地址只从环境变量 `DSHENV_DSH_URL` 读取。它等同于登录凭据，dshenv 不会输出或记录其中的 token；默认只连本机，连其他主机需加 `--allow-remote`，且地址必须是 https（明文 http 会把 token 暴露在网络上）。
 - 只适用于 `dsh web`；headless、sdk、acp 运行不开 web 服务，无法核对（`--start` 会报 `did not start dsh web`）。
 - 每个插件的结果：`loaded`、`unloaded`（符合清单），`loading`（热加载进行中，也覆盖 `apply` 之后 DSH 还未热加载的瞬间；若持续为 `loading`，说明热加载没有生效，需重启 DSH；带 `is waiting for services it injects` 时，是插件依赖的 service 还没有任何插件提供，检查是否漏装或停用了提供它的插件），`unverifiable`（包没有可核对的插件行），`missing`、`failed`、`not-loaded`、`still-loaded`（与清单不符）。
@@ -499,7 +501,7 @@ dshenv apply --yes                                         # 写进 DSH
 ```bash
 dshenv web start -p web            # 后台启动，打印浏览器地址；--port 3080 指定端口，默认随机空闲端口
 dshenv web list                    # 列出 dshenv 启动的 dsh web：运行状态、pid、地址（不含 token）；-p 只看一个 Profile
-dshenv runtime -p web              # 没设 DSHENV_DSH_URL 时自动连这个 dsh web
+dshenv verify -p web              # 没设 DSHENV_DSH_URL 时自动连这个 dsh web
 dshenv web stop -p web             # 停止它以及它启动的子进程（如 stdio MCP 服务），等全部退出后返回
 ```
 
@@ -507,7 +509,7 @@ dshenv web stop -p web             # 停止它以及它启动的子进程（如 
 - 地址（含登录 token）与 pid 记在 `envctl/run/<profile>.json`，输出写到 `envctl/run/<profile>.log`，两者权限均为 `0600`；不在快照、同步与团队仓库范围内。`start` 打印一次地址，`status` 从不打印 token。
 - 已在运行时 `start` 只报告现有的那个；它自己退出后，`status` 显示 `not running`，再次 `start` 会启动新的。dsh web 自己退出但它启动的子进程还在时，`status` 显示 `not running (leftover processes)`，`start` 先停掉这些子进程再启动，`stop` 也会停掉它们。
 - 记录里保存了 dsh web 的启动时间，`stop` 只停止 pid 与启动时间都对得上的进程，被系统复用的 pid 不会被误停；无法确认时（`status` 显示 `unknown`）`stop` 和 `start` 报错并保留记录，不做任何停止。SIGKILL 后仍未退出时 `stop` 以非零退出码报错并保留记录，可以再次执行。
-- 同一 Profile 的 `start`、`stop` 依次执行，两个 `start` 同时运行也只会启动一个；启动过程中按 Ctrl+C 会停止正在启动的 dsh web（`runtime --start` 在核对过程中被中断也一样），不会遗留进程。
+- 同一 Profile 的 `start`、`stop` 依次执行，两个 `start` 同时运行也只会启动一个；启动过程中按 Ctrl+C 会停止正在启动的 dsh web（`verify --start` 在核对过程中被中断也一样），不会遗留进程。
 - Profile 必须已存在（DSH 会自动创建不存在的 Profile）；不带 web 应用的 Profile（headless、acp 等）会报 `did not start dsh web`，60 秒内没有打印地址也会停止并报错。
 - Windows 上 dsh web 以 detached 方式启动，不附着在启动它的控制台上，关闭启动它的控制台窗口后继续运行；停止用 `taskkill /T /F` 结束整棵进程树。
 
@@ -528,7 +530,7 @@ dshenv remove agent-teams -p web
 - 别名默认取包名（去掉作用域与 `dsh-plugin-`、`dsh-` 前缀），`--as` 指定。本地来源的包名默认读其 `package.json` 的 `name`（读不到时用目录名），Git 来源默认用仓库名，与实际包名不同时用 `--package` 指定（`source clone --profile` 会读仓库的 `package.json`）；`--package` 只对 Git 与本地来源有效。
 - 同一别名重新 `install` 同一个包只改来源，保留 `patches` 与启用状态；输出会说明从哪个版本（来源）改成了哪个。
 - npm 来源（`install` 与 `update --to`）先用 `npm view` 核对：包在而版本不存在时以退出码 3 报错并给出最新版本。npm 看不到这个包（可能是需要凭据的私有包）、拒绝凭据，或查询不了（离线、超过约 5 秒）时只警告，照常写入清单。加 `--no-npm-check` 或设 `DSHENV_NPM_CHECK=off` 跳过核对；`--json` 输出的 `npmCheck` 是 `verified`、`unverified`、`unreachable` 或 `skipped`。包名不合法（例如以 `-` 开头）时直接拒绝，不会交给 npm。
-- `enable`、`disable`、`remove`、`update`、`config` 也接受包名；别名写错时报错会给出相近的别名。
+- `enable`、`disable`、`remove`、`update`、`plugins config` 也接受包名；别名写错时报错会给出相近的别名。
 - 输出统一为「改了清单 + 下一步」，如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`。
 - `remove` 从清单删除该条目；写 overlay 时，base 中已有的插件记为 `remove: true`。`apply` 只卸载有所有权记录的插件（dshenv 安装或 `adopt` 接管的），其他实际存在的插件标为 `unmanaged`，不会卸载。`remove` 只改清单，无需确认；旧脚本里的 `-y`/`--yes` 仍被接受。`uninstall` 是 `remove` 的别名。
 - 有生效 overlay 时这四个命令都须带 `--layer base|overlay`，或设环境变量 `DSHENV_LAYER=base|overlay` 作为默认（见第 15 节）。
@@ -541,7 +543,7 @@ dshenv remove agent-teams -p web
 | :--- | :--- |
 | `0` | 成功 / 环境与清单完全同步（Clean） |
 | `1` | 意外失败（如 Git、npm 或网络错误） |
-| `2` | 存在有效变更计划（Drifted，`plan`/`status`/`apply --dry-run`）；不带 `--yes` 的 `apply`、`pull`、`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 预览有待执行的内容；`runtime` 有插件仍在加载；`self-update --check` 有可安装的版本 |
+| `2` | 存在有效变更计划（Drifted，`plan`/`status`/`apply --dry-run`）；不带 `--yes` 的 `apply`、`pull`、`rollback`、`gc`、`purge`、`adopt`、`remote add`、`remote remove`、`remote sync` 预览有待执行的内容；`verify` 有插件仍在加载；`self-update --check` 有可安装的版本 |
 | `3` | 用法错误（缺参数、未知选项或命令）或输入、清单格式校验失败（ValidationError）；`--json` 时以 `{"error": {...}}` 输出 |
 | `4` | DSH 运行时能力不支持或未找到（CapabilityError） |
 | `5` | 环境降级或运行时响应异常（DegradedError） |

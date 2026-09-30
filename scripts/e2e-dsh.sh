@@ -41,7 +41,7 @@ installed_version() {
 
 # The manifest alias dshenv gave a package, read from `list --json`.
 alias_of() {
-  "${run[@]}" list --profile web --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s).plugins.find(p=>p.package===process.argv[1]&&p.alias);console.log(r?r.alias:"")})' "$1"
+  "${run[@]}" plugins list --profile web --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s).plugins.find(p=>p.package===process.argv[1]&&p.alias);console.log(r?r.alias:"")})' "$1"
 }
 
 stop_web() {
@@ -76,7 +76,7 @@ start_web() {
 # DSH hot-reloads a change a moment after apply, so runtime is asked again until it agrees.
 runtime_ok() {
   for _ in $(seq 1 30); do
-    DSHENV_DSH_URL="$url" "${run[@]}" runtime --profile web && return 0
+    DSHENV_DSH_URL="$url" "${run[@]}" verify --profile web && return 0
     sleep 2
   done
   return 1
@@ -129,7 +129,7 @@ step "apply update" 0 "${run[@]}" apply --yes
 step "plan clean after update" 0 "${run[@]}" plan
 
 # 3. Configure through a managed patch block.
-step "declare config" 0 "${run[@]}" config set "$alias" e2eMarker on --profile web --force
+step "declare config" 0 "${run[@]}" plugins config set "$alias" e2eMarker on --profile web --force
 step "plan shows configure" 2 "${run[@]}" plan
 step "apply configure" 0 "${run[@]}" apply --yes
 step "patch file holds the managed block" 0 grep -q "# dshenv:begin profile=web plugin=$alias" "$DSH_HOME/profiles/web/cordis.patch.yml"
@@ -150,10 +150,10 @@ if [ -n "$url" ]; then
   step "runtime reports the plugin loaded" 0 runtime_ok
 fi
 stop_web
-step "runtime --start starts its own dsh web and reports the plugin loaded" 0 "${run[@]}" runtime --profile web --start
-step "runtime --start leaves no dsh web running" 0 bash -c "! pgrep -f -- '[-]-profile web --no-open --port 0' >/dev/null"
+step "verify --start starts its own dsh web and reports the plugin loaded" 0 "${run[@]}" verify --profile web --start
+step "verify --start leaves no dsh web running" 0 bash -c "! pgrep -f -- '[-]-profile web --no-open --port 0' >/dev/null"
 step "web start leaves dsh web running in the background" 0 "${run[@]}" web start --profile web
-step "runtime uses the dsh web that web start left running" 0 env -u DSHENV_DSH_URL "${run[@]}" runtime --profile web
+step "verify uses the dsh web that web start left running" 0 env -u DSHENV_DSH_URL "${run[@]}" verify --profile web
 step "web status reports it running" 0 bash -c '"$@" web status | grep -q "^web  running  pid "' _ "${run[@]}"
 step "web stop stops it" 0 "${run[@]}" web stop --profile web
 step "web stop leaves no dsh web running" 0 bash -c "! pgrep -f -- '[-]-profile web --no-open --port 0' >/dev/null"
@@ -200,7 +200,7 @@ step "apply Git source install" 0 "${run[@]}" apply --yes
 step "plan clean after Git install" 0 "${run[@]}" plan
 echo "// upstream change" >>"$git_origin/index.js"
 commit_all "$git_origin" upstream
-step "source pull fast-forwards the clone" 0 "${run[@]}" source pull --profile web --as "$git_alias" --ref main
+step "source sync fast-forwards the clone" 0 "${run[@]}" source sync --profile web --as "$git_alias" --ref main
 step "lock follows the pulled commit" 0 json_true "$envctl/lock.json" "v.profiles.web.plugins['$git_alias']?.source?.commit === '$(git -C "$git_origin" rev-parse HEAD)'"
 step "plan sees the pulled commit as an update" 2 "${run[@]}" plan
 step "apply Git update" 0 "${run[@]}" apply --yes

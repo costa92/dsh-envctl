@@ -14,15 +14,20 @@
 
 ### 新增
 
-- `apply --yes --verify`：应用之后核对每个有改动的 Profile 在运行中的 `dsh web` 里是否真的加载了（与 `runtime` 相同的检查），热加载中的插件最多等 `--verify-timeout` 秒（默认 30）；退出码与 `runtime` 相同，没有运行中的 `dsh web` 时注明未核对。
+- `apply --yes --verify`：应用之后核对每个有改动的 Profile 在运行中的 `dsh web` 里是否真的加载了（与 `verify` 相同的检查），热加载中的插件最多等 `--verify-timeout` 秒（默认 30）；退出码与 `verify` 相同，没有运行中的 `dsh web` 时注明未核对。
 
 ### 变更
 
+- 命令按"动作 + 资源"整理，旧名仍可使用、不再出现在帮助里：
+  - 插件命令也可写在 `plugins` 下：`plugins install|update|remove|enable|disable|list|config`；顶层的 `list`、`config` 由 `plugins list`、`plugins config` 代替，`install` 等五个仍在顶层；
+  - `runtime` 改名为 `verify`，与 `apply --verify` 对应；
+  - `source pull` 改名为 `source sync`，与 `remote sync` 一样表示"从上游 Git 取"，不再与 `pull`（DSH -> 清单）同名；
+  - 帮助分组改为 `Plugins & tools`、`Run & check`（`web`、`verify`、`doctor`）。
 - `state.json` 按资源类型记录 dshenv 拥有的资源（`resources.plugin`、`resources.skill`，见「升级须知」），为插件、profile patch、skill 统一生命周期做准备；命令的输出与行为不变。
 
 ### 修复
 
-- `runtime` 把清单里 disabled、但被 profile patch 条目（如自己写的 insert 分组）加载的非 bundle 插件一直报成 `loading (unmounted on disk; waiting for DSH to hot-reload it)`、退出码 2；现在按应当加载检查，正常时报 `loaded … (mounted by a profile patch entry, not by dshenv)`、退出码 0，加载失败或挂起仍如实报告。
+- `verify`（原 `runtime`）把清单里 disabled、但被 profile patch 条目（如自己写的 insert 分组）加载的非 bundle 插件一直报成 `loading (unmounted on disk; waiting for DSH to hot-reload it)`、退出码 2；现在按应当加载检查，正常时报 `loaded … (mounted by a profile patch entry, not by dshenv)`、退出码 0，加载失败或挂起仍如实报告。
 
 ## 0.4.1 - 2026-09-30
 

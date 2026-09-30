@@ -33,9 +33,8 @@ export interface CliIO {
 const HELP_GROUPS: Array<[string, string[]]> = [
   ['Getting started:', ['init', 'capture', 'adopt']],
   ['Everyday:', ['plan', 'apply', 'pull', 'status', 'mark-restarted', 'rollback']],
-  ['Plugins:', ['install', 'update', 'remove', 'enable', 'disable', 'list', 'config']],
-  ['Tools & web:', ['tools', 'web']],
-  ['Checks:', ['doctor', 'runtime']],
+  ['Plugins & tools:', ['install', 'update', 'remove', 'enable', 'disable', 'plugins', 'tools']],
+  ['Run & check:', ['web', 'verify', 'doctor']],
   ['Team & machine:', ['remote', 'overlay', 'source']],
   ['Authoring:', ['new']],
   ['Maintenance:', ['purge', 'gc', 'self-update']]
@@ -55,7 +54,7 @@ Data flow:
   apply          manifest -> DSH profiles
   pull           DSH profiles -> manifest (settings changed in DSH)
   remote sync    team repository -> local envctl
-  source pull    upstream Git -> a plugin's managed clone
+  source sync    upstream Git -> a plugin's managed clone
 
 Environment variables:
   DSH_HOME        DSH home directory (default ~/.dsh; --dsh-home wins)
@@ -63,7 +62,7 @@ Environment variables:
   DSHENV_PROFILE  default -p for commands that act on one profile
   DSHENV_LAYER    default --layer (base or overlay) when an overlay is active
   DSHENV_OVERLAY  overlay to use (--overlay / --no-overlay win)
-  DSHENV_DSH_URL  dsh web URL that runtime checks
+  DSHENV_DSH_URL  dsh web URL that verify checks
 `;
 
 // Aliases kept for old scripts stay out of help; the name alone is listed. A command that sets its own usage (to keep
