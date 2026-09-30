@@ -20,12 +20,11 @@ import {
   resolveCliPaths,
   resolveCliOverlay,
   overlayBanner,
-  profileOption,
   aliasOption,
   assertKnownProfile,
   targetProfile,
   writeLayer,
-  PROFILE_FILTER_HELP,
+  filterProfile,
   type CommandContext
 } from './context.js';
 import { didYouMean } from './suggest.js';
@@ -397,7 +396,7 @@ export function registerPluginCommands(ctx: CommandContext): PluginCommands {
   program
     .command('list')
     .description('List declared and unmanaged plugins')
-    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .addOption(filterProfile())
     .action(async (cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);

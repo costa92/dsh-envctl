@@ -8,7 +8,7 @@ import { readLocalSourceDigests } from '../source/local.js';
 import { ValidationError, CapabilityError, START_HINT } from '../errors.js';
 import type { EnvironmentLock, EnvironmentManifest, EnvironmentState } from '../domain.js';
 import { loadEffectiveManifest, overlaySwitchWarning, readOverlay } from '../overlay/effective.js';
-import { resolveCliPaths, resolveCliOverlay, overlayBanner, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
+import { resolveCliPaths, resolveCliOverlay, overlayBanner, filterProfile, type CommandContext } from './context.js';
 import { readRemoteConfig } from '../remote/schema.js';
 import { findLocalDrift, findRemoteLockDrift } from '../remote/ownership.js';
 
@@ -26,7 +26,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
   program
     .command('plan')
     .description('Plan drift between target manifest and actual DSH environment')
-    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .addOption(filterProfile())
     .action(async (cmdOpts: { profile?: string }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
@@ -69,7 +69,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
     .command('status')
     .argument('[alias]', 'show only this plugin (alias or package name)')
     .description('Display status summary of DSH environment and manifests')
-    .option('-p, --profile <name>', PROFILE_FILTER_HELP, profileOption)
+    .addOption(filterProfile())
     .action(async (plugin: string | undefined, cmdOpts: { profile?: string }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
