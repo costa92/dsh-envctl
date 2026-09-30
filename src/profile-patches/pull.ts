@@ -2,18 +2,31 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import type { EnvironmentPaths } from '../environment/paths.js';
-import type { EnvironmentManifest, EnvironmentOverlay, ProfilePatch } from '../domain.js';
+import type {
+  CaptureDocument,
+  EnvironmentLock,
+  EnvironmentManifest,
+  EnvironmentOverlay,
+  EnvironmentState,
+  PluginLockEntry,
+  ProfilePatch,
+  SourceType
+} from '../domain.js';
 import { ValidationError, missingManifestError } from '../errors.js';
-import { readEnvironmentInventory } from '../inventory/profile-reader.js';
-import { loadManifest, loadState, serializeManifest, serializeState } from '../manifest/files.js';
+import { readEnvironmentInventory, type EnvironmentInventory, type InstalledPluginInfo } from '../inventory/profile-reader.js';
+import { loadLock, loadManifest, loadState, serializeLock, serializeManifest, serializeState } from '../manifest/files.js';
+import { captureEnvironment } from '../capture/capture.js';
+import { freeAlias } from '../adopt/adopt.js';
+import { buildPlan } from '../planner/plan.js';
+import { calculateSourceDigest } from '../source/local.js';
 import * as path from 'node:path';
 import { remoteSkillNames, replaceSkillDir } from '../skills/skills.js';
 import { readOverlay } from '../overlay/effective.js';
 import { mergeManifest } from '../overlay/merge.js';
 import { overlayFilePath, writeSelectionFile, type OverlaySelection } from '../overlay/selection.js';
-import { saveOverlay } from '../overlay/write.js';
+import { saveOverlay, setOverlayPluginFields } from '../overlay/write.js';
 import { readRemoteConfig } from '../remote/schema.js';
-import { remoteOwnedKey } from '../remote/ownership.js';
+import { readLocalLock, remoteOwnedKey } from '../remote/ownership.js';
 import { readProfilePatchFile, rewriteProfilePatchFile } from '../apply/patches.js';
 import { createEnvironmentSnapshot, restoreEnvironmentSnapshot } from '../io/backup.js';
 import { appendJournalEntry } from '../io/journal.js';
@@ -44,6 +57,18 @@ export interface PullOptions {
   allowOverlayCreation: boolean;
   // Loose skills in $DSH_HOME/skills are home-wide; false leaves them out.
   skills?: boolean;
+  // False leaves plugins not in the manifest out, e.g. after adopt took only the ones its candidate lists.
+  plugins?: boolean;
+}
+
+export interface PluginPullChange {
+  profile: string;
+  alias: string;
+  package: string;
+  sourceType: SourceType;
+  enabled: boolean;
+  layer: 'base' | 'overlay';
+  overlayName?: string;
 }
 
 export interface SkillPullChanges {
@@ -68,6 +93,9 @@ export interface PullResult {
   dryRun: boolean;
   changes: ProfilePullChange[];
   skills?: SkillPullChanges;
+  plugins?: PluginPullChange[];
+  // Plugins not in the manifest that could not be taken over, as capture reports them.
+  warnings?: string[];
   overlayCreated?: string;
   operationId?: string;
   snapshotId?: string;
@@ -183,10 +211,29 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     }
   }
 
+  const lock = readLocalLock(paths);
+  const captured = options.plugins === false
+    ? null
+    : captureUnmanagedPlugins(inventory, profiles, selectedOverlay && selectedName ? mergeManifest(base, selectedOverlay, selectedName).manifest : base, lock, state);
+
   const nextBase = structuredClone(base);
   let overlayName = selectedName;
   let nextOverlay = selectedOverlay ? structuredClone(selectedOverlay) : null;
   let overlayCreated: string | undefined;
+  const overlayFor = (refusal: string): EnvironmentOverlay => {
+    if (nextOverlay) {
+      return nextOverlay;
+    }
+    if (!options.allowOverlayCreation) {
+      throw new ValidationError(`${refusal} in an overlay; drop --no-overlay, or select one with dshenv overlay use <name>`);
+    }
+    overlayName = LOCAL_OVERLAY;
+    nextOverlay = fs.existsSync(overlayFilePath(paths, LOCAL_OVERLAY))
+      ? readOverlay(paths, LOCAL_OVERLAY)
+      : { apiVersion: 'dshenv-overlay/v1' };
+    overlayCreated = LOCAL_OVERLAY;
+    return nextOverlay;
+  };
   const counts = new Map<string, { base: number; overlay: number }>();
   for (const read of reads.filter((entry) => entry.from === 'dsh')) {
     const local = localPatchEntries(read.desired);
@@ -197,18 +244,8 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     if (!baseOwnedByRemote) {
       setBasePatches(nextBase, read.profile, baseEntries);
     }
-    if (overlayEntries.length > 0 && !nextOverlay) {
-      if (!options.allowOverlayCreation) {
-        throw new ValidationError(
-          `Profile '${read.profile}' has patch entries with machine-local paths${baseOwnedByRemote ? ' or a team-owned base' : ''}, ` +
-            'which belong in an overlay; drop --no-overlay, or select one with dshenv overlay use <name>'
-        );
-      }
-      overlayName = LOCAL_OVERLAY;
-      nextOverlay = fs.existsSync(overlayFilePath(paths, LOCAL_OVERLAY))
-        ? readOverlay(paths, LOCAL_OVERLAY)
-        : { apiVersion: 'dshenv-overlay/v1' };
-      overlayCreated = LOCAL_OVERLAY;
+    if (overlayEntries.length > 0) {
+      overlayFor(`Profile '${read.profile}' has patch entries with machine-local paths${baseOwnedByRemote ? ' or a team-owned base' : ''}, which belong`);
     }
     if (nextOverlay) {
       setOverlayPatches(nextOverlay, read.profile, overlayEntries);
@@ -216,8 +253,60 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     counts.set(read.profile, { base: baseEntries.length, overlay: overlayEntries.length });
   }
 
+  const operationId = `pull-${crypto.randomBytes(6).toString('hex')}`;
+  const now = new Date().toISOString();
+  const nextLock: EnvironmentLock = structuredClone(lock ?? { apiVersion: 'dshenv-lock/v1', profiles: {} });
+  const ownership = structuredClone(state?.ownership ?? {});
+  const plugins: PluginPullChange[] = [];
+  for (const [profile, { plugins: capturedPlugins }] of Object.entries(captured?.manifest.profiles ?? {})) {
+    for (const [capturedAlias, entry] of Object.entries(capturedPlugins)) {
+      const machineLocal = entry.source.type === 'local-link' || entry.source.type === 'local-file';
+      const layer = machineLocal || baseOwnedByRemote ? 'overlay' : 'base';
+      const overlay = layer === 'overlay'
+        ? overlayFor(`Plugin '${entry.package}' of profile '${profile}' has ${machineLocal ? 'a machine-local path' : 'a team-owned base'}, which belongs`)
+        : null;
+      // An alias the lock or the team already holds would pin another package's entry onto this one.
+      const alias = freeAlias(
+        {
+          ...nextBase.profiles[profile]?.plugins,
+          ...overlay?.profiles?.[profile]?.plugins,
+          ...nextLock.profiles[profile]?.plugins,
+          ...remote?.lockEntries[profile]
+        },
+        capturedAlias
+      );
+      if (overlay) {
+        setOverlayPluginFields(overlay, profile, alias, { package: entry.package, enabled: entry.enabled, source: entry.source });
+      } else {
+        (nextBase.profiles[profile] ??= { plugins: {} }).plugins[alias] = entry;
+      }
+      const lockEntry = captured!.lock.profiles[profile]?.plugins[capturedAlias];
+      if (lockEntry) {
+        (nextLock.profiles[profile] ??= { plugins: {} }).plugins[alias] = await withLinkDigest(lockEntry, inventory.profiles[profile].plugins[entry.package]);
+      }
+      (ownership[profile] ??= {})[entry.package] = {
+        package: entry.package,
+        alias,
+        sourceType: entry.source.type,
+        lockedVersion: entry.source.type === 'npm' ? entry.source.version : undefined,
+        adoptedAt: now,
+        adoptedBy: operationId
+      };
+      plugins.push({
+        profile,
+        alias,
+        package: entry.package,
+        sourceType: entry.source.type,
+        enabled: entry.enabled ?? true,
+        layer,
+        ...(overlay ? { overlayName: overlayName! } : {})
+      });
+    }
+  }
+
   // Validates both files the way every later command will load them.
   loadManifest(serializeManifest(nextBase));
+  loadLock(serializeLock(nextLock));
   const merged = nextOverlay && overlayName ? mergeManifest(nextBase, nextOverlay, overlayName).manifest : nextBase;
 
   const changes: ProfilePullChange[] = reads.map((read) => ({
@@ -229,11 +318,17 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     ...(overlayName ? { overlayName } : {})
   }));
   const skillChanges = skills && skills.actions.length > 0 ? summarizeSkills(skills.actions) : undefined;
-  if (options.dryRun || (reads.length === 0 && !skillChanges)) {
-    return { dryRun: Boolean(options.dryRun), changes, ...(skillChanges ? { skills: skillChanges } : {}), ...(overlayCreated ? { overlayCreated } : {}) };
+  const reported = {
+    changes,
+    ...(skillChanges ? { skills: skillChanges } : {}),
+    ...(plugins.length > 0 ? { plugins } : {}),
+    ...(captured && captured.warnings.length > 0 ? { warnings: captured.warnings } : {}),
+    ...(overlayCreated ? { overlayCreated } : {})
+  };
+  if (options.dryRun || (reads.length === 0 && !skillChanges && plugins.length === 0)) {
+    return { dryRun: Boolean(options.dryRun), ...reported };
   }
 
-  const operationId = `pull-${crypto.randomBytes(6).toString('hex')}`;
   const snapshot = await createEnvironmentSnapshot(paths, operationId, {
     overlayKeys: overlayName ? [`overlays/${overlayName}.yaml`] : []
   });
@@ -254,9 +349,22 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
       const live = path.join(paths.dshSkillsDir, action.name);
       await replaceSkillDir(action.kind === 'removed' ? null : live, path.join(paths.skillsDir, action.name), path.join(paths.trashDir, operationId, 'envctl-skills', action.name));
     }
-    if (skills && skills.actions.length > 0) {
-      const { skills: _previous, ...rest } = state ?? { apiVersion: 'dshenv-state/v1' as const, lastApplied: new Date().toISOString(), appliedLockHash: '', profiles: {} };
-      await writeAtomic(paths.stateFile, serializeState(Object.keys(skills.owned).length > 0 ? { ...rest, skills: skills.owned } : rest), 'overwrite');
+    if (plugins.length > 0) {
+      await writeAtomic(paths.lockFile, serializeLock(nextLock), 'overwrite');
+    }
+    if ((skills && skills.actions.length > 0) || plugins.length > 0) {
+      const { skills: previous, ownership: _previous, ...rest }: EnvironmentState =
+        state ?? { apiVersion: 'dshenv-state/v1', lastApplied: now, appliedLockHash: '', profiles: {} };
+      const owned = skills && skills.actions.length > 0 ? skills.owned : (previous ?? {});
+      await writeAtomic(
+        paths.stateFile,
+        serializeState({
+          ...rest,
+          ...(Object.keys(ownership).length > 0 ? { ownership } : {}),
+          ...(Object.keys(owned).length > 0 ? { skills: owned } : {})
+        }),
+        'overwrite'
+      );
     }
     for (const read of reads) {
       let written = '';
@@ -282,16 +390,49 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
     operationId,
     type: 'pull-completed',
     timestamp: new Date().toISOString(),
-    details: { profiles: reads.map((read) => read.profile) }
+    details: { profiles: reads.map((read) => read.profile), plugins: plugins.map((plugin) => `${plugin.profile}/${plugin.alias}`) }
   });
   return {
     dryRun: false,
-    changes,
-    ...(skillChanges ? { skills: skillChanges } : {}),
-    ...(overlayCreated ? { overlayCreated } : {}),
+    ...reported,
     operationId,
     snapshotId: snapshot.snapshotId
   };
+}
+
+// The plugins plan reports as not in the manifest, described the way capture describes them.
+function captureUnmanagedPlugins(
+  inventory: EnvironmentInventory,
+  profiles: string[],
+  manifest: EnvironmentManifest,
+  lock: EnvironmentLock | null,
+  state: EnvironmentState | null
+): CaptureDocument {
+  const selected: EnvironmentInventory = { profiles: {} };
+  for (const { profile, package: name } of buildPlan(manifest, lock, inventory, state).unmanaged) {
+    if (!profiles.includes(profile)) {
+      continue;
+    }
+    // Patch entries are pulled on their own; capture would only warn about them.
+    const { profilePatches: _patches, ...source } = inventory.profiles[profile];
+    (selected.profiles[profile] ??= { ...source, plugins: {} }).plugins[name] = source.plugins[name];
+  }
+  return captureEnvironment(selected);
+}
+
+// DSH loads a linked source directory in place, so its digest is what is installed; a copied local-file proves nothing.
+async function withLinkDigest(entry: PluginLockEntry, installed: InstalledPluginInfo | undefined): Promise<PluginLockEntry> {
+  if (entry.source.type !== 'local-link' || !installed?.isSymlink || !installed.targetPath) {
+    return entry;
+  }
+  try {
+    if (fs.realpathSync(entry.source.path) !== installed.targetPath) {
+      return entry;
+    }
+    return { ...entry, source: { ...entry.source, digest: await calculateSourceDigest(entry.source.path) } };
+  } catch {
+    return entry;
+  }
 }
 
 interface SkillAction {

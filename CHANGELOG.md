@@ -6,6 +6,7 @@
 
 ### 新增
 
+- `dshenv pull` 接管 `plan` 列为 `Unmanaged plugins` 的插件：描述方式与 `capture` 相同，lock 与所有权按 `adopt` 记录（`local-link` 另记源码 digest），接管后 `plan` 没有待执行操作；`local-link`/`local-file` 插件写进本机 overlay（没有选中时新建并选中 `local`，`--no-overlay` 时拒绝），其余写进基础清单。`--json` 输出新增 `plugins` 与 `warnings`；`plan` 的未管理插件提示改为指向 `dshenv pull`。此前只能 `capture` + `adopt`（只写基础清单），或 `install <path> --layer overlay` 再 `disable`。
 - `-p, --profile` 的统一规则：作用于单个 Profile 的命令（`install`、`update`、`enable`、`disable`、`remove`、`purge`、`config`、`tools`、`runtime`、`web start`、`web stop`）不写 `-p` 时使用环境变量 `DSHENV_PROFILE`；两者都没有时以退出码 3 报 `Missing -p, --profile <name>: choose one of …, or set DSHENV_PROFILE`，列出清单声明的与 DSH 已创建的 Profile（此前是 commander 的 `required option ... not specified`，退出码 1）。`DSHENV_PROFILE` 不合法时报错并注明来源。
 - `web status -p <name>` 只列出一个 Profile；`capture` 支持 `-p` 简写。
 - `tools reset <tool>`：删掉清单里改动该工具的 patch，恢复 DSH 的默认；预设内的工具会连同整个预设一起解除固定。

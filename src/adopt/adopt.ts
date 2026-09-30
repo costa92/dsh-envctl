@@ -79,7 +79,7 @@ function readExisting<T>(kind: string, file: string, load: (content: string) => 
 }
 
 // A captured alias can already name another declared package; overwriting that entry would drop it and its patches.
-function freeAlias(plugins: Record<string, unknown>, alias: string): string {
+export function freeAlias(plugins: Record<string, unknown>, alias: string): string {
   let candidate = alias;
   for (let counter = 1; Object.hasOwn(plugins, candidate); counter++) {
     candidate = `${alias}-${counter}`;
