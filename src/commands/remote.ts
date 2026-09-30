@@ -55,6 +55,7 @@ export function registerRemoteCommands(ctx: CommandContext): void {
     url: string,
     preview: SyncPreview,
     accepted: AcceptResult | null,
+    dryRun: boolean | undefined,
     extra: Record<string, unknown> = {}
   ): void {
     const status = accepted ? 'accepted' : preview.status;
@@ -78,7 +79,9 @@ export function registerRemoteCommands(ctx: CommandContext): void {
     if (accepted) {
       writeOut(`Accepted ${preview.to} (snapshot ${accepted.snapshotId}).\nNext: dshenv plan, then dshenv apply --yes.\n`);
     } else {
-      writeOut('Accepting means agreeing to run the plugins this commit declares. Re-run with --yes to accept.\n');
+      writeOut(
+        `Accepting means agreeing to run the plugins this commit declares. ${dryRun ? 'Run it again without --dry-run and with --yes' : 'Re-run with --yes'} to accept.\n`
+      );
     }
   }
 
@@ -90,8 +93,9 @@ export function registerRemoteCommands(ctx: CommandContext): void {
     .option('--branch <name>', 'branch to follow; defaults to the branch the remote HEAD points to')
     .option('--path <dir>', 'directory inside the repository that holds manifest.yaml', DEFAULT_REMOTE_PATH)
     .option('--replace', 'overwrite a local manifest, same-named overlay or lock entry the team lock pins (a snapshot is taken first)')
+    .option('--dry-run', 'show what remote add would write without writing; exit code 2 when there is any')
     .option('-y, --yes', 'accept and write the remote files; without it remote add only previews')
-    .action(async (url: string, cmdOpts: { branch?: string; path: string; replace?: boolean; yes?: boolean }) => {
+    .action(async (url: string, cmdOpts: { branch?: string; path: string; replace?: boolean; dryRun?: boolean; yes?: boolean }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       if (hasEmbeddedCredentials(url)) {
@@ -131,7 +135,7 @@ export function registerRemoteCommands(ctx: CommandContext): void {
             replace: Boolean(cmdOpts.replace),
             selection: resolveCliOverlay(opts, paths)
           });
-          if (!cmdOpts.yes) {
+          if (cmdOpts.dryRun || !cmdOpts.yes) {
             await fs.promises.rm(paths.remoteDir, { recursive: true, force: true });
             return { subscription, preview, accepted: null };
           }
@@ -141,7 +145,7 @@ export function registerRemoteCommands(ctx: CommandContext): void {
           throw err;
         }
       });
-      reportSync(opts, url, preview, accepted, subscription);
+      reportSync(opts, url, preview, accepted, cmdOpts.dryRun, subscription);
     });
 
   remoteCmd
@@ -187,11 +191,12 @@ export function registerRemoteCommands(ctx: CommandContext): void {
   remoteCmd
     .command('remove')
     .description('Stop following the remote; its files and lock entries stay in place as local ones')
+    .option('--dry-run', 'show what remote remove would leave in place; exit code 2')
     .option('-y, --yes', 'remove it; without it remote remove only previews')
-    .action(async (cmdOpts: { yes?: boolean }) => {
+    .action(async (cmdOpts: { dryRun?: boolean; yes?: boolean }) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
-      if (!cmdOpts.yes) {
+      if (cmdOpts.dryRun || !cmdOpts.yes) {
         const current = readRemoteConfig(paths);
         if (!current) {
           throw new ValidationError('No remote is configured');
@@ -203,7 +208,7 @@ export function registerRemoteCommands(ctx: CommandContext): void {
         } else {
           writeOut(`Would stop following ${current.url}; ${files.length} file(s) and ${lockEntries.length} lock entry(ies) would stay in place as local ones.\n`);
         }
-        reportPreview(ctx, { json: opts.json, pending: true, action: 'remove the remote' });
+        reportPreview(ctx, { json: opts.json, dryRun: cmdOpts.dryRun, pending: true, action: 'remove the remote' });
         return;
       }
       const config = await withEnvironmentLock(paths, async () => {
@@ -230,8 +235,9 @@ export function registerRemoteCommands(ctx: CommandContext): void {
       .description('Fetch the subscribed remote and preview or accept its newest commit')
       .option('--ref <ref>', 'commit or tag on the subscribed branch to move to')
       .option('--discard-local-changes', 'overwrite remote-owned files and lock entries that were changed locally')
+      .option('--dry-run', 'show what remote sync would write without writing; exit code 2 when there is any')
       .option('-y, --yes', 'accept and write the remote files; without it remote sync only previews')
-      .action(async (cmdOpts: { ref?: string; discardLocalChanges?: boolean; yes?: boolean }) => {
+      .action(async (cmdOpts: { ref?: string; discardLocalChanges?: boolean; dryRun?: boolean; yes?: boolean }) => {
         const opts = program.opts();
         const paths = resolveCliPaths(opts);
         const { url, preview, accepted } = await withEnvironmentLock(paths, async () => {
@@ -260,10 +266,10 @@ export function registerRemoteCommands(ctx: CommandContext): void {
             discardLocalChanges: Boolean(cmdOpts.discardLocalChanges),
             selection: resolveCliOverlay(opts, paths)
           });
-          const accepted = preview.status === 'pending' && cmdOpts.yes ? await acceptSync(paths, preview) : null;
+          const accepted = preview.status === 'pending' && cmdOpts.yes && !cmdOpts.dryRun ? await acceptSync(paths, preview) : null;
           return { url: config.url, preview, accepted };
         });
-        reportSync(opts, url, preview, accepted);
+        reportSync(opts, url, preview, accepted, cmdOpts.dryRun);
       });
   }
 }

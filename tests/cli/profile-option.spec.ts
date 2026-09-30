@@ -108,7 +108,7 @@ describe('CLI -p, --profile', () => {
   it('describes -p the same way on every command', async () => {
     const required = (await run(['disable', '--help'])).stdout;
     expect(required).toMatch(/-p, --profile <name>\s+target profile \(default: \$DSHENV_PROFILE\)/);
-    for (const args of [['web', 'start', '--help'], ['runtime', '--help'], ['tools', 'config', '--help']]) {
+    for (const args of [['web', 'start', '--help'], ['runtime', '--help'], ['tools', 'config', 'set', '--help']]) {
       expect((await run(args)).stdout, args.join(' ')).toMatch(/-p, --profile <name>\s+target profile \(default: \$DSHENV_PROFILE\)/);
     }
     for (const args of [['list', '--help'], ['pull', '--help'], ['overlay', 'show', '--help'], ['restarted', '--help'], ['capture', '--help'], ['web', 'status', '--help']]) {

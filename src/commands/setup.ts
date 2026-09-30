@@ -75,6 +75,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
     .command('adopt')
     .description('Adopt a candidate capture manifest into active environment management')
     .requiredOption('-f, --from <file>', '(required) path to candidate capture manifest')
+    .option('--dry-run', 'show what adopt would take over without writing; exit code 2 when there is any')
     .option('-y, --yes', 'adopt; without it adopt only previews what it would take over')
     // Only base is valid, so the option is accepted for scripts that pass it but not shown.
     .addOption(new Option('--layer <layer>').hideHelp())
@@ -105,12 +106,13 @@ export function registerSetupCommands(ctx: CommandContext): void {
         throw new ValidationError(`Invalid candidate schema: ${issues}`);
       }
 
+      const preview = Boolean(cmdOpts.dryRun) || !cmdOpts.yes;
       const summary = await adoptEnvironment(paths, parsed.data as CaptureDocument, {
         validateManifest: (manifest) => assertBaseMergesWithOverlay(paths, selection, manifest),
-        dryRun: !cmdOpts.yes,
+        dryRun: preview,
         overlay: selection ? readOverlay(paths, selection.name) : undefined
       });
-      if (!cmdOpts.yes) {
+      if (preview) {
         const pending = summary.details.filter((d) => !d.alreadyAdopted);
         if (opts.json) {
           writeOut(JSON.stringify({ ...summary, dryRun: true }, null, 2) + '\n');
@@ -125,7 +127,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
             writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]\n`);
           }
         }
-        reportPreview(ctx, { json: opts.json, pending: pending.length > 0, action: 'adopt' });
+        reportPreview(ctx, { json: opts.json, dryRun: cmdOpts.dryRun, pending: pending.length > 0, action: 'adopt' });
         return;
       }
       // Taking over a profile includes the settings DSH wrote into its patch file.

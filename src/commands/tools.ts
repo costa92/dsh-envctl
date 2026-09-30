@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { Option } from 'commander';
 import type { ProfilePatch } from '../domain.js';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import { ValidationError } from '../errors.js';
@@ -216,31 +217,58 @@ export function registerToolsCommands(ctx: CommandContext): void {
       .action((tool: string, cmdOpts) => change(tool, cmdOpts, { kind: toggle.kind }, toggle.verb, toggle.status));
   }
 
-  tools
-    .command('config <tool> [dottedPath] [value]')
-    .description("Show a tool's config, one key of it, or set that key (the patch restates the whole config)")
+  const showConfig = async (tool: string, dottedPath: string | undefined, cmdOpts: { profile: string; preset?: string }): Promise<void> => {
+    const opts: CliOpts = program.opts();
+    const paths = resolveCliPaths(opts);
+    const tree = await composedProfile(paths, opts, cmdOpts.profile);
+    assertListedTool(tree, cmdOpts.profile, tool);
+    const target = locateTool(tree, tool, cmdOpts.preset);
+    const config = declaredToolRow(tree, declaredPatches(paths, resolveCliOverlay(opts, paths), cmdOpts.profile), target).config ?? {};
+    const shown = dottedPath === undefined ? config : getAtPath(config as Record<string, unknown>, dottedPath);
+    if (dottedPath !== undefined && shown === undefined) {
+      throw new ValidationError(
+        `The config of tool '${tool}' in profile '${cmdOpts.profile}' has no '${dottedPath}'${didYouMean(dottedPath.split('.')[0], Object.keys(config))}`
+      );
+    }
+    writeOut(`${JSON.stringify(shown ?? null, null, 2)}\n`);
+  };
+  const setConfig = (tool: string, dottedPath: string, value: string, cmdOpts: { profile: string; preset?: string; layer?: string }) =>
+    change(tool, cmdOpts, { kind: 'set', path: dottedPath, value: parseConfigValue(value) }, `Set ${dottedPath} of`, 'set');
+  const presetOption = () => new Option('--preset <name>', 'agent preset holding the tool (default: the profile default)');
+
+  const configCmd = tools
+    .command('config')
+    .description("Show or change a tool's config (the patch restates the whole config)")
+    .usage('[command]');
+  // `tools config <tool> [dottedPath] [value]`, the form before get/set/unset, still works for old scripts.
+  configCmd
+    .command('by-position <tool> [dottedPath] [value]', { isDefault: true, hidden: true })
     .addOption(targetProfile())
-    .option('--preset <name>', 'agent preset holding the tool (default: the profile default)')
+    .addOption(presetOption())
     .addOption(writeLayer())
-    .action(async (tool: string, dottedPath: string | undefined, value: string | undefined, cmdOpts) => {
-      if (dottedPath !== undefined && value !== undefined) {
-        await change(tool, cmdOpts, { kind: 'set', path: dottedPath, value: parseConfigValue(value) }, `Set ${dottedPath} of`, 'set');
-        return;
-      }
-      const opts: CliOpts = program.opts();
-      const paths = resolveCliPaths(opts);
-      const tree = await composedProfile(paths, opts, cmdOpts.profile);
-      assertListedTool(tree, cmdOpts.profile, tool);
-      const target = locateTool(tree, tool, cmdOpts.preset);
-      const config = declaredToolRow(tree, declaredPatches(paths, resolveCliOverlay(opts, paths), cmdOpts.profile), target).config ?? {};
-      const shown = dottedPath === undefined ? config : getAtPath(config as Record<string, unknown>, dottedPath);
-      if (dottedPath !== undefined && shown === undefined) {
-        throw new ValidationError(
-          `The config of tool '${tool}' in profile '${cmdOpts.profile}' has no '${dottedPath}'${didYouMean(dottedPath.split('.')[0], Object.keys(config))}`
-        );
-      }
-      writeOut(`${JSON.stringify(shown ?? null, null, 2)}\n`);
-    });
+    .action((tool: string, dottedPath: string | undefined, value: string | undefined, cmdOpts) =>
+      dottedPath !== undefined && value !== undefined ? setConfig(tool, dottedPath, value, cmdOpts) : showConfig(tool, dottedPath, cmdOpts)
+    );
+  configCmd
+    .command('get <tool> [dottedPath]')
+    .description("Show a tool's config, or one key of it")
+    .addOption(targetProfile())
+    .addOption(presetOption())
+    .action((tool: string, dottedPath: string | undefined, cmdOpts) => showConfig(tool, dottedPath, cmdOpts));
+  configCmd
+    .command('set <tool> <dottedPath> <value>')
+    .description('Set one key of a tool config in the manifest (the value is parsed as JSON, else taken as a string)')
+    .addOption(targetProfile())
+    .addOption(presetOption())
+    .addOption(writeLayer())
+    .action((tool: string, dottedPath: string, value: string, cmdOpts) => setConfig(tool, dottedPath, value, cmdOpts));
+  configCmd
+    .command('unset <tool> <dottedPath>')
+    .description('Remove one key from a tool config in the manifest')
+    .addOption(targetProfile())
+    .addOption(presetOption())
+    .addOption(writeLayer())
+    .action((tool: string, dottedPath: string, cmdOpts) => change(tool, cmdOpts, { kind: 'unset', path: dottedPath }, `Removed ${dottedPath} of`, 'unset'));
 
   tools
     .command('reset <tool>')

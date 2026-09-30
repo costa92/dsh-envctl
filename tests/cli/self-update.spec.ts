@@ -34,6 +34,14 @@ describe('CLI self-update', () => {
     expect(out).toBe(`dshenv 99.0.0 is available (installed ${version}); run: dshenv self-update\n`);
   });
 
+  it('takes --dry-run as --check, like the commands that take --yes', async () => {
+    const { run, calls } = runner('99.0.0');
+    const { code, out } = await cli(['self-update', '--dry-run'], run);
+    expect(code).toBe(2);
+    expect(out).toBe(`dshenv 99.0.0 is available (installed ${version}); run: dshenv self-update\n`);
+    expect(calls.some((call) => call.startsWith('npm install'))).toBe(false);
+  });
+
   it('does nothing and exits 0 when the installed version is ahead of latest', async () => {
     const { run, calls } = runner('0.0.1');
     const { code, out } = await cli(['self-update'], run);

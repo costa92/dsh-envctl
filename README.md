@@ -137,8 +137,8 @@ dshenv disable agent-teams     # 等同于 dshenv disable agent-teams -p web
 
 哪些命令要加 `--yes`，只看一条规则：
 
-- **只改 envctl 声明（清单、overlay、lock）的命令直接写入**：`install`、`update`、`remove`、`enable`、`disable`、`plugins config set|unset`、`tools enable|disable|config|reset`、`overlay create|use`、`new -p`、`source clone -p`、`source sync -p`。它们不碰 DSH profile，改错了再改回来即可，DSH 要等 `apply --yes` 才变。
-- **会改 DSH、批量接管或覆盖文件的命令要 `--yes`**：`apply`、`adopt`、`pull`、`rollback`、`gc`、`purge`、`remote add|sync|remove`。不加 `--yes` 时只预览、什么都不写；有待执行的内容时退出码为 2，并在 stderr 提示加 `--yes` 重跑，所以 CI 里可以直接用不带 `--yes` 的命令检查漂移。
+- **只改 envctl 声明（清单、overlay、lock）的命令直接写入**：`install`、`update`、`remove`、`enable`、`disable`、`plugins config set|unset`、`tools enable|disable|config set|unset|reset`、`overlay create|use`、`new -p`、`source clone -p`、`source sync -p`。它们不碰 DSH profile，改错了再改回来即可，DSH 要等 `apply --yes` 才变。
+- **会改 DSH、批量接管或覆盖文件的命令要 `--yes`**：`apply`、`adopt`、`pull`、`rollback`、`gc`、`purge`、`remote add|sync|remove`。不加 `--yes` 时只预览、什么都不写；有待执行的内容时退出码为 2，并在 stderr 提示加 `--yes` 重跑，所以 CI 里可以直接用不带 `--yes` 的命令检查漂移。这些命令都接受 `--dry-run`：即使同时写了 `--yes` 也只预览（`self-update` 的 `--dry-run` 同 `--check`）。
 
 `remove` 仍接受 `-y`（旧脚本兼容），但它只改清单，加不加都一样。
 
@@ -484,12 +484,14 @@ dshenv pull --yes --prefer dsh     # DSH 与清单都改过时，以 DSH 为准�
 dshenv tools list -p web                                   # 默认预设的工具：+ 开启，- 关闭，~ 按条件关闭
 dshenv tools list -p web --preset ptc                      # 看另一个 agent 预设；--all 列出每个位置
 dshenv tools disable tool-web -p web                       # 关闭；enable 打开（id 见 tools list）
-dshenv tools config tool-web -p web                        # 查看配置；加 <路径> 看单个键
-dshenv tools config tool-web fetchMaxOutputChars 20000 -p web   # 设置一个键
+dshenv tools config get tool-web -p web                    # 查看配置；加 <路径> 看单个键
+dshenv tools config set tool-web fetchMaxOutputChars 20000 -p web   # 设置一个键
+dshenv tools config unset tool-web fetchMaxOutputChars -p web       # 删掉一个键
 dshenv tools reset tool-web -p web                         # 删掉改动它的 patch，恢复 DSH 的默认
 dshenv apply --yes                                         # 写进 DSH
 ```
 
+- `tools config get|set|unset` 与 `plugins config` 写法相同；旧写法 `tools config <tool> [路径] [值]` 仍可使用。
 - 结果写进清单的 `profiles.<profile>.patches`，与 `pull` 管理的条目相同；overlay 激活时用 `--layer base|overlay` 选择写入层。
 - 顶层工具行（如 headless Profile）只写一条小 patch：`{id, name, disabled}` 或 `config`。DSH 的 patch 会整体替换一行的 `config`，所以 `config` 设置时会把当前整份配置连同改动一起写入。
 - web 等 Profile 的工具在 agent 预设（`preset-standard`、`preset-ptc` 等）里，按 id 的 patch 够不到预设内部，只能整份替换预设的 `config`。dshenv 会把当前预设整份复制进清单再改目标工具（`!!js` 条件原样保留），这个预设从此**固定**：DSH 升级对它的改动不再生效，`plan` 会在 `Pinned agent presets` 下列出。删掉清单里那条预设 patch 并 `apply`，即恢复跟随 DSH。

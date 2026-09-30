@@ -258,7 +258,15 @@ describe('CLI remote', () => {
   });
 
   it('removes the subscription only with --yes and leaves the files writable', async () => {
+    const addDryRun = await run(['remote', 'add', team.url, '--yes', '--dry-run']);
+    expect(addDryRun.code).toBe(2);
+    expect(addDryRun.stdout).toContain('Run it again without --dry-run and with --yes to accept');
+    expect(fs.existsSync(paths.remoteFile)).toBe(false);
     await run(['remote', 'add', team.url, '--yes']);
+    const removeDryRun = await run(['remote', 'remove', '--yes', '--dry-run']);
+    expect(removeDryRun.code).toBe(2);
+    expect(removeDryRun.stderr).toContain('without --dry-run and with --yes to remove the remote');
+    expect(fs.existsSync(paths.remoteFile)).toBe(true);
     const preview = await run(['remote', 'remove']);
     expect(preview.code).toBe(2);
     expect(preview.stdout).toContain(`Would stop following ${team.url}`);

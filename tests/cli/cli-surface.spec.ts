@@ -248,14 +248,20 @@ describe('CLI surface', () => {
       expect(preview.stderr).toMatch(/Re-run with --yes to adopt/);
       expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(before);
 
+      const dryRun = await run(['adopt', '-f', candidate, '--yes', '--dry-run']);
+      expect(dryRun.code).toBe(2);
+      expect(dryRun.stderr).toMatch(/without --dry-run and with --yes to adopt/);
+      expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(before);
+
       expect((await run(['adopt', '-f', candidate, '--yes'])).code).toBe(0);
       expect(manifest().profiles.headless.plugins).toHaveProperty('plugin-other');
     });
 
     it('says in help that every --yes command only previews without it', async () => {
-      for (const args of [['apply'], ['adopt'], ['rollback'], ['gc'], ['purge'], ['remote', 'add'], ['remote', 'sync'], ['remote', 'remove']]) {
+      for (const args of [['apply'], ['adopt'], ['pull'], ['rollback'], ['gc'], ['purge'], ['remote', 'add'], ['remote', 'sync'], ['remote', 'remove']]) {
         const help = (await run([...args, '--help'], false)).stdout.replace(/\s+/g, ' ');
         expect(help, args.join(' ')).toMatch(/-y, --yes [^-]*without it [a-z ]+ only previews/);
+        expect(help, args.join(' ')).toMatch(/--dry-run [^-]*exit code 2/);
       }
     });
 
