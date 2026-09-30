@@ -722,9 +722,13 @@ function collectPluginStatuses(
 // The --json shape: profile patches under the '@profile' alias, skills in skillOperations.
 export function planJson(plan: EnvironmentPlan): Record<string, unknown> {
   const { hasChanges, unmanaged, unverified, unmanagedPatches, unmanagedSkills, pinnedPresets } = plan;
-  const operations = plan.operations.filter(isProfileOperation).map(({ resource, ...op }) =>
-    resource === 'profile-patch' ? { profile: op.profile, alias: PROFILE_PATCHES_ALIAS, package: PROFILE_PATCHES_ALIAS, ...op } : op
-  );
+  const operations = plan.operations.filter(isProfileOperation).map(({ resource, ...op }) => {
+    if (resource !== 'profile-patch') {
+      return op;
+    }
+    const { profile, ...rest } = op;
+    return { profile, alias: PROFILE_PATCHES_ALIAS, package: PROFILE_PATCHES_ALIAS, ...rest };
+  });
   const skillOperations = plan.operations.flatMap((op) => (op.resource === 'skill' ? [{ kind: op.kind, name: op.name, reason: op.reason }] : []));
   return {
     hasChanges,
