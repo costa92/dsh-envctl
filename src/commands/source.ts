@@ -33,8 +33,9 @@ export function registerSourceCommands(ctx: CommandContext): void {
   const sourceCmd = program.command('source').description('Manage local and Git plugin sources');
 
   sourceCmd
-    .command('status [sourcePath]')
-    .description('Inspect working tree and digest status of a source directory')
+    .command('show [dir]')
+    .alias('status')
+    .description('Show the Git working tree and digest of a source directory')
     .option('-p, --profile <name>', 'inspect the managed clone for this profile', profileOption)
     .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
     .action(async (sourcePath?: string, cmdOpts?: { profile?: string; as?: string }) => {
@@ -49,7 +50,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
             .filter(([, plugin]) => plugin.source.type === 'git')
             .map(([name]) => name);
           if (gitAliases.length !== 1) {
-            throw new ValidationError('source status --profile requires --as when the profile does not have exactly one git plugin');
+            throw new ValidationError('source show --profile requires --as when the profile does not have exactly one git plugin');
           }
           alias = gitAliases[0];
         }
@@ -93,7 +94,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
     });
 
   sourceCmd
-    .command('clone <url> [targetDir]')
+    .command('clone <url> [dir]')
     .description('Clone a Git plugin repository; with --profile, store under envctl/sources and lock the commit')
     .option('--ref <ref>', 'branch or tag to clone')
     .option('-p, --profile <name>', 'record the clone as a managed git plugin for this profile', profileOption)
@@ -110,7 +111,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
       }
       const alias: string = cmdOpts.as || packageNameFromGitUrl(url);
       if (!targetDir && !cmdOpts.profile) {
-        throw new ValidationError('source clone requires <targetDir> or --profile');
+        throw new ValidationError('source clone requires <dir> or --profile');
       }
       if (!cmdOpts.profile && cmdOpts.layer !== undefined) {
         throw new ValidationError('--layer requires --profile for source clone');
@@ -245,10 +246,10 @@ export function registerSourceCommands(ctx: CommandContext): void {
     });
 
   sourceCmd
-    .command('pull [targetDir] [targetRef]')
+    .command('pull [dir] [targetRef]')
     .description('Fast-forward a Git checkout; with --profile, also update the lock commit')
     // A second positional ref still works; --ref is the one spelling shown, as in source clone.
-    .usage('[options] [targetDir]')
+    .usage('[options] [dir]')
     .option('-p, --profile <name>', 'managed profile whose envctl/sources clone should be updated', profileOption)
     .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
     .option('--ref <ref>', 'commit or ref to fast-forward to')
@@ -292,7 +293,7 @@ export function registerSourceCommands(ctx: CommandContext): void {
       } else if (targetDir) {
         resolvedTarget = path.resolve(process.cwd(), targetDir);
       } else {
-        throw new ValidationError('source pull requires <targetDir> or --profile');
+        throw new ValidationError('source pull requires <dir> or --profile');
       }
 
       if (cmdOpts.profile && alias) {
