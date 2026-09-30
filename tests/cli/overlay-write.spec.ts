@@ -60,6 +60,7 @@ describe('CLI writes with an active overlay', () => {
   });
 
   it('enables a plugin in the overlay', async () => {
+    expect((await run(['disable', 'extra', '--profile', 'web', '--layer', 'overlay'])).code).toBe(0);
     expect((await run(['enable', 'extra', '--profile', 'web', '--layer', 'overlay'])).code).toBe(0);
     expect(overlay().profiles?.web.plugins?.extra.enabled).toBe(true);
   });

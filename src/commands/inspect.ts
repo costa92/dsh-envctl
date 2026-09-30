@@ -57,12 +57,15 @@ export function registerInspectCommands(ctx: CommandContext): void {
         writeOut(JSON.stringify(selection ? { ...plan, overlay: selection } : plan, null, 2) + '\n');
       } else {
         if (selection) {
-          writeOut(overlayBanner(selection));
+          writeErr(overlayBanner(selection));
         }
         writeOut(renderPlan(plan));
       }
 
       setExitCode(planExitCode(plan));
+      if (planExitCode(plan) === 2 && !opts.json) {
+        writeErr('Next: dshenv apply --yes\n');
+      }
     });
 
   program
@@ -112,7 +115,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
         writeOut(JSON.stringify(selection ? { ...summary, overlay: selection } : summary, null, 2) + '\n');
       } else {
         if (selection) {
-          writeOut(overlayBanner(selection));
+          writeErr(overlayBanner(selection));
         }
         writeOut(renderStatus(summary));
       }
@@ -216,7 +219,7 @@ export function registerInspectCommands(ctx: CommandContext): void {
         writeOut(JSON.stringify(selection ? { ...report, overlay: selection } : report, null, 2) + '\n');
       } else {
         if (selection) {
-          writeOut(overlayBanner(selection));
+          writeErr(overlayBanner(selection));
         }
         writeOut(renderDoctor(report));
       }
