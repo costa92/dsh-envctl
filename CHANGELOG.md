@@ -2,7 +2,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。发布流程见 [docs/发布流程.md](docs/发布流程.md)。
 
-## 未发布
+## 0.4.0 - 2026-09-30
+
+### 升级须知
+
+脚本里用到下面几处时需要调整，详见「变更」：
+
+- 改状态的命令不带 `--yes` 时只预览：有待执行内容时退出码 2，此前多数是报错退出码 3（见「变更」里的退出码对照表）。
+- `overlay: <name> (file)` 提示行从 stdout 改到 stderr。
+- 过滤类命令的 `-p` 写了不存在的 Profile 时退出码 3，此前报“已同步”、退出码 0；`install`/`update --to` 会先用 npm 核对版本（`--no-npm-check` 或 `DSHENV_NPM_CHECK=off` 跳过）。
+- `web status`、`source status` 改名 `web list`、`source show`，旧名仍可用。
 
 ### 新增
 
