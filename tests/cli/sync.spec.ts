@@ -110,6 +110,11 @@ describe('CLI sync', () => {
     expect(text.code).toBe(2);
     expect(text.stdout).toContain('Files: no changes');
     expect(text.stdout).toContain('Lock entries:\n  ~ web/shared\n');
+    const lockBefore = read(paths.lockFile);
+    const dryRun = await run(['remote', 'sync', '--yes', '--dry-run']);
+    expect(dryRun.code).toBe(2);
+    expect(dryRun.stdout).toContain('Run it again without --dry-run and with --yes to accept');
+    expect(read(paths.lockFile)).toBe(lockBefore);
     const accepted = await run(['sync', '--yes', '--json']);
     expect(accepted.code).toBe(0);
     expect(JSON.parse(accepted.stdout)).toMatchObject({ status: 'accepted', lockEntries: { added: [], modified: ['web/shared'], removed: [] } });

@@ -14,14 +14,15 @@ export function registerSelfUpdateCommand(ctx: CommandContext, input: SelfUpdate
     .command('self-update')
     .description('Update dshenv itself from the npm registry with the package manager that installed it')
     .option('--check', 'only report whether a newer version exists; exit code 2 when one does')
+    .option('--dry-run', 'same as --check')
     .option('--to <version>', 'install this exact version instead of the latest, downgrading if it is older')
-    .action(async (cmdOpts: { check?: boolean; to?: string }) => {
+    .action(async (cmdOpts: { check?: boolean; dryRun?: boolean; to?: string }) => {
       const opts = program.opts();
       const result = await selfUpdate({
         currentVersion: input.version,
         packageRoot: input.packageRoot,
         to: cmdOpts.to,
-        check: cmdOpts.check,
+        check: cmdOpts.check || cmdOpts.dryRun,
         run: input.run
       });
       if (result.status === 'available') {

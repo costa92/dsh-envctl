@@ -99,6 +99,27 @@ process.exit(1);
     expect((await run(['plan'])).stdout).toMatch(/Pinned agent presets[^\n]*\n {2}! \[web\] preset-standard/);
   });
 
+  it('reads, sets and unsets a tool config with get, set and unset, like plugins config', async () => {
+    const help = (await run(['tools', 'config', '--help'])).stdout;
+    expect(help).toMatch(/^\s+get \[options\] <tool> \[dottedPath\]/m);
+    expect(help).toMatch(/^\s+set \[options\] <tool> <dottedPath> <value>/m);
+    expect(help).toMatch(/^\s+unset \[options\] <tool> <dottedPath>/m);
+    expect(help).toMatch(/^Usage: dshenv tools config \[command\]$/m);
+
+    expect((await run(['tools', 'config', 'get', 'tool-web', '-p', 'headless'])).stdout).toContain('"fetchMaxOutputChars": 1000');
+    expect((await run(['tools', 'config', 'set', 'tool-web', 'search.maxResults', '3', '-p', 'headless'])).code).toBe(0);
+    expect((await run(['tools', 'config', 'get', 'tool-web', 'search.maxResults', '-p', 'headless'])).stdout.trim()).toBe('3');
+
+    const unset = await run(['tools', 'config', 'unset', 'tool-web', 'search', '-p', 'headless']);
+    expect(unset.code).toBe(0);
+    expect(unset.stdout).toContain("Removed search of tool 'tool-web'");
+    expect(manifest().profiles.headless.patches).toEqual([{ id: 'tool-web', name: '@deepseek-ai/dsh-tool-web', config: { fetchMaxOutputChars: 1000 } }]);
+
+    const missing = await run(['tools', 'config', 'unset', 'tool-web', 'nosuch', '-p', 'headless']);
+    expect(missing.code).toBe(3);
+    expect(missing.stderr).toContain("The config of 'tool-web' has no 'nosuch'");
+  });
+
   it('writes a small patch for a top-level tool and reads or sets its config', async () => {
     expect((await run(['tools', 'config', 'tool-web', '-p', 'headless'])).stdout).toContain('"fetchMaxOutputChars": 1000');
     const set = await run(['tools', 'config', 'tool-web', 'search.maxResults', '3', '-p', 'headless']);

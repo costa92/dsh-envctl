@@ -1,6 +1,6 @@
 import type { ProfilePatch } from '../domain.js';
 import { ValidationError } from '../errors.js';
-import { setAtPath } from '../config/config.js';
+import { getAtPath, setAtPath, unsetAtPath } from '../config/config.js';
 import { overrideKey, parseEntryList } from '../profile-patches/entries.js';
 
 export const TOOL_CATEGORIES = ['terminal', 'filesystem', 'network', 'code', 'orchestration', 'interaction', 'extend', 'other'] as const;
@@ -61,7 +61,7 @@ export interface ToolTarget {
   row: ProfilePatch;
 }
 
-export type ToolChange = { kind: 'enable' } | { kind: 'disable' } | { kind: 'set'; path: string; value: unknown };
+export type ToolChange = { kind: 'enable' } | { kind: 'disable' } | { kind: 'set'; path: string; value: unknown } | { kind: 'unset'; path: string };
 
 interface Preset {
   entry: ProfilePatch;
@@ -213,7 +213,14 @@ function applyChange(row: ProfilePatch, change: ToolChange, baseConfig: unknown)
     throw new ValidationError(`The config of '${String(row.id)}' is not a map, so a key path cannot be set in it`);
   }
   // DSH replaces a row's whole config with the patched one, so the patch restates every key.
-  return { ...row, config: setAtPath(structuredClone(baseConfig ?? {}), change.path, change.value) };
+  const config = structuredClone(baseConfig ?? {});
+  if (change.kind === 'unset') {
+    if (getAtPath(config, change.path) === undefined || !unsetAtPath(config, change.path)) {
+      throw new ValidationError(`The config of '${String(row.id)}' has no '${change.path}'`);
+    }
+    return { ...row, config };
+  }
+  return { ...row, config: setAtPath(config, change.path, change.value) };
 }
 
 // The manifest entry that makes the change: a small entry for a top-level row, the whole preset for a preset row.
