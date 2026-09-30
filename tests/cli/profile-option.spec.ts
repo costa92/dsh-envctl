@@ -159,7 +159,7 @@ describe('CLI one spelling per operation', () => {
 
   it('shows one spelling for the source pull ref', async () => {
     const help = (await run(['source', 'pull', '--help'])).stdout;
-    expect(help).toMatch(/Usage: dshenv source pull \[options\] \[targetDir\]\n/);
+    expect(help).toMatch(/Usage: dshenv source pull \[options\] \[dir\]\n/);
     expect(help).toContain('--ref <ref>');
   });
 

@@ -103,9 +103,13 @@ describe('CLI surface', () => {
   describe('help', () => {
     it('groups commands and lists examples, data flow and environment variables', async () => {
       const help = (await run(['--help'], false)).stdout;
-      for (const heading of ['Getting started:', 'Everyday:', 'Plugins:', 'Tools & runtime:', 'Sources & team:', 'Maintenance:', 'Examples:', 'Environment variables:']) {
+      for (const heading of ['Getting started:', 'Everyday:', 'Plugins:', 'Tools & web:', 'Checks:', 'Team & machine:', 'Authoring:', 'Maintenance:', 'Examples:', 'Environment variables:']) {
         expect(help).toContain(heading);
       }
+      const group = (heading: string) => help.split(heading)[1].split(/\n\n/)[0].match(/^ {2}[a-z-]+/gm)!.map((name) => name.trim());
+      expect(group('Everyday:')).toEqual(['plan', 'apply', 'pull', 'status', 'mark-restarted', 'rollback']);
+      expect(group('Checks:')).toEqual(['doctor', 'runtime']);
+      expect(group('Maintenance:')).toEqual(['purge', 'gc', 'self-update']);
       for (const name of ['DSH_HOME', 'DSH_CLI', 'DSHENV_PROFILE', 'DSHENV_LAYER', 'DSHENV_OVERLAY', 'DSHENV_DSH_URL']) {
         expect(help).toContain(name);
       }
@@ -129,6 +133,22 @@ describe('CLI surface', () => {
       expect(config).toMatch(/validate \[options\] <alias>\s+\S+/);
       expect(config).toMatch(/set \[options\] <alias> <dottedPath> <value>\s+\S+/);
       expect((await run(['remove', '--help'], false)).stdout).not.toContain('--yes');
+    });
+  });
+
+  describe('list and show verbs', () => {
+    it('names web list and source show in help, and keeps status as a hidden alias', async () => {
+      const web = (await run(['web', '--help'], false)).stdout;
+      expect(web).toMatch(/^\s+list \[options\]/m);
+      expect(web).not.toMatch(/status/);
+      expect(await run(['web', 'status'])).toEqual(await run(['web', 'list']));
+
+      const source = (await run(['source', '--help'], false)).stdout;
+      expect(source).toMatch(/^\s+show \[options\] \[dir\]/m);
+      expect(source).toMatch(/^\s+clone \[options\] <url> \[dir\]/m);
+      expect(source).toMatch(/^\s+pull \[options\] \[dir\]/m);
+      expect(source).not.toMatch(/status|targetDir|sourcePath/);
+      expect((await run(['source', 'status', '--help'], false)).stdout).toMatch(/Usage: dshenv source show/);
     });
   });
 
