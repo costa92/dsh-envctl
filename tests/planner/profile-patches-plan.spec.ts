@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildPlan, buildStatus } from '../../src/planner/plan.js';
 import type { EnvironmentManifest, ProfilePatch } from '../../src/domain.js';
 import type { EnvironmentInventory, ProfileInventory } from '../../src/inventory/profile-reader.js';
-import { PROFILE_PATCHES_ALIAS, digestProfilePatches } from '../../src/profile-patches/entries.js';
+import { digestProfilePatches } from '../../src/profile-patches/entries.js';
 import { renderPlan } from '../../src/output/render.js';
 
 const locale: ProfilePatch = { id: 'locale', config: { preference: 'zh' } };
@@ -31,20 +31,20 @@ describe('buildPlan with profile patches', () => {
 
   it('configures the profile block when it is missing, changed in the manifest, or no longer declared', () => {
     const missing = buildPlan(manifest([locale]), null, inventory({ block: null, unmanaged: [] }));
-    expect(missing.operations).toMatchObject([{ kind: 'configure', profile: 'web', alias: PROFILE_PATCHES_ALIAS }]);
+    expect(missing.operations).toMatchObject([{ kind: 'configure', profile: 'web', resource: 'profile-patch' }]);
     expect(missing.operations[0].reason).toMatch(/not written/);
 
     const changed = buildPlan(manifest([{ id: 'locale', config: { preference: 'en' } }]), null, inventory({ block: block([locale]), unmanaged: [] }));
     expect(changed.operations[0].reason).toMatch(/changed in the manifest/);
 
     const dropped = buildPlan(manifest(), null, inventory({ block: block([locale]), unmanaged: [] }));
-    expect(dropped.operations).toMatchObject([{ kind: 'configure', alias: PROFILE_PATCHES_ALIAS }]);
+    expect(dropped.operations).toMatchObject([{ kind: 'configure', resource: 'profile-patch' }]);
   });
 
   it('clears the block of a profile the manifest no longer declares', () => {
     const undeclared: EnvironmentManifest = { apiVersion: 'dshenv/v1', profiles: {} };
     const plan = buildPlan(undeclared, null, inventory({ block: block([locale]), unmanaged: [] }));
-    expect(plan.operations).toMatchObject([{ kind: 'configure', profile: 'web', alias: PROFILE_PATCHES_ALIAS, reason: expect.stringMatching(/no longer declared/) }]);
+    expect(plan.operations).toMatchObject([{ kind: 'configure', profile: 'web', resource: 'profile-patch', reason: expect.stringMatching(/no longer declared/) }]);
   });
 
   it('tells a DSH edit of the block apart and points to pull', () => {
@@ -65,10 +65,10 @@ describe('buildPlan with profile patches', () => {
     const empty: EnvironmentInventory = { profiles: {} };
     const plugins = { z: { package: 'a-plugin', enabled: true, source: { type: 'npm' as const, version: '1.0.0' } } };
     const plan = buildPlan(manifest([locale], plugins), null, empty);
-    expect(plan.operations.map((op) => [op.kind, op.alias])).toEqual([['install', 'z'], ['configure', PROFILE_PATCHES_ALIAS]]);
+    expect(plan.operations.map((op) => [op.resource, op.kind])).toEqual([['plugin', 'install'], ['profile-patch', 'configure']]);
 
     const blocked = buildPlan(manifest([locale]), null, empty);
-    expect(blocked.operations).toMatchObject([{ kind: 'blocked', alias: PROFILE_PATCHES_ALIAS }]);
+    expect(blocked.operations).toMatchObject([{ kind: 'blocked', resource: 'profile-patch' }]);
   });
 
   it('renders the profile block operation without a package name', () => {

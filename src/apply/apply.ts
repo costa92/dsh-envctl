@@ -11,7 +11,7 @@ import type {
   EnvironmentState
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
-import { buildPlan, lockedGitCommit, type EnvironmentPlan, type LocalSourceDigests, type PlanOperation } from '../planner/plan.js';
+import { buildPlan, isProfileOperation, lockedGitCommit, type EnvironmentPlan, type LocalSourceDigests, type PluginOperation } from '../planner/plan.js';
 import { loadLock, loadState, serializeState, serializeLock } from '../manifest/files.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import type { OverlaySelection } from '../overlay/selection.js';
@@ -34,7 +34,6 @@ import { lockEntryId } from '../remote/lock-entries.js';
 import { setProfileBundleEnabled } from './bundles.js';
 import { clearManagedPatches, writeManagedPatches, writePluginMount, writeProfilePatches } from './patches.js';
 import { isBundlePackage } from '../patch/mount.js';
-import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 import { applySkillOperation } from '../skills/skills.js';
 import { buildRestartSummary, profilesToProbe, type RestartSummary } from './restart-plan.js';
 
@@ -113,7 +112,7 @@ interface ProfileRollback {
 function packageSpec(
   manifest: EnvironmentManifest,
   lock: EnvironmentLock | null,
-  operation: EnvironmentPlan['operations'][number]
+  operation: PluginOperation
 ): string {
   const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
   if (!plugin) {
@@ -142,6 +141,9 @@ function packageSpec(
 
 function planNeedsDshCli(plan: EnvironmentPlan, inventory: EnvironmentInventory): boolean {
   return plan.operations.some((operation) => {
+    if (operation.resource !== 'plugin') {
+      return false;
+    }
     if (operation.kind === 'install' || operation.kind === 'update') {
       return true;
     }
@@ -190,7 +192,7 @@ async function executeWithDsh(
   inventory: EnvironmentInventory,
   rollback: ProfileRollback,
   hmrByProfile: ReadonlyMap<string, HmrStatus>,
-  onInstalled: (operation: PlanOperation) => Promise<void>,
+  onInstalled: (operation: PluginOperation) => Promise<void>,
   signal: AbortSignal | undefined,
   command: CommandSpec | null,
   options?: ApplyOptions
@@ -199,16 +201,22 @@ async function executeWithDsh(
 
   const commandTimeoutMs = options?.dshCommandTimeoutMs ?? DSH_COMMAND_TIMEOUT_MS;
   // A plugin that is not a DSH bundle is switched by its insert row; it never belongs in the bundle list.
-  const setPlainPluginEnabled = async (operation: PlanOperation, enabled: boolean): Promise<void> => {
+  const setPlainPluginEnabled = async (operation: PluginOperation, enabled: boolean): Promise<void> => {
     rollback.undo.push(await writePluginMount(paths, operation.profile, operation.alias, enabled ? operation.package : null));
     const previousIndex = await setProfileBundleEnabled(paths, operation.profile, operation.package, false);
     rollback.undo.push(async () => {
       await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
     });
   };
-  for (const [index, operation] of plan.operations.entries()) {
+  // Skills are home-wide and written after every profile has converged.
+  const steps = plan.operations.filter(isProfileOperation);
+  for (const [index, operation] of steps.entries()) {
     assertNotInterrupted(signal);
-    const failedAt = `[${operation.profile}] ${operation.kind} ${operation.alias} (${operation.package}), step ${index + 1} of ${plan.operations.length}`;
+    if (operation.resource === 'profile-patch') {
+      rollback.undo.push(await writeProfilePatches(paths, operation.profile, manifest.profiles[operation.profile]?.patches ?? []));
+      continue;
+    }
+    const failedAt = `[${operation.profile}] ${operation.kind} ${operation.alias} (${operation.package}), step ${index + 1} of ${steps.length}`;
     if ((operation.kind === 'enable' || operation.kind === 'disable') && inventory.profiles[operation.profile]?.plugins[operation.package]?.bundle === false) {
       await setPlainPluginEnabled(operation, operation.kind === 'enable');
       continue;
@@ -223,11 +231,6 @@ async function executeWithDsh(
       rollback.undo.push(async () => {
         await setProfileBundleEnabled(paths, operation.profile, operation.package, previousIndex !== -1, previousIndex);
       });
-      continue;
-    }
-
-    if (operation.kind === 'configure' && operation.alias === PROFILE_PATCHES_ALIAS) {
-      rollback.undo.push(await writeProfilePatches(paths, operation.profile, manifest.profiles[operation.profile]?.patches ?? []));
       continue;
     }
 
@@ -341,11 +344,12 @@ function recordRestartState(
   const restartRequired = new Set(restart.required.map((item) => `${item.profile}\0${item.package}`));
   for (const operation of plan.operations) {
     if (
-      operation.kind !== 'install' &&
-      operation.kind !== 'update' &&
-      operation.kind !== 'enable' &&
-      operation.kind !== 'disable' &&
-      operation.kind !== 'remove'
+      operation.resource !== 'plugin' ||
+      (operation.kind !== 'install' &&
+        operation.kind !== 'update' &&
+        operation.kind !== 'enable' &&
+        operation.kind !== 'disable' &&
+        operation.kind !== 'remove')
     ) {
       continue;
     }
@@ -429,13 +433,16 @@ function assertNoTeamEntryOverwritten(
 // as if it had been adopted.
 function recordInstalledOwnership(
   pruned: EnvironmentState['ownership'],
-  operations: PlanOperation[],
+  operations: EnvironmentPlan['operations'],
   manifest: EnvironmentManifest,
   now: string,
   operationId: string
 ): EnvironmentState['ownership'] {
   const ownership = { ...pruned };
   for (const operation of operations) {
+    if (operation.resource !== 'plugin') {
+      continue;
+    }
     const plugin = manifest.profiles[operation.profile]?.plugins[operation.alias];
     if ((operation.kind !== 'install' && operation.kind !== 'update') || !plugin || ownership[operation.profile]?.[plugin.package]) {
       continue;
@@ -500,7 +507,7 @@ function defaultHmrProbe(
 }
 
 function assertSupportedPlan(plan: EnvironmentPlan): void {
-  const blocked = plan.operations.find((operation) => operation.kind === 'blocked');
+  const blocked = plan.operations.filter(isProfileOperation).find((operation) => operation.kind === 'blocked');
   if (blocked) {
     throw new DegradedError(
       `Apply is blocked: ${blocked.blockedReason ?? blocked.reason}`
@@ -524,7 +531,7 @@ function assertSupportedPlan(plan: EnvironmentPlan): void {
 }
 
 // What a failed step left behind and the way back, since the manifest keeps declaring the change that failed.
-async function recoveryHint(paths: EnvironmentPaths, operationId: string, installed: PlanOperation[]): Promise<string> {
+async function recoveryHint(paths: EnvironmentPaths, operationId: string, installed: PluginOperation[]): Promise<string> {
   const kept = installed.length > 0 ? `; plugins it installed before failing stay installed: ${installed.map((op) => op.alias).join(', ')}` : '';
   const lines = [`Apply ${operationId} put lock.json and state.json back${kept}.`];
   // Only a pointer onward; a lookup failure must not read as a failed restore.
@@ -672,13 +679,13 @@ async function planAndApply(
   let failedStep = false;
   const rollback: ProfileRollback = { undo: [], keep: [] };
   // DSH cannot take an install back, so each one is owned as soon as it succeeds, even if apply then fails or is killed.
-  const installed: PlanOperation[] = [];
+  const installed: PluginOperation[] = [];
   const recordInstalled = async (): Promise<void> => {
     const base: EnvironmentState = state ?? { apiVersion: 'dshenv-state/v1', lastApplied: '', appliedLockHash: '', profiles: {} };
     const ownership = recordInstalledOwnership(base.ownership, installed, manifest, now, operationId);
     await writeAtomic(paths.stateFile, serializeState({ ...base, ownership }), 'overwrite');
   };
-  const onInstalled = async (operation: PlanOperation): Promise<void> => {
+  const onInstalled = async (operation: PluginOperation): Promise<void> => {
     installed.push(operation);
     await recordInstalled();
   };
@@ -696,7 +703,7 @@ async function planAndApply(
       type: 'apply-started',
       timestamp: now,
       details: {
-        operationCount: plan.operations.length,
+        operationCount: plan.operations.filter(isProfileOperation).length,
         unmanagedCount: plan.unmanaged.length,
         overlay: options?.overlay?.name ?? null
       }
@@ -714,8 +721,10 @@ async function planAndApply(
     // Replaced and removed skills go to trash rather than away, since DSH may hold edits nobody pulled.
     assertNotInterrupted(signal);
     const trashRoot = path.join(paths.trashDir, operationId);
-    for (const operation of plan.skillOperations) {
-      rollback.undo.push(await applySkillOperation(paths, operation, trashRoot));
+    for (const operation of plan.operations) {
+      if (operation.resource === 'skill') {
+        rollback.undo.push(await applySkillOperation(paths, operation, trashRoot));
+      }
     }
 
     // Never commit successful state until the actual environment converges.
@@ -752,7 +761,7 @@ async function planAndApply(
       type: 'apply-completed',
       timestamp: new Date().toISOString(),
       details: {
-        appliedOperations: plan.operations.length
+        appliedOperations: plan.operations.filter(isProfileOperation).length
       }
     });
 
@@ -762,7 +771,7 @@ async function planAndApply(
       operationId,
       snapshotId: snapshot.snapshotId,
       plan,
-      message: `Successfully applied ${plan.operations.length} operation(s).`,
+      message: `Successfully applied ${plan.operations.filter(isProfileOperation).length} operation(s).`,
       restart
     };
   } catch (err: unknown) {

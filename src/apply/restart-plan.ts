@@ -1,4 +1,5 @@
-import type { EnvironmentPlan, PlanOperation } from '../planner/plan.js';
+import { isProfileOperation, type EnvironmentPlan, type ProfileOperation } from '../planner/plan.js';
+import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 import type { HmrStatus } from '../dsh/hmr.js';
 
 export type RestartReason = 'hmr-on' | 'package-update' | 'hmr-off' | 'hmr-unknown';
@@ -25,14 +26,19 @@ function isRestartKind(kind: string): kind is RestartOperationKind {
 
 // Profiles whose operations need an HMR verdict, in plan order.
 export function profilesToProbe(plan: EnvironmentPlan): string[] {
-  return [...new Set(plan.operations.filter((op) => isRestartKind(op.kind)).map((op) => op.profile))];
+  return [...new Set(plan.operations.filter(isProfileOperation).filter((op) => isRestartKind(op.kind)).map((op) => op.profile))];
 }
 
-export function restartItemFor(operation: PlanOperation, hmr: HmrStatus): RestartItem | null {
+// Restart items name profile patches by their block alias.
+export function restartPackage(operation: ProfileOperation): string {
+  return operation.resource === 'profile-patch' ? PROFILE_PATCHES_ALIAS : operation.package;
+}
+
+export function restartItemFor(operation: ProfileOperation, hmr: HmrStatus): RestartItem | null {
   if (!isRestartKind(operation.kind)) {
     return null;
   }
-  const base = { profile: operation.profile, package: operation.package, kind: operation.kind };
+  const base = { profile: operation.profile, package: restartPackage(operation), kind: operation.kind };
   // HMR only re-composes the bundle list; an upgraded package keeps its old module in memory.
   if (operation.kind === 'update') {
     return { ...base, reason: 'package-update' };
@@ -52,7 +58,7 @@ export function buildRestartSummary(
   hmrByProfile: ReadonlyMap<string, HmrStatus>
 ): RestartSummary {
   const summary: RestartSummary = { notRequired: [], required: [] };
-  for (const operation of plan.operations) {
+  for (const operation of plan.operations.filter(isProfileOperation)) {
     const hmr = hmrByProfile.get(operation.profile) ?? { state: 'unknown', reason: 'hot reload was not probed' };
     const item = restartItemFor(operation, hmr);
     if (!item) {

@@ -132,7 +132,7 @@ profiles:
 
     fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins: {}\n');
     const res = await applyEnvironment(paths, { dryRun: true });
-    expect(res.plan.operations.map((op) => [op.kind, op.package])).toEqual([['remove', '@nanmicoder/dsh-agent-teams']]);
+    expect(res.plan.operations.filter((op) => op.resource === 'plugin').map((op) => [op.kind, op.package])).toEqual([['remove', '@nanmicoder/dsh-agent-teams']]);
   });
 
   it('takes ownership of a plugin DSH already had when apply updates it to the declared version', async () => {
@@ -159,7 +159,7 @@ profiles:
 
     fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins: {}\n');
     const removal = await applyEnvironment(paths, { dryRun: true });
-    expect(removal.plan.operations.map((op) => [op.kind, op.package])).toEqual([['remove', '@nanmicoder/dsh-agent-teams']]);
+    expect(removal.plan.operations.filter((op) => op.resource === 'plugin').map((op) => [op.kind, op.package])).toEqual([['remove', '@nanmicoder/dsh-agent-teams']]);
   });
 
   it('should apply changes, create snapshot, journal and update state.json', async () => {

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { EnvironmentLock, PluginLockEntry } from '../../src/domain.js';
+import type { EnvironmentPlan } from '../../src/planner/plan.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 import { readJournalEntries } from '../../src/io/journal.js';
 import { loadLock, serializeLock } from '../../src/manifest/files.js';
@@ -29,6 +30,8 @@ const lockOf = (profiles: Record<string, Record<string, PluginLockEntry>>): Envi
   profiles: Object.fromEntries(Object.entries(profiles).map(([profile, plugins]) => [profile, { plugins }]))
 });
 const teamLock = (plugins: Record<string, PluginLockEntry>) => `${JSON.stringify(lockOf({ web: plugins }), null, 2)}\n`;
+
+const skillOps = (plan: EnvironmentPlan) => plan.operations.filter((op) => op.resource === 'skill');
 
 describe('remote sync engine', () => {
   let root: string;
@@ -83,7 +86,7 @@ describe('remote sync engine', () => {
     expect(preview.from).toBeNull();
     expect(preview.files).toEqual({ added: ['manifest.yaml', 'overlays/team.yaml'], modified: [], removed: [] });
     expect(preview.lockEntries).toEqual({ added: ['web/shared'], modified: [], removed: [] });
-    expect(preview.plan.operations.some((op) => op.kind === 'install' && op.alias === 'shared')).toBe(true);
+    expect(preview.plan.operations.some((op) => op.resource === 'plugin' && op.kind === 'install' && op.alias === 'shared')).toBe(true);
     expect(fs.existsSync(paths.manifestFile)).toBe(false);
     expect(fs.existsSync(paths.lockFile)).toBe(false);
     expect(fs.existsSync(paths.remoteFile)).toBe(false);
@@ -236,17 +239,17 @@ describe('remote sync engine', () => {
     await subscribe();
     await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v1' }, 'skills');
     const added = await prepare({ previous: true });
-    expect(added.plan.skillOperations).toMatchObject([{ kind: 'install', name: 'wiki' }]);
+    expect(skillOps(added.plan)).toMatchObject([{ kind: 'install', name: 'wiki' }]);
     expect(fs.existsSync(paths.skillsDir)).toBe(false);
 
     await acceptSync(paths, added);
     fs.cpSync(path.join(paths.skillsDir, 'wiki'), path.join(paths.dshSkillsDir, 'wiki'), { recursive: true });
     await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v2' }, 'edit skill');
-    expect((await prepare({ previous: true })).plan.skillOperations).toMatchObject([{ kind: 'update', name: 'wiki' }]);
+    expect(skillOps((await prepare({ previous: true })).plan)).toMatchObject([{ kind: 'update', name: 'wiki' }]);
 
     await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': null }, 'drop skill');
     const dropped = (await prepare({ previous: true })).plan;
-    expect(dropped.skillOperations).toEqual([]);
+    expect(skillOps(dropped)).toEqual([]);
     expect(dropped.unmanagedSkills).toEqual(['wiki']);
   });
 
@@ -363,7 +366,7 @@ describe('remote sync engine', () => {
     );
     await commitTeamFiles(team, { 'envctl/overlays/team.yaml': null }, 'drop team overlay');
     const preview = await prepare({ previous: true, selection: { name: 'laptop', via: 'flag' } });
-    expect(preview.plan.operations.some((op) => op.kind === 'install' && op.alias === 'laptop')).toBe(true);
+    expect(preview.plan.operations.some((op) => op.resource === 'plugin' && op.kind === 'install' && op.alias === 'laptop')).toBe(true);
     await expect(prepare({ previous: true, selection: { name: 'team', via: 'file' } })).rejects.toThrow(
       "The active overlay 'team' is removed by the remote; select another overlay with dshenv overlay use, then sync again"
     );

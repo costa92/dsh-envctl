@@ -3,6 +3,7 @@ import { ValidationError } from '../errors.js';
 import { withEnvironmentLock } from '../io/lock.js';
 import { hasEmbeddedCredentials } from '../manifest/schema.js';
 import { renderPlan } from '../output/render.js';
+import { planJson } from '../planner/plan.js';
 import { cloneRemoteRepo, defaultBranch, fetchBranch, isAncestor, resolveTargetRef } from '../remote/git.js';
 import { lockEntryId } from '../remote/lock-entries.js';
 import { findLocalDrift, findRemoteLockDrift } from '../remote/ownership.js';
@@ -61,7 +62,7 @@ export function registerRemoteCommands(ctx: CommandContext): void {
     if (opts.json) {
       writeOut(
         JSON.stringify(
-          { status, ...extra, from: preview.from, to: preview.to, files: preview.files, lockEntries: preview.lockEntries, plan: preview.plan },
+          { status, ...extra, from: preview.from, to: preview.to, files: preview.files, lockEntries: preview.lockEntries, plan: planJson(preview.plan) },
           null,
           2
         ) + '\n'

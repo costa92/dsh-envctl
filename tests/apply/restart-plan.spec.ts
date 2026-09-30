@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { EnvironmentPlan, OperationKind, PlanOperation } from '../../src/planner/plan.js';
+import type { EnvironmentPlan, OperationKind, PluginOperation } from '../../src/planner/plan.js';
 import type { HmrStatus } from '../../src/dsh/hmr.js';
 import {
   buildRestartSummary,
@@ -8,7 +8,8 @@ import {
   restartItemFor
 } from '../../src/apply/restart-plan.js';
 
-const op = (kind: OperationKind, profile = 'web', pkg = 'demo-plugin'): PlanOperation => ({
+const op = (kind: OperationKind, profile = 'web', pkg = 'demo-plugin'): PluginOperation => ({
+  resource: 'plugin',
   kind,
   profile,
   alias: 'demo',
@@ -65,7 +66,6 @@ describe('buildRestartSummary', () => {
       unmanaged: [],
       unverified: [],
       unmanagedPatches: [],
-      skillOperations: [],
       unmanagedSkills: []
     };
     const summary = buildRestartSummary(plan, new Map<string, HmrStatus>([['web', on], ['cli', off]]));
@@ -82,7 +82,6 @@ describe('buildRestartSummary', () => {
     const plan: EnvironmentPlan = { hasChanges: true, operations: [op('enable')], unmanaged: [],
       unverified: [],
       unmanagedPatches: [],
-      skillOperations: [],
       unmanagedSkills: [] };
     expect(buildRestartSummary(plan, new Map()).required).toEqual([
       { profile: 'web', package: 'demo-plugin', kind: 'enable', reason: 'hmr-unknown', detail: 'hot reload was not probed' }
@@ -98,7 +97,6 @@ describe('profilesToProbe', () => {
       unmanaged: [],
       unverified: [],
       unmanagedPatches: [],
-      skillOperations: [],
       unmanagedSkills: []
     };
     expect(profilesToProbe(plan)).toEqual(['web', 'cli']);

@@ -46,7 +46,7 @@ describe('buildPlan', () => {
     expect(plan.hasChanges).toBe(true);
     expect(plan.operations).toHaveLength(1);
     expect(plan.operations[0].kind).toBe('install');
-    expect(plan.operations[0].package).toBe('@nanmicoder/dsh-agent-teams');
+    expect(plan.operations[0]).toMatchObject({ package: '@nanmicoder/dsh-agent-teams' });
   });
 
   it('should classify unmanaged plugins without generating remove operation', () => {
@@ -230,8 +230,7 @@ describe('buildPlan', () => {
     const plan = buildPlan(manifest, lock, inventory);
     expect(plan.hasChanges).toBe(true);
     expect(plan.operations[0].kind).toBe('update');
-    expect(plan.operations[0].currentVersion).toBe('0.1.21');
-    expect(plan.operations[0].targetVersion).toBe('0.1.22');
+    expect(plan.operations[0]).toMatchObject({ currentVersion: '0.1.21', targetVersion: '0.1.22' });
   });
 
   it('should plan enable and disable from selection mismatch', () => {
@@ -371,7 +370,7 @@ describe('buildPlan', () => {
     };
 
     const plan = buildPlan(manifest, null, inventory);
-    expect(plan.operations.map((op) => [op.package, op.kind])).toEqual([
+    expect(plan.operations.filter((op) => op.resource === 'plugin').map((op) => [op.package, op.kind])).toEqual([
       ['pkg-fresh', 'install'],
       ['pkg-fresh', 'disable'],
       ['pkg-fresh', 'configure'],
@@ -892,7 +891,7 @@ describe('plan edge cases around profiles and in-box listings', () => {
       apiVersion: 'dshenv/v1',
       profiles: { fresh: { plugins: { a: { package: 'a-inbox', source: { type: 'in-box' } }, z: npmPlugin('z-npm') } } }
     };
-    expect(buildPlan(manifest, null, { profiles: {} }).operations.map((op) => `${op.kind}:${op.package}`)).toEqual([
+    expect(buildPlan(manifest, null, { profiles: {} }).operations.filter((op) => op.resource === 'plugin').map((op) => `${op.kind}:${op.package}`)).toEqual([
       'install:z-npm',
       'enable:a-inbox'
     ]);
@@ -918,7 +917,7 @@ describe('plan edge cases around profiles and in-box listings', () => {
       profiles: {},
       ownership: { web: { 'zz-old': { package: 'zz-old', alias: 'foo', sourceType: 'npm', adoptedAt: '', adoptedBy: 'apply-1' } } }
     };
-    expect(buildPlan(manifest, null, inventory, state).operations.map((op) => `${op.kind}:${op.package}`)).toEqual([
+    expect(buildPlan(manifest, null, inventory, state).operations.filter((op) => op.resource === 'plugin').map((op) => `${op.kind}:${op.package}`)).toEqual([
       'remove:zz-old',
       'install:aa-new'
     ]);
