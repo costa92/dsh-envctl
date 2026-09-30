@@ -252,17 +252,14 @@ export function registerSourceCommands(ctx: CommandContext): void {
     .usage('[options] [dir]')
     .option('-p, --profile <name>', 'managed profile whose envctl/sources clone should be updated', profileOption)
     .option('--as <alias>', 'manifest alias when --profile is set', aliasOption)
-    .option('--ref <ref>', 'commit or ref to fast-forward to')
+    .option('--ref <ref>', 'commit or ref to fast-forward to (default: the upstream of the checked-out branch)')
     .action(async (targetDir: string | undefined, targetRef: string | undefined, cmdOpts) => {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       if (cmdOpts.ref !== undefined && targetRef !== undefined) {
         throw new ValidationError('Give the ref once: with --ref or as the second argument, not both');
       }
-      const ref = cmdOpts.ref || targetRef;
-      if (!ref) {
-        throw new ValidationError('source pull requires --ref <ref>');
-      }
+      const ref = cmdOpts.ref || targetRef || undefined;
 
       let resolvedTarget: string;
       let alias: string | undefined;

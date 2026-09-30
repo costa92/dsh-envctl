@@ -10,6 +10,7 @@ import { ValidationError } from '../errors.js';
 import type { CaptureDocument } from '../domain.js';
 import { assertNotRemoteOwned } from '../remote/ownership.js';
 import { assertBaseMergesWithOverlay, resolveWriteLayer } from '../overlay/write.js';
+import { readOverlay } from '../overlay/effective.js';
 import { resolveCliPaths, resolveCliOverlay, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
 import { Option } from 'commander';
 import { pullProfilePatches } from '../profile-patches/pull.js';
@@ -106,7 +107,8 @@ export function registerSetupCommands(ctx: CommandContext): void {
 
       const summary = await adoptEnvironment(paths, parsed.data as CaptureDocument, {
         validateManifest: (manifest) => assertBaseMergesWithOverlay(paths, selection, manifest),
-        dryRun: !cmdOpts.yes
+        dryRun: !cmdOpts.yes,
+        overlay: selection ? readOverlay(paths, selection.name) : undefined
       });
       if (!cmdOpts.yes) {
         const pending = summary.details.filter((d) => !d.alreadyAdopted);

@@ -146,9 +146,11 @@ export async function cloneManagedGit(
 
 export async function safeFastForwardManagedGit(
   repoDir: string,
-  targetCommitOrRef: string
+  ref?: string
 ): Promise<{ previousCommit: string; newCommit: string }> {
-  assertNotOptionLike('Git ref', targetCommitOrRef);
+  if (ref !== undefined) {
+    assertNotOptionLike('Git ref', ref);
+  }
   const status = await inspectGitWorkingTree(repoDir);
   if (!status.isGitRepo) {
     throw new ValidationError(`Directory is not a git repository: ${repoDir}`);
@@ -161,6 +163,12 @@ export async function safeFastForwardManagedGit(
   }
 
   const previousCommit = status.commit || 'unknown';
+
+  const branch = await execa('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: repoDir, shell: false, reject: false, timeout: 5000 });
+  const targetCommitOrRef = ref ?? (branch.exitCode === 0 ? branch.stdout.trim() : undefined);
+  if (targetCommitOrRef === undefined) {
+    throw new ValidationError(`${repoDir} is on a detached HEAD; pass --ref <ref>`);
+  }
 
   await execa('git', ['fetch', '--all'], { cwd: repoDir, shell: false, timeout: 30000 });
   // A bare branch name would resolve to the local branch, which never moves on its own; follow its upstream copy.

@@ -313,7 +313,7 @@ dshenv config unset agent-teams taskPlanning --profile web     # 删掉一个键
 ```
 
 ### 13. `dshenv status`
-显示当前环境状态摘要与操作统计。
+显示当前环境状态摘要与操作统计。退出码与 `plan` 相同：有待执行的变更时为 2，环境已同步时为 0。
 
 ```bash
 dshenv status
@@ -331,7 +331,7 @@ dshenv source pull -p web --as demo            # 快进受管 clone，并把新�
 dshenv source pull -p web --as demo --ref v1.2.0
 ```
 
-`source show` / `source pull` 不带 `--profile` 时作用于给出的目录（默认当前目录），`pull` 只快进、不写 lock。带 `--profile` 时，Profile 里恰好有一个 Git 插件可省略 `--as`；`pull` 总是按清单中的 URL 写入完整的 lock 条目，之后 `apply --yes` 安装新 commit。
+`source show` / `source pull` 不带 `--profile` 时作用于给出的目录（默认当前目录），`pull` 只快进、不写 lock；不给 `--ref` 时快进到当前分支对应的远端分支，处于 detached HEAD 时须给 `--ref`。带 `--profile` 时，Profile 里恰好有一个 Git 插件可省略 `--as`；`pull` 总是按清单中的 URL 写入完整的 lock 条目，之后 `apply --yes` 安装新 commit。
 
 不是 DSH bundle 的插件包（`package.json` 没有 `dsh.bundle`，例如 [dsh-session-search](https://github.com/Tieboyh/dsh-session-search)）不能放进 bundle 列表，DSH 会跳过它。dshenv 在安装后检查包类型，这类插件改为在 `cordis.patch.yml` 里写一个受管的 `insert` 行挂载（`# dshenv:begin ... plugin=@mount:<alias>`），`enable`/`disable` 切换这一行，`runtime` 按已加载的插件条目判断。
 

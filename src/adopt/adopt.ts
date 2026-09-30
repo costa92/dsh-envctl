@@ -6,6 +6,7 @@ import type {
   CaptureDocument,
   EnvironmentManifest,
   EnvironmentLock,
+  EnvironmentOverlay,
   EnvironmentState,
   PluginOwnershipRecord
 } from '../domain.js';
@@ -92,6 +93,8 @@ export interface AdoptOptions {
   validateManifest?: (manifest: EnvironmentManifest) => void;
   // Works out what would be adopted and writes nothing.
   dryRun?: boolean;
+  // The active overlay: a plugin it declares is managed there already and stays out of the base.
+  overlay?: EnvironmentOverlay;
 }
 
 export async function adoptEnvironment(
@@ -173,6 +176,12 @@ async function adoptUnderLock(
     const candLockProf = candidate.lock.profiles[profileName]?.plugins ?? {};
 
     for (const [candidateAlias, plugin] of Object.entries(candProf.plugins)) {
+      const overlayAlias = Object.entries(options?.overlay?.profiles?.[profileName]?.plugins ?? {})
+        .find(([, entry]) => entry.package === plugin.package && !entry.remove)?.[0];
+      if (overlayAlias !== undefined) {
+        details.push({ profile: profileName, alias: overlayAlias, package: plugin.package, sourceType: plugin.source.type, alreadyAdopted: true });
+        continue;
+      }
       // Capture derives its own alias; keep the one the manifest already uses for this package.
       const existingAlias = Object.entries(mergedManifest.profiles[profileName].plugins)
         .find(([, entry]) => entry.package === plugin.package)?.[0];
@@ -215,6 +224,12 @@ async function adoptUnderLock(
         version: lockedVersion,
         alreadyAdopted
       });
+    }
+    // A profile only the overlay declares plugins for gains no empty entry in the base.
+    if (!existingManifest.profiles[profileName] && Object.keys(mergedManifest.profiles[profileName].plugins).length === 0) {
+      delete mergedManifest.profiles[profileName];
+      delete mergedLock.profiles[profileName];
+      delete ownership[profileName];
     }
   }
 

@@ -205,44 +205,58 @@ describe('CLI writes with an active overlay', () => {
     expect(fs.existsSync(target)).toBe(false);
   });
 
-  it('refuses an adopt whose base the active overlay can no longer merge onto', async () => {
+  it('leaves a plugin the overlay declares to the overlay, and refuses an adopt the overlay cannot merge onto', async () => {
     const profileDir = path.join(tempHome, 'profiles', 'web');
-    fs.mkdirSync(path.join(profileDir, 'node_modules', 'extra-plugin'), { recursive: true });
-    fs.writeFileSync(path.join(profileDir, 'node_modules', 'extra-plugin', 'package.json'), JSON.stringify({ name: 'extra-plugin', version: '2.0.0', dsh: { bundle: {} } }));
+    for (const [name, version] of [['extra-plugin', '2.0.0'], ['other-plugin', '1.0.0']]) {
+      fs.mkdirSync(path.join(profileDir, 'node_modules', name), { recursive: true });
+      fs.writeFileSync(path.join(profileDir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version, dsh: { bundle: {} } }));
+    }
     fs.writeFileSync(
       path.join(profileDir, 'package.json'),
       JSON.stringify({
-        dependencies: { 'shared-plugin': '1.0.0', 'heavy-plugin': '1.0.0', 'extra-plugin': '2.0.0' },
-        dsh: { profile: { bundles: ['shared-plugin', 'heavy-plugin', 'extra-plugin'] } }
+        name: 'dsh-profile-web',
+        private: true,
+        dependencies: { 'shared-plugin': '1.0.0', 'heavy-plugin': '1.0.0', 'extra-plugin': '2.0.0', 'other-plugin': '1.0.0' },
+        dsh: { profile: { bundles: ['shared-plugin', 'heavy-plugin', 'extra-plugin', 'other-plugin'] } }
       })
     );
-    const candidate = path.join(tempHome, 'candidate.yaml');
-    fs.writeFileSync(
-      candidate,
-      `apiVersion: dshenv-capture/v1
+    const candidateFor = (pkg: string, version: string) => {
+      const file = path.join(tempHome, `candidate-${pkg}.yaml`);
+      fs.writeFileSync(
+        file,
+        `apiVersion: dshenv-capture/v1
 manifest:
   apiVersion: dshenv/v1
   profiles:
     web:
       plugins:
         extra:
-          package: extra-plugin
+          package: ${pkg}
           enabled: true
-          source: { type: npm, version: "2.0.0" }
+          source: { type: npm, version: "${version}" }
 lock:
   apiVersion: dshenv-lock/v1
   profiles:
     web:
       plugins:
         extra:
-          package: extra-plugin
-          source: { type: npm, resolvedVersion: "2.0.0" }
+          package: ${pkg}
+          source: { type: npm, resolvedVersion: "${version}" }
 warnings: []
 `
-    );
+      );
+      return file;
+    };
     const before = fs.readFileSync(manifestFile(), 'utf8');
-    // The overlay declares `extra` with a package; once the base also declares it, the overlay would change its package.
-    const { code, stderr } = await run(['adopt', '--from', candidate, '--layer', 'base', '--yes']);
+
+    // The overlay already declares extra-plugin as `extra`, so there is nothing for the base to take.
+    const same = await runOut(['adopt', '--from', candidateFor('extra-plugin', '2.0.0'), '--layer', 'base']);
+    expect(same.code).toBe(0);
+    expect(same.stdout).toBe('Nothing to adopt: every plugin in the candidate is already adopted.\n');
+    expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(before);
+
+    // A different package under the alias the overlay uses would have the overlay change its package.
+    const { code, stderr } = await run(['adopt', '--from', candidateFor('other-plugin', '1.0.0'), '--layer', 'base', '--yes']);
     expect(code).toBe(3);
     expect(stderr).toMatch(/cannot change package/);
     expect(fs.readFileSync(manifestFile(), 'utf8')).toBe(before);
