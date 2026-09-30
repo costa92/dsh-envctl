@@ -1,8 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
-import { DshError, ValidationError } from '../errors.js';
-import { resolveDshCommand } from '../dsh/command.js';
+import { CapabilityError, DshError, ValidationError } from '../errors.js';
+import { probeDsh, resolveDshCommand } from '../dsh/command.js';
+import { capabilitiesFor } from '../dsh/capabilities.js';
+import { unsupportedDshVersionMessage } from '../dsh/version.js';
 import { DSH_WEB_START_TIMEOUT_MS, dshWebState, launchDshWeb, stopProcessGroup, type DshWebState } from '../dsh/web-server.js';
 import { acquireFileLock } from '../io/lock.js';
 import { listWebRecords, readWebRecord, removeWebRecord, webLogFile, writeWebRecord, type DshWebRecord } from '../dsh/web-record.js';
@@ -14,6 +16,7 @@ import { filterProfile, profileNotCreatedError, resolveCliOverlay, resolveCliPat
 interface CliOpts {
   dshHome?: string;
   harnessSource?: string;
+  allowUntestedDsh?: boolean;
   overlay?: string | false;
   json?: boolean;
 }
@@ -31,6 +34,42 @@ export function resolveCliDshCommand(paths: EnvironmentPaths, opts: CliOpts) {
     ? loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest.environment?.harness?.sourceDir
     : undefined;
   return resolveDshCommand({ cliHarnessSource: opts.harnessSource, manifestHarnessSource: manifestSource });
+}
+
+const WEB_APP_BUNDLE = '@deepseek-ai/dsh-web-app';
+const OTHER_APP_BUNDLES = ['@deepseek-ai/dsh-headless', '@deepseek-ai/dsh-acp-app', '@deepseek-ai/dsh-sdk-app'];
+
+// Only the web app takes --no-open; without this check DSH's "unknown option" would be all the user sees.
+function assertServesWeb(paths: EnvironmentPaths, profile: string): void {
+  let bundles: unknown;
+  try {
+    bundles = JSON.parse(fs.readFileSync(path.join(paths.profilesDir, profile, 'package.json'), 'utf8'))?.dsh?.profile?.bundles;
+  } catch {
+    return;
+  }
+  if (!Array.isArray(bundles) || bundles.includes(WEB_APP_BUNDLE)) return;
+  const app = OTHER_APP_BUNDLES.find((name) => bundles.includes(name));
+  if (app) {
+    throw new ValidationError(`Profile ${profile} runs ${app}, not dsh web; start dsh web for a profile whose bundles include ${WEB_APP_BUNDLE}`);
+  }
+}
+
+// The DSH command to start dsh web with, refusing a profile or a DSH version it would not run on, as apply does.
+export async function dshWebCommand(paths: EnvironmentPaths, opts: CliOpts, profile: string) {
+  assertProfileExists(paths, opts, profile);
+  assertServesWeb(paths, profile);
+  const command = resolveCliDshCommand(paths, opts);
+  if (command) {
+    const allowUntested = Boolean(opts.allowUntestedDsh) || Boolean(
+      fs.existsSync(paths.manifestFile) &&
+        loadEffectiveManifest(paths, resolveCliOverlay(opts, paths)).manifest.environment?.harness?.allowUntestedVersion
+    );
+    const { version } = await probeDsh(command);
+    if (capabilitiesFor(version, { allowUntested }).discovery.status !== 'available') {
+      throw new CapabilityError(unsupportedDshVersionMessage(version));
+    }
+  }
+  return command;
 }
 
 // The dsh web `dshenv web start` left running for the profile, or null when there is none or it has stopped.
@@ -94,7 +133,7 @@ export function registerWebCommands(ctx: CommandContext): void {
       const port = portOption(cmdOpts.port);
       const paths = resolveCliPaths(opts);
       const { profile } = cmdOpts;
-      assertProfileExists(paths, opts, profile);
+      const command = await dshWebCommand(paths, opts, profile);
 
       await withProfileLock(paths, profile, async () => {
         const current = readWebRecord(paths, profile);
@@ -112,7 +151,7 @@ export function registerWebCommands(ctx: CommandContext): void {
         }
         removeWebRecord(paths, profile);
         const logFile = webLogFile(paths, profile);
-        const launched = await launchDshWeb(profile, { command: resolveCliDshCommand(paths, opts), dshHome: paths.home, logFile, port });
+        const launched = await launchDshWeb(profile, { command, dshHome: paths.home, logFile, port });
         const record: DshWebRecord = {
           profile,
           pid: launched.pid,

@@ -262,7 +262,7 @@ describe('CLI runtime', () => {
     // Stands in for dsh web: prints the fake server's URL like DSH does, then serves until stopped.
     const fakeDsh = (body: string): void => {
       const file = path.join(tempHome, 'fake-dsh.mjs');
-      fs.writeFileSync(file, `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(pidFile())}, String(process.pid));\n${body}`);
+      fs.writeFileSync(file, `import fs from 'node:fs';\nif (process.argv.includes('--version')) { console.log('0.1.7-rc.2'); process.exit(0); }\nfs.writeFileSync(${JSON.stringify(pidFile())}, String(process.pid));\n${body}`);
       process.env.DSH_CLI = JSON.stringify([process.execPath, file]);
     };
 
