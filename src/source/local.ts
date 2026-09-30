@@ -44,7 +44,8 @@ export async function calculateSourceDigest(dirPath: string): Promise<string> {
     return files;
   }
 
-  const allFiles = await walk(dirPath);
+  const publishes = await publishedFilter(dirPath);
+  const allFiles = (await walk(dirPath)).filter((file) => publishes(path.relative(dirPath, file).split(path.sep).join('/')));
   allFiles.sort();
 
   for (const file of allFiles) {
@@ -55,6 +56,42 @@ export async function calculateSourceDigest(dirPath: string): Promise<string> {
   }
 
   return hash.digest('hex');
+}
+
+// With a `files` list, only what npm would publish counts, so docs or tests changing in the checkout are not an update.
+async function publishedFilter(dirPath: string): Promise<(rel: string) => boolean> {
+  let pkg: { files?: unknown; main?: unknown };
+  try {
+    pkg = JSON.parse(await fs.promises.readFile(path.join(dirPath, 'package.json'), 'utf8'));
+  } catch {
+    return () => true;
+  }
+  if (!Array.isArray(pkg.files) || !pkg.files.every((entry) => typeof entry === 'string')) {
+    return () => true;
+  }
+  const normalize = (entry: string) => entry.replace(/^\.?\/+/, '').replace(/\/+$/, '');
+  const include = pkg.files.filter((entry) => !entry.startsWith('!')).map(normalize).map(entryMatcher);
+  const exclude = pkg.files.filter((entry) => entry.startsWith('!')).map((entry) => entryMatcher(normalize(entry.slice(1))));
+  const main = typeof pkg.main === 'string' ? normalize(pkg.main) : undefined;
+  return (rel) => {
+    if (rel === 'package.json' || rel === main || /^(readme|licen[cs]e)(\.[^/]*)?$/i.test(rel)) {
+      return true;
+    }
+    return include.some((matches) => matches(rel)) && !exclude.some((matches) => matches(rel));
+  };
+}
+
+// A files entry names a file or a directory (everything under it counts), either of which may be a glob.
+function entryMatcher(entry: string): (rel: string) => boolean {
+  const pattern = new RegExp(
+    `^${entry
+      .split('/')
+      .map((part) => (part === '**' ? '.*' : part.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]')))
+      .join('/')
+      .replace(/\/\.\*\//g, '(?:/.*)?/')
+      .replace(/^\.\*\//, '(?:.*/)?')}(?:/.*)?$`
+  );
+  return (rel) => pattern.test(rel);
 }
 
 export async function inspectLocalSource(sourcePath: string): Promise<LocalSourceInfo> {

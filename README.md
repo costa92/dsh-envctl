@@ -522,6 +522,7 @@ dshenv disable agent-teams -p web                               # enable 反之
 dshenv remove agent-teams -p web
 ```
 
+- 本地来源（`local-link`、`local-file`）由 `apply` 记录源目录摘要，目录内容变了 `plan` 才会提示更新。`package.json` 有 `files` 时只算 npm 会发布的文件（`package.json`、README、LICENSE、`main` 与 `files` 列出的内容，支持通配与 `!` 排除），改文档、测试等不算更新；没有 `files` 时算整个目录（跳过 `node_modules`、`.git`）。
 - 别名默认取包名（去掉作用域与 `dsh-plugin-`、`dsh-` 前缀），`--as` 指定。本地来源的包名默认读其 `package.json` 的 `name`（读不到时用目录名），Git 来源默认用仓库名，与实际包名不同时用 `--package` 指定（`source clone --profile` 会读仓库的 `package.json`）；`--package` 只对 Git 与本地来源有效。
 - 同一别名重新 `install` 同一个包只改来源，保留 `patches` 与启用状态；输出会说明从哪个版本（来源）改成了哪个。
 - npm 来源（`install` 与 `update --to`）先用 `npm view` 核对：包在而版本不存在时以退出码 3 报错并给出最新版本。npm 看不到这个包（可能是需要凭据的私有包）、拒绝凭据，或查询不了（离线、超过约 5 秒）时只警告，照常写入清单。加 `--no-npm-check` 或设 `DSHENV_NPM_CHECK=off` 跳过核对；`--json` 输出的 `npmCheck` 是 `verified`、`unverified`、`unreachable` 或 `skipped`。包名不合法（例如以 `-` 开头）时直接拒绝，不会交给 npm。
