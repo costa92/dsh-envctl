@@ -32,23 +32,26 @@ export interface CliIO {
 // Top-level commands by task, in the order a newcomer meets them.
 const HELP_GROUPS: Array<[string, string[]]> = [
   ['Getting started:', ['init', 'capture', 'adopt']],
-  ['Everyday:', ['plan', 'apply', 'pull', 'status', 'mark-restarted', 'rollback']],
-  ['Plugins & tools:', ['install', 'update', 'remove', 'enable', 'disable', 'plugins', 'tools']],
+  ['Everyday:', ['plan', 'apply', 'pull', 'status', 'mark-restarted']],
+  ['Plugins & tools:', ['install', 'update', 'remove', 'enable', 'disable', 'plugins', 'tools', 'source']],
   ['Run & check:', ['web', 'verify', 'doctor']],
-  ['Team & machine:', ['remote', 'overlay', 'source']],
+  ['Team & machine:', ['remote', 'overlay']],
   ['Authoring:', ['new']],
-  ['Maintenance:', ['purge', 'gc', 'self-update']]
+  ['Maintenance:', ['rollback', 'purge', 'gc', 'self-update']]
 ];
 
 const ROOT_HELP_AFTER = `
 Examples:
   dshenv init                                   start managing an empty environment
-  dshenv capture -o capture.yaml && dshenv adopt -f capture.yaml --yes
+  dshenv capture -o capture.yaml && dshenv adopt capture.yaml --yes
                                                 take over what DSH already has installed
   dshenv install @scope/plugin@1.2.3 -p web     declare a plugin in the manifest
   dshenv plan                                   review what apply would change (exit 2)
   dshenv apply --yes                            make DSH match the manifest
+  dshenv pull --yes                             take settings changed in DSH into the manifest
   dshenv web start -p web                       run dsh web in the background
+  dshenv verify --start -p web                  check the plugins are loaded in a dsh web
+  dshenv remote add <url> --yes                 follow a team configuration repository
 
 Data flow:
   apply          manifest -> DSH profiles
