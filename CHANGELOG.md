@@ -14,6 +14,7 @@
 
 ### 新增
 
+- `apply -p <profile>`：与 `plan -p` 一样只应用一个 Profile 的插件与 profile patch，其他 Profile 的所有权与重启记录不变；skill 不属于任何 Profile，照常应用。此前 `apply -p` 报 `unknown option`，只能整体应用。
 - `apply --yes --verify`：应用之后核对每个有改动的 Profile 在运行中的 `dsh web` 里是否真的加载了（与 `verify` 相同的检查），热加载中的插件最多等 `--verify-timeout` 秒（默认 30）；退出码与 `verify` 相同，没有运行中的 `dsh web` 时注明未核对。
 
 ### 变更

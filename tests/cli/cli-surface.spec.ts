@@ -58,6 +58,12 @@ describe('CLI surface', () => {
       expect(plan.stdout).toContain('[web]');
       expect(plan.stdout).not.toContain('[headless]');
 
+      const apply = await run(['apply', '-p', 'web']);
+      expect(apply.code).toBe(2);
+      expect(apply.stdout).toContain('[web]');
+      expect(apply.stdout).not.toContain('[headless]');
+      expect((await run(['apply', '-p', 'nope'])).stderr).toContain("Profile 'nope' is neither declared in the manifest nor created by DSH");
+
       const status = await run(['status', '-p', 'headless']);
       expect(status.stdout).toContain('dsh-plugin-other');
       expect(status.stdout).not.toContain(PKG);

@@ -19,6 +19,7 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
   program
     .command('apply')
     .description('Apply declared environment manifest to DSH profile installations')
+    .addOption(filterProfile())
     .option('--dry-run', 'show the plan without changing anything; exit code 2 when it has changes')
     .option('-y, --yes', 'apply; without it apply only previews, like --dry-run')
     .option('--verify', 'then ask the running dsh web of each changed profile whether its plugins are loaded; exit code as verify')
@@ -46,7 +47,8 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         dryRun: preview,
         allowUntested,
         harnessSource: opts.harnessSource,
-        overlay: selection
+        overlay: selection,
+        profile: cmdOpts.profile
       });
 
       const verify: ProfileVerification[] = [];

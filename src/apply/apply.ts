@@ -10,7 +10,7 @@ import type {
   PluginOwnership
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
-import { buildPlan, isProfileOperation, type EnvironmentPlan, type LocalSourceDigests, type PluginOperation } from '../planner/plan.js';
+import { buildPlan, isProfileOperation, onlyProfile, type EnvironmentPlan, type LocalSourceDigests, type PluginOperation } from '../planner/plan.js';
 import { applyPluginOperation, planNeedsDshCli, pluginOwnershipRecord, type PluginStepContext } from '../resources/plugin.js';
 import { applyProfilePatchOperation } from '../resources/profile-patch.js';
 import { loadLock, loadState, serializeState, serializeLock, withResources } from '../manifest/files.js';
@@ -43,6 +43,8 @@ export interface ApplyOptions {
   allowUntested?: boolean;
   harnessSource?: string;
   overlay?: OverlaySelection | null;
+  // Only this profile's plugins and patches; skills are home-wide and still apply. Other profiles keep their state.
+  profile?: string;
   executor?: (plan: EnvironmentPlan, paths: EnvironmentPaths) => Promise<{ success: boolean; error?: string }>;
   probeHmr?: (profile: string) => Promise<HmrStatus>;
   hmrSettleMs?: number;
@@ -269,7 +271,8 @@ function recordInstalledOwnership(
 
 function pruneOwnership(
   ownership: PluginOwnership | undefined,
-  manifest: EnvironmentManifest
+  manifest: EnvironmentManifest,
+  onlyProfileName?: string
 ): PluginOwnership {
   if (!ownership) {
     return {};
@@ -277,6 +280,11 @@ function pruneOwnership(
 
   const next: PluginOwnership = {};
   for (const [profileName, packages] of Object.entries(ownership)) {
+    // A profile outside the applied one was not planned, so its records still name what a later apply must remove.
+    if (onlyProfileName !== undefined && profileName !== onlyProfileName) {
+      next[profileName] = packages;
+      continue;
+    }
     const expected = new Set(
       Object.values(manifest.profiles[profileName]?.plugins ?? {}).map((plugin) => plugin.package)
     );
@@ -400,7 +408,7 @@ async function planAndApply(
   }
 
   // Loaded after the environment lock is held (see applyEnvironment), so the overlay cannot change mid-apply.
-  const { manifest } = loadEffectiveManifest(paths, options?.overlay ?? null);
+  const manifest = onlyProfile(loadEffectiveManifest(paths, options?.overlay ?? null).manifest, options?.profile);
   const lock = fs.existsSync(paths.lockFile)
     ? loadLock(fs.readFileSync(paths.lockFile, 'utf8'))
     : null;
@@ -408,7 +416,7 @@ async function planAndApply(
     ? loadState(fs.readFileSync(paths.stateFile, 'utf8'))
     : null;
 
-  const inventory = await readEnvironmentInventory(paths);
+  const inventory = onlyProfile(await readEnvironmentInventory(paths), options?.profile);
   const localDigests = await readLocalSourceDigests(manifest);
   const plan = buildPlan(manifest, lock, inventory, state, localDigests);
 
@@ -533,7 +541,7 @@ async function planAndApply(
 
     // Never commit successful state until the actual environment converges.
     const nextLock = recordLocalDigests(lock, manifest, localDigests);
-    const verifiedInventory = await readEnvironmentInventory(paths);
+    const verifiedInventory = onlyProfile(await readEnvironmentInventory(paths), options?.profile);
     const remainingPlan = buildPlan(manifest, nextLock, verifiedInventory, state, localDigests);
     if (remainingPlan.hasChanges) {
       throw new DegradedError('Apply execution finished but the environment still has pending operations');
@@ -555,7 +563,7 @@ async function planAndApply(
         ...(options?.overlay ? { appliedOverlay: options.overlay.name } : {})
       },
       {
-        plugin: recordInstalledOwnership(pruneOwnership(state?.resources?.plugin, manifest), plan.operations, manifest, now, operationId),
+        plugin: recordInstalledOwnership(pruneOwnership(state?.resources?.plugin, manifest, options?.profile), plan.operations, manifest, now, operationId),
         // Converged, so every declared skill is in DSH exactly as declared.
         skill: skillOwnership(verifiedInventory.skills?.declared ?? {})
       }

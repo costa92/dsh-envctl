@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { applyEnvironment, type ApplyOptions } from '../../src/apply/apply.js';
 import { rollbackEnvironment } from '../../src/rollback/rollback.js';
+import { isProfileOperation } from '../../src/planner/plan.js';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
 
 // Fake DSH: `add` installs a bundle package and selects it, `remove` drops it; FAIL_ON makes adds of matching packages fail.
@@ -71,6 +72,38 @@ describe('applyEnvironment ownership and recovery', () => {
     if (previousDshCli === undefined) delete process.env.DSH_CLI;
     else process.env.DSH_CLI = previousDshCli;
     fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('applies only the profile given with profile, and keeps what it owns in the others', async () => {
+    fs.mkdirSync(path.join(tempHome, 'profiles', 'headless'), { recursive: true });
+    fs.writeFileSync(path.join(tempHome, 'profiles', 'headless', 'package.json'), JSON.stringify({ name: 'p', dependencies: {}, dsh: { profile: { bundles: [] } } }));
+    const both = (web: string[], headless: string[]) =>
+      fs.writeFileSync(
+        paths.manifestFile,
+        `apiVersion: dshenv/v1\nprofiles:\n  web:\n    plugins:\n${web.map((alias) => plugin(alias)).join('')}  headless:\n    plugins:${headless.length > 0 ? `\n${headless.map((alias) => plugin(alias)).join('')}` : ' {}\n'}`
+      );
+    const ownedIn = (profile: string): string[] =>
+      Object.keys((JSON.parse(fs.readFileSync(paths.stateFile, 'utf8')) as { resources?: { plugin?: Record<string, object> } }).resources?.plugin?.[profile] ?? {}).sort();
+    const installedIn = (profile: string): string[] =>
+      Object.keys((JSON.parse(fs.readFileSync(path.join(tempHome, 'profiles', profile, 'package.json'), 'utf8')) as { dependencies: object }).dependencies).sort();
+
+    both(['aa'], ['bb']);
+    const preview = await applyEnvironment(paths, { ...options, dryRun: true, profile: 'web' });
+    expect(preview.plan.operations.filter(isProfileOperation).map((op) => `${op.profile}:${op.kind}`)).toEqual(['web:install']);
+    await applyEnvironment(paths, { ...options, profile: 'web' });
+    expect(installedIn('web')).toEqual(['aa']);
+    expect(installedIn('headless')).toEqual([]);
+    await applyEnvironment(paths, options);
+    expect([ownedIn('web'), ownedIn('headless')]).toEqual([['aa'], ['bb']]);
+
+    // bb leaves the headless manifest, but applying web alone must not drop its ownership, or no later apply removes it.
+    both(['aa', 'cc'], []);
+    await applyEnvironment(paths, { ...options, profile: 'web' });
+    expect(installedIn('web')).toEqual(['aa', 'cc']);
+    expect([ownedIn('web'), ownedIn('headless')]).toEqual([['aa', 'cc'], ['bb']]);
+    await applyEnvironment(paths, { ...options, profile: 'headless' });
+    expect(installedIn('headless')).toEqual([]);
+    expect(ownedIn('headless')).toEqual([]);
   });
 
   it('owns a plugin it installed even when a later operation of the same apply fails', async () => {
