@@ -12,11 +12,19 @@ export function parseConfigValue(raw: string): unknown {
   }
 }
 
-export function setAtPath(target: Record<string, unknown>, dottedPath: string, value: unknown): Record<string, unknown> {
-  if (!dottedPath.trim() || dottedPath.split('.').some((part) => part.length === 0)) {
+// Keys that reach an object's prototype instead of a config field.
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+export function assertConfigPath(dottedPath: string): string[] {
+  const parts = dottedPath.split('.');
+  if (!dottedPath.trim() || parts.some((part) => part.length === 0 || UNSAFE_PATH_SEGMENTS.has(part))) {
     throw new ValidationError(`Invalid config path: ${dottedPath}`);
   }
-  const parts = dottedPath.split('.');
+  return parts;
+}
+
+export function setAtPath(target: Record<string, unknown>, dottedPath: string, value: unknown): Record<string, unknown> {
+  const parts = assertConfigPath(dottedPath);
   const next: Record<string, unknown> = { ...target };
   let cursor: Record<string, unknown> = next;
   for (let i = 0; i < parts.length; i += 1) {
@@ -39,7 +47,7 @@ export function getAtPath(target: Record<string, unknown>, dottedPath: string): 
   const parts = dottedPath.split('.');
   let cursor: unknown = target;
   for (const part of parts) {
-    if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor) || !(part in cursor)) {
+    if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor) || !Object.hasOwn(cursor, part)) {
       return undefined;
     }
     cursor = (cursor as Record<string, unknown>)[part];
@@ -50,7 +58,7 @@ export function getAtPath(target: Record<string, unknown>, dottedPath: string): 
 // Removes one key; parents it leaves empty go too. False when the key is not there.
 export function unsetAtPath(target: Record<string, unknown>, dottedPath: string): boolean {
   const [head, ...rest] = dottedPath.split('.');
-  if (!(head in target)) {
+  if (!Object.hasOwn(target, head)) {
     return false;
   }
   if (rest.length === 0) {

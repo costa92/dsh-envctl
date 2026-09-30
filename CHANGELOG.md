@@ -12,7 +12,7 @@
 - `config unset <alias> <dottedPath>`：从插件配置 patch 里删掉一个键（删空的父级一并删除）；overlay 只能删它自己设置的键。
 - `--new-profile`（`install`、`new -p`、`source clone -p`）：写入一个清单没声明、DSH 也没创建的 Profile 时须显式加上，防止拼错的名字悄悄建出新 Profile。
 - `DSHENV_LAYER`：有生效 overlay 时作为改清单命令 `--layer` 的默认值；没有 overlay 时，`DSHENV_LAYER=overlay` 与 `--layer overlay` 一样以退出码 3 拒绝（改动不会落进团队共享的 base），其他值（包括不合法的值）不起作用。取自 `DSHENV_PROFILE` 或 `DSHENV_LAYER` 的值会在 stderr 提示一行（`--json` 时不提示）。
-- `config set --force`：DSH 为该插件组合出了配置而其中没有这个键时，`config set` 报错并给出相近的键名，`--force` 仍然写入。
+- `config set --force`：DSH 为该插件组合出了配置而其中没有这个顶层键时，`config set` 在 stderr 提示一行并给出相近的键名，照常写入（DSH 只组合出带默认值的键，插件文档里的合法键可能不在其中）；`--force` 不再提示。
 - `plan -p <name>`、`status -p <name>` 只看一个 Profile；`status` 文本输出列出每个插件的状态，`status <alias>` 只列出该插件（此前只有 `--json` 生效），`Profiles monitored` 计入清单声明但尚未创建的 Profile。
 - `dshenv remote sync`：即原来的顶层 `sync`。
 - `dshenv overlay create <name>`：新建只含 `apiVersion` 的空 overlay，文件已存在时退出码 3。README 补上 overlay 文件格式示例。
@@ -26,7 +26,9 @@
 - `source pull` 的 ref 只在帮助里保留 `--ref`（与 `source clone` 一致）；第二个位置参数仍然可用。
 - `purge`、`status` 的参数在帮助里改名为 `<alias>`（接受别名或包名，行为不变）。
 - `install`、`update`、`enable`、`disable`、`remove`、`config set`、`tools enable|disable|config` 的输出说明只改了清单并给出下一步：如 `Added … to profile 'web' in the manifest. Next: dshenv plan, then dshenv apply --yes.`；同一别名重新 `install` 换了版本时说 `Changed agent-teams in profile 'web' from 0.1.20 to 0.1.21`。`--json` 输出不变。
-- `install` 的 npm 版本先用 `npm view` 核对：包或版本不存在时以退出码 3 报错并给出最新版本；npm 查询不了（离线等）时只警告。设 `DSHENV_NPM_CHECK=off` 跳过。
+- `install` 与 `update --to` 的 npm 版本先用 `npm view` 核对：包在而版本不存在时以退出码 3 报错并给出最新版本（npm 10 对不存在的版本也回 E404，会再查一次包来区分）。npm 看不到这个包（可能是需要凭据的私有包）、拒绝凭据，或查询不了（离线，约 5 秒超时，超时连同 npm 启动的子进程一起结束）时只警告、照常写入。加 `--no-npm-check` 或设 `DSHENV_NPM_CHECK=off` 跳过；`--json` 输出新增 `npmCheck`（`verified`、`unverified`、`unreachable`、`skipped`）。包名不合法（如以 `-` 开头）时直接拒绝，`npm view` 的参数前也加了 `--`。
+- `config get|set|unset` 的路径为空，或含 `__proto__`、`prototype`、`constructor` 时以退出码 3 拒绝；读取和删除只认配置里自己的键，不再读到或删掉 `toString` 这类继承属性（此前 `config unset <alias> __proto__.toString` 会改到进程内的对象原型）。
+- `config unset` 在该插件声明的所有 patch 里找这个键，base 与 overlay 一致；删完后什么都不设的 patch 一并删掉，不留下 `config: {}`。
 - `tools enable|disable|config` 只接受 `tools list --all` 列出的工具 id，其他 id（如 DSH 的 web 能力层 `web`）以退出码 3 拒绝并给出相近的 id；有生效的 overlay 时也先检查 id，再要求选择 `--layer`。
 - 插件别名写错时报错给出相近的别名，也接受包名；插件只在 overlay 里却写 base 时，提示改用 `--layer overlay`；Profile 未声明时直接说明，而不是说找不到插件。
 - 需要 DSH 已创建 Profile 的命令（`tools`、`web start`、`runtime --start`）：Profile 已声明时仍提示先用 `--profile` 启动 DSH 一次；未声明时列出已知 Profile 和相近的名字，不再引导去创建拼错的 Profile。
