@@ -9,6 +9,8 @@ import { loadEffectiveManifest } from '../overlay/effective.js';
 import { renderRuntimeReport } from '../output/render.js';
 import { callDshWeb, DSH_URL_ENV, loginDshWeb, parseDshWebUrl, type DshWebTarget } from '../dsh/web-client.js';
 import { startDshWeb } from '../dsh/web-server.js';
+import { profilePatchFile } from '../apply/patches.js';
+import { mountedByOtherEntry } from '../patch/mount.js';
 import { assertProfileExists, resolveCliDshCommand, runningWebRecord } from './web.js';
 import {
   checkRuntime,
@@ -130,13 +132,18 @@ export function registerRuntimeCommand(ctx: CommandContext): void {
     assertSameProfile(paths, profile, enabledPackages, bundles, target.endpoint);
 
     const state = fs.existsSync(paths.stateFile) ? loadState(fs.readFileSync(paths.stateFile, 'utf8')) : null;
-    const declared: DeclaredPlugin[] = entries.map(([alias, plugin]) => ({
-      alias,
-      package: plugin.package,
-      enabled: plugin.enabled !== false,
-      restartRequired: state?.profiles[profile]?.plugins[plugin.package]?.status === 'restart-required',
-      ...(installed[plugin.package]?.bundle === false ? { mounted: true } : {})
-    }));
+    const patchFile = fs.existsSync(profilePatchFile(paths, profile)) ? fs.readFileSync(profilePatchFile(paths, profile), 'utf8') : '';
+    const declared: DeclaredPlugin[] = entries.map(([alias, plugin]) => {
+      const mounted = installed[plugin.package]?.bundle === false;
+      return {
+        alias,
+        package: plugin.package,
+        enabled: plugin.enabled !== false,
+        restartRequired: state?.profiles[profile]?.plugins[plugin.package]?.status === 'restart-required',
+        ...(mounted ? { mounted: true } : {}),
+        ...(mounted && plugin.enabled === false && mountedByOtherEntry(patchFile, profile, alias, plugin.package) ? { mountedByPatch: true } : {})
+      };
+    });
     const results = checkRuntime(declared, bundles, plugins);
 
     if (json) {

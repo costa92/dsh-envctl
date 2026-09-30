@@ -56,6 +56,21 @@ function prependBlock(content: string, block: string): string {
   return `${base.slice(0, at)}${block}${base.slice(at)}`;
 }
 
+// An entry the user wrote, such as an insert group, can load the package with no mount row from dshenv.
+export function mountedByOtherEntry(content: string, profile: string, alias: string, packageName: string): boolean {
+  let rows: unknown;
+  try {
+    rows = YAML.parseDocument(writeMount(content, profile, alias, null), { logLevel: 'silent' }).toJS();
+  } catch {
+    return false;
+  }
+  const loads = (value: unknown): boolean =>
+    Array.isArray(value)
+      ? value.some(loads)
+      : value !== null && typeof value === 'object' && ((value as Record<string, unknown>).name === packageName || Object.values(value).some(loads));
+  return loads(rows);
+}
+
 // Mounts the package under the alias, or unmounts it when packageName is null.
 export function writeMount(content: string, profile: string, alias: string, packageName: string | null): string {
   const block = packageName === null ? '' : `${renderMountBlock(profile, alias, packageName)}\n`;

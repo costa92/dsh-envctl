@@ -176,6 +176,22 @@ describe('CLI runtime', () => {
     expect(out.stdout).toContain(`  loaded  agent-teams  ${PKG}\n`);
   });
 
+  it('accepts a disabled non-bundle plugin that a profile patch entry of the user loads', async () => {
+    writeManifest(webProfile(false));
+    const dir = path.join(tempHome, 'profiles', 'web');
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'dsh-profile-web', private: true, dependencies: { [PKG]: '0.1.21' }, dsh: { profile: { bundles: [] } } }));
+    fs.mkdirSync(path.join(dir, 'node_modules', ...PKG.split('/')), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'node_modules', ...PKG.split('/'), 'package.json'), JSON.stringify({ name: PKG, version: '0.1.21' }));
+    fs.writeFileSync(path.join(dir, 'cordis.patch.yml'), `- insert:\n    - id: ingress\n      name: cordis:group\n      config:\n        - id: agent-teams\n          name: "${PKG}"\n`);
+    await serve({ bundles: [], plugins: [agentTeamsEntry('active')] });
+    const out = await run(['runtime']);
+    expect(out.stdout).toContain(`  loaded  agent-teams  ${PKG} (mounted by a profile patch entry, not by dshenv)\n`);
+    expect(out.code).toBe(0);
+
+    fs.writeFileSync(path.join(dir, 'cordis.patch.yml'), '[]\n');
+    expect((await run(['runtime'])).code).toBe(2);
+  });
+
   it('exits 1 with a clear message when the profile package.json is not valid JSON', async () => {
     fs.writeFileSync(path.join(tempHome, 'profiles', 'web', 'package.json'), '{');
     await serve({ bundles: [agentTeamsBundle()], plugins: [agentTeamsEntry('active')] });

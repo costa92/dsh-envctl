@@ -268,4 +268,13 @@ describe('checkRuntime for a plugin mounted through an insert row', () => {
     expect(checkRuntime([mounted({ enabled: false })], [notBundle], [])[0].result).toBe('unloaded');
     expect(checkRuntime([mounted({ enabled: false, restartRequired: true })], [notBundle], [entry('active')])[0].result).toBe('still-loaded');
   });
+
+  it('expects it loaded when disabled but a profile patch entry of the user mounts it', () => {
+    const byPatch = mounted({ enabled: false, mountedByPatch: true });
+    const [loaded] = checkRuntime([byPatch], [notBundle], [entry('active')]);
+    expect(loaded).toMatchObject({ result: 'loaded', expected: 'disabled', detail: 'mounted by a profile patch entry, not by dshenv' });
+    expect(checkRuntime([byPatch], [notBundle], [entry('failed')])[0].result).toBe('failed');
+    expect(checkRuntime([byPatch], [notBundle], [entry('pending')])[0].result).toBe('loading');
+    expect(runtimeExitCode(checkRuntime([byPatch], [notBundle], [entry('active')]))).toBe(0);
+  });
 });

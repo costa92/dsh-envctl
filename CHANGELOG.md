@@ -2,6 +2,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。发布流程见 [docs/发布流程.md](docs/发布流程.md)。
 
+## 未发布
+
+### 修复
+
+- `runtime` 把清单里 disabled、但被 profile patch 条目（如自己写的 insert 分组）加载的非 bundle 插件一直报成 `loading (unmounted on disk; waiting for DSH to hot-reload it)`、退出码 2；现在按应当加载检查，正常时报 `loaded … (mounted by a profile patch entry, not by dshenv)`、退出码 0，加载失败或挂起仍如实报告。
+
 ## 0.4.1 - 2026-09-30
 
 ### 变更

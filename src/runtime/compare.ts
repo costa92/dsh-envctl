@@ -26,6 +26,8 @@ export interface DeclaredPlugin {
   restartRequired: boolean;
   // Loaded through dshenv's insert row rather than the bundle list, since the package is not a DSH bundle.
   mounted?: boolean;
+  // Disabled in the manifest, yet a profile patch entry outside dshenv's mount row loads it (an insert group).
+  mountedByPatch?: boolean;
 }
 
 export type RuntimeResult =
@@ -170,6 +172,10 @@ function expectUnloaded(
 // A mounted plugin is in no bundle (DSH lists its package as not-bundle); its module's entries say how it runs.
 function checkMounted(plugin: DeclaredPlugin, plugins: RuntimePlugin[]): Outcome {
   const live = plugins.filter((found) => found.moduleName === plugin.package && found.enabled && found.fiberPhase !== null);
+  if (!plugin.enabled && plugin.mountedByPatch) {
+    const outcome = checkMounted({ ...plugin, enabled: true, mountedByPatch: false }, plugins);
+    return outcome.result === 'loaded' ? { result: 'loaded', detail: 'mounted by a profile patch entry, not by dshenv' } : outcome;
+  }
   if (!plugin.enabled) {
     if (live.length === 0) {
       return { result: 'unloaded' };
