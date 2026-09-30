@@ -80,7 +80,7 @@ function planProfileBlock(
     return {
       ...base,
       kind: 'configure',
-      reason: "Profile patches were edited in DSH; run 'dshenv pull' to keep the edits, or apply to overwrite them"
+      reason: "Profile patches were edited in DSH; run 'dshenv pull --yes' to keep the edits, or apply to overwrite them"
     };
   }
   if (block.digest === digestProfilePatches(expected)) {
@@ -160,7 +160,7 @@ export async function importProfilePatchFile(paths: EnvironmentPaths, read: Prof
   let written = '';
   await rewriteProfilePatchFile(paths, read.profile, (current) => {
     if (current !== read.content) {
-      throw new ValidationError(`cordis.patch.yml of profile '${read.profile}' changed during pull; run dshenv pull again`);
+      throw new ValidationError(`cordis.patch.yml of profile '${read.profile}' changed during pull; run dshenv pull --yes again`);
     }
     written = replaceProfileBlock(removeUnmanagedEntries(current), read.profile, entries);
     return written;

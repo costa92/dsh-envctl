@@ -76,7 +76,7 @@ export function planSkills(
           ? 'Skill changed in the manifest'
           : skills.remote?.includes(name)
             ? 'Skill was edited in DSH but belongs to the team remote; change it in the team repository, or apply to restore the team copy (the DSH copy goes to trash)'
-            : "Skill was edited in DSH; run 'dshenv pull' to keep the edits, or apply to overwrite them (the DSH copy goes to trash)"
+            : "Skill was edited in DSH; run 'dshenv pull --yes' to keep the edits, or apply to overwrite them (the DSH copy goes to trash)"
       });
     }
   }

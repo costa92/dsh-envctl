@@ -53,7 +53,14 @@ describe('CLI pull', () => {
     expect(preview.stdout).toContain('[web] from DSH: + locale, + skill-filesystem');
     expect(fs.readFileSync(patchFile(), 'utf8')).toBe(PATCH_FILE);
 
-    const pulled = await run(['pull']);
+    const unconfirmed = await run(['pull']);
+    expect(unconfirmed.code).toBe(2);
+    expect(unconfirmed.stdout).toContain('[web] from DSH: + locale, + skill-filesystem');
+    expect(unconfirmed.stdout).not.toContain('Next: dshenv plan');
+    expect(unconfirmed.stderr).toContain('Nothing was changed. Re-run with --yes to pull.');
+    expect(fs.readFileSync(patchFile(), 'utf8')).toBe(PATCH_FILE);
+
+    const pulled = await run(['pull', '--yes']);
     expect(pulled.code).toBe(0);
     expect(pulled.stdout).toContain("(base 1, overlay 'local' 1)");
     expect(pulled.stdout).toContain("overlay 'local', now selected");
@@ -80,7 +87,7 @@ describe('CLI pull', () => {
     fs.writeFileSync(patchFile(), '[]\n');
     await run(['init']);
 
-    expect((await run(['plan'])).stdout).toContain("Unmanaged plugins (not in manifest; run 'dshenv pull' to manage them):\n  ? [web] dsh-im-hellotalk");
+    expect((await run(['plan'])).stdout).toContain("Unmanaged plugins (not in manifest; run 'dshenv pull --yes' to manage them):\n  ? [web] dsh-im-hellotalk");
     const refused = await run(['pull', '--no-overlay']);
     expect(refused.code).toBe(3);
     expect(refused.stderr).toMatch(/Plugin 'dsh-im-hellotalk' of profile 'web' has a machine-local path/);
@@ -90,7 +97,7 @@ describe('CLI pull', () => {
     expect(preview.stdout).toContain("[web] from DSH: + plugin im-hellotalk (overlay 'local')");
     expect(fs.existsSync(path.join(tempHome, 'envctl', 'overlays', 'local.yaml'))).toBe(false);
 
-    const pulled = await run(['pull', '--json']);
+    const pulled = await run(['pull', '--json', '--yes']);
     expect(pulled.code).toBe(0);
     expect(JSON.parse(pulled.stdout).plugins).toEqual([
       { profile: 'web', alias: 'im-hellotalk', package: 'dsh-im-hellotalk', sourceType: 'local-link', enabled: true, layer: 'overlay', overlayName: 'local' }
@@ -112,12 +119,12 @@ describe('CLI pull', () => {
     await run(['capture', '--output', path.join(tempHome, 'capture.yaml')]);
     const adopted = await run(['adopt', '--from', path.join(tempHome, 'capture.yaml'), '--no-overlay', '--yes']);
     expect(adopted.code).toBe(3);
-    expect(adopted.stderr).toMatch(/^Adopted 1 plugin\(s\) across profile\(s\): web, but taking over their patch entries failed: .*machine-local paths.*; fix that and run dshenv pull/m);
+    expect(adopted.stderr).toMatch(/^Adopted 1 plugin\(s\) across profile\(s\): web, but taking over their patch entries failed: .*machine-local paths.*; fix that and run dshenv pull --yes/m);
     // The adoption itself stands: running adopt again is not needed, only the pull.
     expect(Object.keys(manifest().profiles.web.plugins)).toHaveLength(1);
     expect(fs.existsSync(path.join(tempHome, 'envctl', 'state.json'))).toBe(true);
     expect(fs.readFileSync(patchFile(), 'utf8')).toBe(PATCH_FILE);
-    expect((await run(['pull'])).code).toBe(0);
+    expect((await run(['pull', '--yes'])).code).toBe(0);
   });
 
   it('takes the patch entries over when adopting a profile', async () => {

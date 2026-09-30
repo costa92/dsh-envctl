@@ -72,7 +72,7 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary, head
 
   if (plan.unmanaged.length > 0) {
     lines.push('');
-    lines.push("Unmanaged plugins (not in manifest; run 'dshenv pull' to manage them):");
+    lines.push("Unmanaged plugins (not in manifest; run 'dshenv pull --yes' to manage them):");
     for (const u of plan.unmanaged) {
       lines.push(`  ? [${u.profile}] ${u.package}`);
     }
@@ -80,7 +80,7 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary, head
 
   if (plan.unmanagedPatches.length > 0) {
     lines.push('');
-    lines.push("Patch entries not in the manifest (run 'dshenv pull' to manage them):");
+    lines.push("Patch entries not in the manifest (run 'dshenv pull --yes' to manage them):");
     for (const u of plan.unmanagedPatches) {
       lines.push(`  ? [${u.profile}] ${u.entries.join(', ')}`);
     }
@@ -88,7 +88,7 @@ export function renderPlan(plan: EnvironmentPlan, restart?: RestartSummary, head
 
   if (plan.unmanagedSkills.length > 0) {
     lines.push('');
-    lines.push("Skills not in the manifest (run 'dshenv pull' to manage them):");
+    lines.push("Skills not in the manifest (run 'dshenv pull --yes' to manage them):");
     for (const name of plan.unmanagedSkills) {
       lines.push(`  ? ${name}`);
     }

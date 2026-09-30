@@ -139,7 +139,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
         if (err instanceof Error) {
           err.message =
             `Adopted ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}, ` +
-            `but taking over their patch entries failed: ${err.message}; fix that and run dshenv pull`;
+            `but taking over their patch entries failed: ${err.message}; fix that and run dshenv pull --yes`;
         }
         throw err;
       }
