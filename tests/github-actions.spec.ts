@@ -112,6 +112,12 @@ describe('repository CI workflow', () => {
     }
   });
 
+  it.each(['ci', 'release', 'e2e', 'compat'])('%s runs on a fixed Ubuntu release, not one that moves under it', (name) => {
+    // ubuntu-latest moves to a new release on GitHub's schedule; the upgrade should be a change here instead.
+    const text = fs.readFileSync(path.join(projectDir, '.github', 'workflows', `${name}.yml`), 'utf8');
+    expect(text).not.toContain('ubuntu-latest');
+  });
+
   it.each(Object.entries(repositoryWorkflows))('%s never splices a workflow input into a shell script', (_name, workflow) => {
     for (const step of allSteps(workflow)) {
       expect(step.run ?? '').not.toMatch(/\$\{\{\s*(inputs|github\.event)\./);

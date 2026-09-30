@@ -143,6 +143,8 @@ export async function runCli(argv: string[], io?: CliIO): Promise<number> {
       program.commands.find((cmd) => cmd.name() === name)?.helpGroup(heading);
     }
   }
+  // Otherwise commander lists the help command alone under a default "Commands:" heading.
+  program.commandsGroup(HELP_GROUPS[0][0]).helpCommand('help [command]', 'display help for command');
 
   try {
     if (argv.length === 0) {
