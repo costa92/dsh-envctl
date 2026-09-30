@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { runCli } from '../../src/cli.js';
 import { startFakeDshWeb, type FakeDshWeb, type FakeDshWebOptions } from '../helpers/fake-dsh-web.js';
+import { reaped } from '../helpers/process.js';
 
 const PKG = '@nanmicoder/dsh-agent-teams';
 
@@ -242,14 +243,6 @@ describe('CLI runtime', () => {
   describe('--start', () => {
     let previousDshCli: string | undefined;
     const pidFile = () => path.join(tempHome, 'dsh.pid');
-    const alive = (pid: number): boolean => {
-      try {
-        process.kill(pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    };
     // Stands in for dsh web: prints the fake server's URL like DSH does, then serves until stopped.
     const fakeDsh = (body: string): void => {
       const file = path.join(tempHome, 'fake-dsh.mjs');
@@ -272,7 +265,7 @@ describe('CLI runtime', () => {
       const out = await run(['runtime', '--profile', 'web', '--start']);
       expect(out.code).toBe(0);
       expect(out.stdout).toContain(`  loaded  agent-teams  ${PKG}\n`);
-      expect(alive(Number(fs.readFileSync(pidFile(), 'utf8')))).toBe(false);
+      expect(await reaped(Number(fs.readFileSync(pidFile(), 'utf8')))).toBe(true);
       expectNoSecrets(out);
     });
 
@@ -281,7 +274,7 @@ describe('CLI runtime', () => {
       fakeDsh(`console.log('dsh web: ${fake.url}'); setInterval(() => {}, 1000);`);
       const out = await run(['runtime', '--profile', 'web', '--start']);
       expect(out.code).toBe(1);
-      expect(alive(Number(fs.readFileSync(pidFile(), 'utf8')))).toBe(false);
+      expect(await reaped(Number(fs.readFileSync(pidFile(), 'utf8')))).toBe(true);
       expectNoSecrets(out);
     });
 

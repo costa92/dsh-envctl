@@ -47,7 +47,7 @@ describe('CLI remote', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('previews a subscription with exit 2 and leaves nothing behind', async () => {

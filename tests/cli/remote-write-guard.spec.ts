@@ -46,7 +46,7 @@ describe('CLI writes to remote-owned files and lock entries', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it.each([

@@ -255,7 +255,7 @@ describe('release workflow', () => {
       `#!/bin/sh\nprefix="$3"\nmkdir -p "$prefix/node_modules/.bin"\nprintf '#!/bin/sh\\ncase "$1" in --version) echo %s ;; --help) exit "$FAKE_HELP_EXIT" ;; esac\\n' "$FAKE_VERSION" >"$prefix/node_modules/.bin/dshenv"\nchmod +x "$prefix/node_modules/.bin/dshenv"\necho "$@" >"$prefix/args"\n`,
       { mode: 0o755 }
     );
-    const env = { PATH: `${bin}:${process.env.PATH}`, FAKE_HELP_EXIT: '0', TMPDIR: workDir };
+    const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}`, FAKE_HELP_EXIT: '0', TMPDIR: workDir };
     expect((await runStep('smoke', { ...env, FAKE_VERSION: '1.2.3' }, workDir)).exitCode).toBe(0);
     const wrong = await runStep('smoke', { ...env, FAKE_VERSION: '0.0.1' }, workDir);
     expect(wrong.exitCode).toBe(1);
@@ -300,7 +300,7 @@ describe('release workflow', () => {
     const bin = path.join(workDir, 'bin');
     fs.mkdirSync(bin);
     const fakeNpm = (log: string) => fs.writeFileSync(path.join(bin, 'npm'), `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(log)} >&2\n`, { mode: 0o755 });
-    const env = { PATH: `${bin}:${process.env.PATH}` };
+    const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
     fakeNpm('npm verbose oidc Successfully retrieved and set token');
     expect((await runStep('check-oidc', env, workDir)).exitCode).toBe(0);
     fakeNpm('npm verbose oidc Failed token exchange request with body message: OIDC token exchange error - package not found');

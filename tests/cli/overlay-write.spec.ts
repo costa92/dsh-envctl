@@ -34,7 +34,7 @@ describe('CLI writes with an active overlay', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('refuses writes without --layer and leaves both files unchanged', async () => {

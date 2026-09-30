@@ -34,7 +34,7 @@ describe('remote git helpers', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('makes a bare clone and fetches the default branch tip', async () => {

@@ -32,7 +32,7 @@ describe('Managed Git Source Lifecycle', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('should inspect clean git working tree accurately', async () => {
@@ -108,6 +108,11 @@ describe('Managed Git Source Lifecycle', () => {
     const sourceRoot = '/custom/plugins';
     const resolved = resolvePluginSourcePath('agent-teams', sourceRoot);
     expect(resolved).toBe(path.resolve('/custom/plugins/agent-teams'));
+  });
+
+  it('refuses to guess a plugin source root when none is configured', () => {
+    // The global test setup clears DSH_PLUGIN_SOURCE_HOME, so no root is configured here.
+    expect(() => resolvePluginSourcePath('agent-teams')).toThrow(/DSH_PLUGIN_SOURCE_HOME/);
   });
 
   it('should place managed clones under envctl/sources', () => {

@@ -5,22 +5,8 @@ import * as os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { dshWebState, launchDshWeb, startDshWeb, stopProcessGroup } from '../../src/dsh/web-server.js';
 import { execa } from 'execa';
+import { alive, reaped } from '../helpers/process.js';
 
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-// Node reaps an exited child asynchronously; until then its pid still answers kill(pid, 0) (seen on macOS).
-const reaped = async (pid: number): Promise<boolean> => {
-  const deadline = Date.now() + 2_000;
-  while (alive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
-  return !alive(pid);
-};
 
 describe('startDshWeb', () => {
   let dir: string;
@@ -82,7 +68,7 @@ setInterval(() => {}, 1000);
     } finally {
       await web.stop();
     }
-    expect(alive(grandchild)).toBe(false);
+    expect(await reaped(grandchild)).toBe(true);
   });
 
   it('reports the first error line when DSH exits before serving, as a profile without a web app does', async () => {
@@ -171,7 +157,7 @@ process.exit(0);`);
     } finally {
       expect(await stopProcessGroup(web.pid)).toBe(true);
     }
-    expect(alive(web.pid)).toBe(false);
+    expect(await reaped(web.pid)).toBe(true);
   }, 30_000);
 });
 
@@ -216,9 +202,7 @@ setInterval(() => {}, 1000);`);
       dshenv.kill('SIGINT');
       const result = await dshenv;
       expect(result.signal).toBe('SIGINT');
-      const stopDeadline = Date.now() + 10_000;
-      while (alive(dsh) && Date.now() < stopDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(alive(dsh)).toBe(false);
+      expect(await reaped(dsh, 10_000)).toBe(true);
     } finally {
       // A failed check must not leave the fake dsh web or dshenv behind.
       for (const pid of [-dsh, dshenv.pid ?? 0]) {

@@ -27,8 +27,8 @@ describe('CLI doctor with a remote subscription', () => {
     } else {
       process.env.DSH_CLI = previousDshCli;
     }
-    fs.rmSync(home, { recursive: true, force: true });
-    fs.rmSync(binDir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    fs.rmSync(binDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   const doctor = async (json: boolean) => {

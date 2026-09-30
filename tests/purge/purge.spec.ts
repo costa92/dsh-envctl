@@ -76,7 +76,7 @@ profiles:
   });
 
   afterEach(() => {
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('should refuse unmanaged plugins', async () => {
@@ -167,7 +167,7 @@ profiles:
       // Checked before the patch block is stripped, so a refused clone leaves the patch alone.
       expect(fs.readFileSync(patchFile, 'utf8')).toBe(patched);
     } finally {
-      fs.rmSync(outside, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   });
 

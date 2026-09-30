@@ -46,7 +46,7 @@ describe('pullProfilePatches', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('takes entries written in DSH into the manifest, machine-local paths into a local overlay, and leaves a clean plan', async () => {
@@ -123,7 +123,7 @@ describe('pullProfilePatches', () => {
       paths = await writeRemoteOwnedFixture(home);
       setupProfile(home);
       // This test uses its own home; the one beforeEach made would leak once afterEach removes this one instead.
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
       tempHome = home;
       const manifestBefore = fs.readFileSync(paths.manifestFile, 'utf8');
       const selection = { name: 'mine', via: 'file' as const };
@@ -133,7 +133,7 @@ describe('pullProfilePatches', () => {
       expect(fs.readFileSync(paths.manifestFile, 'utf8')).toBe(manifestBefore);
       expect(overlay('mine').profiles?.web?.patches).toEqual([LOCALE, SKILLS]);
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   });
 

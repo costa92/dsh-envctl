@@ -57,7 +57,7 @@ describe('acceptSync failure recovery', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   async function prepare(replace = false) {

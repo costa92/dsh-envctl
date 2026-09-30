@@ -121,7 +121,8 @@ describe('adoptEnvironment', () => {
     };
     const realRename = fs.promises.rename;
     const spy = vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
-      if (String(to) === paths.stateFile) {
+      // By name: macOS (/private/var) and Windows (RUNNER~1) can spell the temp directory differently.
+      if (path.basename(String(to)) === path.basename(paths.stateFile)) {
         throw new Error('disk full');
       }
       return realRename(from, to);
