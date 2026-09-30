@@ -57,6 +57,10 @@
 - `apply --dry-run` 不再重复打印 `Planned operations:` 标题；`apply --yes` 成功后标题改为 `Applied operations:`。
 - `runtime` 对已加载但仍记为需要重启的插件，提示改为 `if DSH restarted after the last apply, run dshenv mark-restarted to clear the restart flag`，不再同时显示 loaded 与“重启 DSH”。
 
+### 修复
+
+- Windows 上探测 DSH 源码插件管理器的 `package.json` 时，用 BigInt 比对文件身份：64 位文件 ID 转成普通数字会丢精度，两个接连创建的文件可能被当成同一个，导致路径检查后被换成软链接的清单没有被识别。
+
 ## 0.3.1 - 2026-09-29
 
 ### 新增

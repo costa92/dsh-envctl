@@ -26,7 +26,9 @@ function isWithinDirectory(directory: string, targetPath: string): boolean {
   return target !== '' && target !== '..' && !target.startsWith(`..${sep}`) && !isAbsolute(target)
 }
 
-type FileIdentity = { dev: number; ino: number }
+// Windows file ids are 64-bit; as plain numbers they lose precision, so two files created one after the other can
+// look identical. BigInt stats keep them apart.
+type FileIdentity = { dev: bigint; ino: bigint }
 
 function sameFile(left: FileIdentity, right: FileIdentity): boolean {
   return left.dev === right.dev && left.ino === right.ino
@@ -35,7 +37,7 @@ function sameFile(left: FileIdentity, right: FileIdentity): boolean {
 async function openedFileMatchesCanonicalPath(path: string, openedStat: FileIdentity): Promise<boolean> {
   const checkedPath = await realpath(path)
   if (checkedPath !== path) return false
-  return sameFile(await stat(path), openedStat)
+  return sameFile(await stat(path, { bigint: true }), openedStat)
 }
 
 async function readBoundedManifest(
@@ -44,12 +46,12 @@ async function readBoundedManifest(
 ): Promise<{ content: string } | { diagnostic: string }> {
   const file = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
-    const openedStat = await file.stat()
+    const openedStat = await file.stat({ bigint: true })
     if (!openedStat.isFile()) return { diagnostic: 'PACKAGE_MANIFEST_NOT_REGULAR' }
     if (!sameFile(initialStat, openedStat) || !await openedFileMatchesCanonicalPath(canonicalPath, openedStat)) {
       return { diagnostic: 'PACKAGE_MANIFEST_NOT_REGULAR' }
     }
-    if (openedStat.size > manifestLimit) return { diagnostic: 'PACKAGE_MANIFEST_TOO_LARGE' }
+    if (openedStat.size > BigInt(manifestLimit)) return { diagnostic: 'PACKAGE_MANIFEST_TOO_LARGE' }
 
     const buffer = Buffer.alloc(manifestLimit + 1)
     let total = 0
@@ -68,7 +70,7 @@ async function readBoundedManifest(
 async function canonicalTargetIsRegularFile(canonicalPath: string, initialStat: FileIdentity): Promise<boolean> {
   const file = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
-    const openedStat = await file.stat()
+    const openedStat = await file.stat({ bigint: true })
     return openedStat.isFile() &&
       sameFile(initialStat, openedStat) &&
       await openedFileMatchesCanonicalPath(canonicalPath, openedStat)
@@ -95,7 +97,7 @@ export async function probeOfficialSurfaces(input: {
     if (!isWithinDirectory(actualHarnessDir, actualPackageDir)) {
       diagnostics.push('PACKAGE_MANIFEST_NOT_REGULAR')
     } else {
-      const manifestStat = await lstat(manifestPath)
+      const manifestStat = await lstat(manifestPath, { bigint: true })
       if (!manifestStat.isFile()) {
         diagnostics.push('PACKAGE_MANIFEST_NOT_REGULAR')
       } else {
@@ -124,7 +126,7 @@ export async function probeOfficialSurfaces(input: {
                 diagnostics.push('EXPORT_TARGET_OUTSIDE_PACKAGE')
               } else {
                 try {
-                  const targetStat = await lstat(targetPath)
+                  const targetStat = await lstat(targetPath, { bigint: true })
                   if (targetStat.isFile()) {
                     const actualTargetPath = await realpath(targetPath)
                     if (isWithinDirectory(actualHarnessDir, actualTargetPath) && isWithinDirectory(actualPackageDir, actualTargetPath)) {
