@@ -420,13 +420,13 @@ function captureUnmanagedPlugins(
   return captureEnvironment(selected);
 }
 
-// DSH loads a linked source directory in place, so its digest is what is installed; a copied local-file proves nothing.
+// An install that resolves to the source directory is that directory, so its digest is what DSH loads; a copy proves nothing.
 async function withLinkDigest(entry: PluginLockEntry, installed: InstalledPluginInfo | undefined): Promise<PluginLockEntry> {
-  if (entry.source.type !== 'local-link' || !installed?.isSymlink || !installed.targetPath) {
+  if (entry.source.type !== 'local-link' || !installed?.targetPath) {
     return entry;
   }
   try {
-    if (fs.realpathSync(entry.source.path) !== installed.targetPath) {
+    if ((await fs.promises.realpath(entry.source.path)) !== installed.targetPath) {
       return entry;
     }
     return { ...entry, source: { ...entry.source, digest: await calculateSourceDigest(entry.source.path) } };
