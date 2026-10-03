@@ -51,7 +51,7 @@ export async function readSkillInventory(paths: EnvironmentPaths): Promise<Skill
   return { declared: await readSkillDigests(paths.skillsDir), live: await readSkillDigests(paths.dshSkillsDir), remote };
 }
 
-export function remoteSkillNames(remoteFiles: Record<string, string>): Set<string> {
+export function remoteSkillNames(remoteFiles: Record<string, unknown>): Set<string> {
   return new Set(Object.keys(remoteFiles).flatMap((key) => skillPathFromKey(key)?.[0] ?? []));
 }
 

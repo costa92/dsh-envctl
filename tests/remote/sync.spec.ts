@@ -202,6 +202,22 @@ describe('remote sync engine', () => {
     expect(fs.existsSync(path.join(paths.skillsDir, 'wiki'))).toBe(false);
   });
 
+  it('refuses a team skill whose directory already holds a local skill, even when none of its files collide', async () => {
+    await subscribe();
+    fs.mkdirSync(path.join(paths.skillsDir, 'wiki'), { recursive: true });
+    fs.writeFileSync(path.join(paths.skillsDir, 'wiki', 'SKILL.md'), 'mine');
+    await commitTeamFiles(team, { 'envctl/skills/wiki/run.sh': 'echo team' }, 'skills');
+    await expect(prepare({ previous: true })).rejects.toThrow(/skill 'wiki'.*not owned by the remote/);
+    expect(fs.readdirSync(path.join(paths.skillsDir, 'wiki'))).toEqual(['SKILL.md']);
+  });
+
+  it('refuses a local skill directory on a first subscription too, since --replace would mix the two', async () => {
+    fs.mkdirSync(path.join(paths.skillsDir, 'wiki'), { recursive: true });
+    fs.writeFileSync(path.join(paths.skillsDir, 'wiki', 'SKILL.md'), 'mine');
+    await commitTeamFiles(team, { 'envctl/skills/wiki/run.sh': 'echo team' }, 'skills');
+    await expect(prepare({ replace: true })).rejects.toThrow(/skill 'wiki'.*move it aside/);
+  });
+
   it('previews skill changes without writing through a symlinked skill directory', async () => {
     await subscribe();
     await commitTeamFiles(team, { 'envctl/skills/wiki/SKILL.md': 'v1' }, 'skills');
