@@ -125,6 +125,23 @@ process.exit(1);
     expect(out.stderr).toContain('Not verified: no dsh web is running for profile web; run dshenv web start -p web, or set DSHENV_DSH_URL');
   });
 
+  it('does not check every changed profile against the one dsh web DSHENV_DSH_URL names', async () => {
+    fs.appendFileSync(
+      path.join(tempHome, 'envctl', 'manifest.yaml'),
+      `  cli:\n    plugins:\n      agent-teams:\n        package: "${PKG}"\n        enabled: true\n        source: { type: npm, version: "0.1.21" }\n`
+    );
+    fs.cpSync(path.join(tempHome, 'profiles', 'web'), path.join(tempHome, 'profiles', 'cli'), { recursive: true });
+    await serve({ bundles: [bundle()], plugins: [entry('active')] });
+    const out = await run(['--json', 'apply', '--yes', '--verify']);
+    expect(out.code).toBe(0);
+    const parsed = JSON.parse(out.stdout) as { verify: Array<{ profile: string; skipped?: string }> };
+    expect(parsed.verify.map((item) => item.profile).sort()).toEqual(['cli', 'web']);
+    for (const item of parsed.verify) {
+      expect(item.skipped).toContain('DSHENV_DSH_URL names one dsh web');
+    }
+    expect(fake!.requests).toHaveLength(0);
+  });
+
   it('adds the checks to --json output', async () => {
     await serve({ bundles: [bundle()], plugins: [entry('active')] });
     const out = await run(['--json', 'apply', '--yes', '--verify']);
