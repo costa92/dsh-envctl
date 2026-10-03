@@ -34,6 +34,8 @@ export interface AdoptDetail {
   version?: string;
   // Declared, locked and owned exactly as the candidate has it already, so adopting it again changes nothing.
   alreadyAdopted: boolean;
+  // A machine-local source stays out of the base; pull takes it into an overlay, as it does any other.
+  layer?: 'overlay';
 }
 
 export interface AdoptSummary {
@@ -105,6 +107,8 @@ export interface AdoptOptions {
   dryRun?: boolean;
   // The active overlay: a plugin it declares is managed there already and stays out of the base.
   overlay?: EnvironmentOverlay;
+  // False when machine-local plugins would have no overlay to go to (--no-overlay with none selected).
+  allowOverlay?: boolean;
 }
 
 export async function adoptEnvironment(
@@ -194,6 +198,15 @@ async function adoptUnderLock(
       // Capture derives its own alias; keep the one the manifest already uses for this package.
       const existingAlias = Object.entries(mergedManifest.profiles[profileName].plugins)
         .find(([, entry]) => entry.package === plugin.package)?.[0];
+      if (existingAlias === undefined && (plugin.source.type === 'local-link' || plugin.source.type === 'local-file')) {
+        if (options?.allowOverlay === false) {
+          throw new ValidationError(
+            `Plugin '${plugin.package}' of profile '${profileName}' has a machine-local path, which belongs in an overlay; drop --no-overlay, or select one with dshenv overlay use <name>`
+          );
+        }
+        details.push({ profile: profileName, alias: candidateAlias, package: plugin.package, sourceType: plugin.source.type, alreadyAdopted: false, layer: 'overlay' });
+        continue;
+      }
       const alias = existingAlias ?? freeAlias(mergedManifest.profiles[profileName].plugins, candidateAlias);
       // Capture cannot see declared patches, so a candidate without any must not erase them.
       const existingEntry = existingAlias ? mergedManifest.profiles[profileName].plugins[existingAlias] : undefined;

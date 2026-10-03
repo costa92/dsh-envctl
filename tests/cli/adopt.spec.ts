@@ -84,6 +84,60 @@ warnings: []
     expect(stdout).toContain('@nanmicoder/dsh-agent-teams');
   });
 
+  describe('with a plugin linked from a local checkout', () => {
+    let source: string;
+    const run = async (args: string[]) => {
+      let stdout = '';
+      let stderr = '';
+      const code = await runCli([...args, '--dsh-home', tempHome], { stdout: (chunk) => { stdout += chunk; }, stderr: (chunk) => { stderr += chunk; } });
+      return { code, stdout, stderr };
+    };
+    const envctl = (...parts: string[]) => path.join(tempHome, 'envctl', ...parts);
+
+    beforeEach(async () => {
+      source = path.join(tempHome, 'src', 'local-tool');
+      fs.mkdirSync(source, { recursive: true });
+      fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify({ name: 'local-tool', version: '1.0.0', dsh: { bundle: {} } }));
+      fs.writeFileSync(path.join(source, 'index.js'), 'export default {};\n');
+      const webProfile = path.join(tempHome, 'profiles', 'web');
+      fs.symlinkSync(source, path.join(webProfile, 'node_modules', 'local-tool'), 'junction');
+      const pkg = JSON.parse(fs.readFileSync(path.join(webProfile, 'package.json'), 'utf8'));
+      pkg.dependencies['local-tool'] = `link:${source}`;
+      pkg.dsh.profile.bundles.push('local-tool');
+      fs.writeFileSync(path.join(webProfile, 'package.json'), JSON.stringify(pkg));
+      expect((await run(['init'])).code).toBe(0);
+      expect((await run(['capture', '-o', path.join(tempHome, 'candidate.yaml')])).code).toBe(0);
+    });
+
+    it('puts it into the local overlay with its digest, as pull does, so plan is clean', async () => {
+      const preview = await run(['adopt', path.join(tempHome, 'candidate.yaml')]);
+      expect(preview.code).toBe(2);
+      expect(preview.stdout).toMatch(/local-tool \(local-tool\) \[local-link\] into an overlay/);
+
+      const out = await run(['adopt', path.join(tempHome, 'candidate.yaml'), '--yes']);
+      expect(out.code).toBe(0);
+      expect(fs.readFileSync(envctl('manifest.yaml'), 'utf8')).not.toContain('local-tool');
+      expect(fs.readFileSync(envctl('overlays', 'local.yaml'), 'utf8')).toContain(source);
+      const lock = JSON.parse(fs.readFileSync(envctl('lock.json'), 'utf8'));
+      expect(lock.profiles.web.plugins['local-tool'].source.digest).toMatch(/^[0-9a-f]{64}$/);
+      const state = JSON.parse(fs.readFileSync(envctl('state.json'), 'utf8'));
+      expect(Object.keys(state.resources.plugin.web).sort()).toEqual(['@nanmicoder/dsh-agent-teams', 'local-tool']);
+
+      const plan = await run(['plan']);
+      expect(plan.stdout).not.toMatch(/local-tool/);
+      expect(plan.code).toBe(0);
+    });
+
+    it('refuses under --no-overlay before writing anything', async () => {
+      const before = fs.readFileSync(envctl('manifest.yaml'), 'utf8');
+      const out = await run(['--no-overlay', 'adopt', path.join(tempHome, 'candidate.yaml'), '--yes']);
+      expect(out.code).toBe(3);
+      expect(out.stderr).toMatch(/machine-local path.*overlay/);
+      expect(fs.readFileSync(envctl('manifest.yaml'), 'utf8')).toBe(before);
+      expect(fs.existsSync(envctl('overlays', 'local.yaml'))).toBe(false);
+    });
+  });
+
   it('leaves a plugin the active overlay already declares where it is, in the preview and with --yes', async () => {
     const run = async (args: string[]) => {
       let stdout = '';
