@@ -13,6 +13,7 @@
 - overlay 的插件别名与 base 清单一样拒绝 `__proto__`、`constructor`、`prototype`、`@profile` 和含空白的名字；此前 overlay 里写 `constructor: { enabled: false }` 不报错，改动被丢掉，还会改到全局 `Object`。别名或 Profile 名与 `toString` 等继承属性同名时，合并按新条目处理，不再误认作 base 中已有。
 - `adopt` 核对候选清单是否过期时，除 npm 版本外还比对 Git 地址与锁定 commit、本地路径和来源类型，不一致时以 `Candidate is stale` 拒绝；此前 capture 之后插件在 DSH 里换了 commit 或改为本地链接安装，`adopt --yes` 仍会接受，把旧 commit 写进 lock，下一次 `apply` 会把插件降回旧版本。
 - `apply --yes --verify` 一次改了多个 Profile 时不再拿 `DSHENV_DSH_URL` 逐个核对：它只指向一个 `dsh web`，此前其他 Profile 会被误判为核对出错（退出码 5），依赖碰巧相同时还会核错对象却报通过。现在只核对各 Profile 自己 `web start` 启动的那个，其余注明 `Not verified`。
+- `capture`、`pull` 与 `adopt` 遇到声明为 tarball URL 或 `npm:` 别名的依赖时跳过并警告；此前未安装的 tarball 会被记成 `0.0.0`（之后 `apply` 必然失败），已安装的会被记成公共 registry 上同名包的版本，换一台机器会装成别的东西。
 
 ## 0.5.0 - 2026-09-30
 

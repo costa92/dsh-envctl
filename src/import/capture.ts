@@ -82,7 +82,15 @@ export function captureEnvironment(
       const isEnabled = plugin.enabled ?? true;
 
       if (plugin.sourceType === 'npm') {
-        const version = plugin.version || (plugin.resolvedSource && !plugin.resolvedSource.startsWith('http') ? plugin.resolvedSource : '0.0.0');
+        const spec = plugin.resolvedSource ?? '';
+        // A tarball URL or an npm: alias installs something other than this name from the registry.
+        if (spec.includes(':')) {
+          warnings.push(
+            `Package ${pkgName} in profile ${profileName} is declared as '${spec}', not a registry version; skipped because dshenv installs npm packages from the registry by name`
+          );
+          continue;
+        }
+        const version = plugin.version || spec;
         if (!ExactVersionRegex.test(version)) {
           warnings.push(
             `Package ${pkgName} in profile ${profileName} is declared as '${version}' and not installed; skipped because dshenv needs an exact version`
