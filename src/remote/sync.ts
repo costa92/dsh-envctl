@@ -14,7 +14,7 @@ import { readOverlay } from '../overlay/effective.js';
 import { mergeManifest } from '../overlay/merge.js';
 import type { OverlaySelection } from '../overlay/selection.js';
 import { buildPlan, type EnvironmentPlan } from '../planner/plan.js';
-import { readSkillDigests } from '../resources/skill.js';
+import { readSkillDigests, remoteSkillNames } from '../resources/skill.js';
 import { readLocalSourceDigests } from '../source/local.js';
 import { isAncestor } from './git.js';
 import {
@@ -85,6 +85,14 @@ function assertNoConflicts(input: PrepareSyncInput, snapshot: RemoteSnapshot, lo
     }
   }
   const ownedFiles = previous?.files ?? {};
+  // A skill is one directory: team files added beside a local skill's would mix the two, so the directory must be free.
+  const ownedSkills = remoteSkillNames(ownedFiles);
+  for (const name of [...remoteSkillNames(snapshot.files)].sort()) {
+    const dir = path.join(paths.skillsDir, name);
+    if (!ownedSkills.has(name) && fs.existsSync(dir)) {
+      throw new ValidationError(`Local skill '${name}' at ${dir} is not owned by the remote, but the remote now provides it; move it aside, then sync again`);
+    }
+  }
   for (const key of Object.keys(snapshot.files).sort(compareRemoteKeys)) {
     const file = remoteFilePath(paths, key);
     if (Object.hasOwn(ownedFiles, key) || !fs.existsSync(file)) {

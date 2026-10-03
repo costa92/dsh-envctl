@@ -16,6 +16,7 @@
 - `capture`、`pull` 与 `adopt` 遇到声明为 tarball URL 或 `npm:` 别名的依赖时跳过并警告；此前未安装的 tarball 会被记成 `0.0.0`（之后 `apply` 必然失败），已安装的会被记成公共 registry 上同名包的版本，换一台机器会装成别的东西。
 - `rollback` 保留 apply 放进 `DSH_HOME/skills` 的 skill 的基线（与插件所有权一样）：回滚到不含该 skill 的快照后，下一次 `apply` 会把它移进 trash；此前它变成未受管，`apply` 不再清理，`pull --yes` 还会把它当作 DSH 新增的 skill 收回清单。
 - 清单与 `DSH_HOME/skills` 都有、内容不同又从未同步过的 skill，`pull` 视为两边都改过，需要 `--prefer dsh` 或 `--prefer manifest`；此前 `pull` 默认用 DSH 的副本覆盖清单里的新版本，`plan` 却说是清单改了，两边结论相反。`plan` 对这种 skill 说明 `apply` 会装清单的副本，并提示可用 `pull --yes --prefer dsh` 保留 DSH 的。
+- `remote add` 与 `sync` 按整个目录判断团队 skill 与本地 skill 是否冲突：本地已有不归团队的同名 skill 时拒绝并提示先移走；此前只逐个文件比较，团队新增的文件会混进本地同名 skill，之后 `pull` 也拒绝改动它。
 
 ## 0.5.0 - 2026-09-30
 
