@@ -79,9 +79,9 @@ describe('loadRemoteSnapshot', () => {
       'unmergeable overlay',
       {
         'envctl/manifest.yaml': TEAM_MANIFEST,
-        'envctl/overlays/bad.yaml': 'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      ghost:\n        remove: true\n'
+        'envctl/overlays/bad.yaml': 'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      ghost:\n        package: ghost-plugin\n'
       },
-      /Remote file envctl\/overlays\/bad\.yaml: .*cannot remove a plugin that is not in the base manifest/
+      /Remote file envctl\/overlays\/bad\.yaml: .*must declare package and source/
     ],
     [
       'overlay name',

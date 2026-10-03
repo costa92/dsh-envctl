@@ -34,9 +34,8 @@ describe('mergeManifest', () => {
 
   it('treats an alias named like an inherited property as absent from the base', () => {
     const alias: string = 'toString';
-    expect(() => mergeManifest(base(), overlay({ web: { plugins: { [alias]: { remove: true } } } }), 'laptop')).toThrow(
-      /cannot remove a plugin that is not in the base manifest/
-    );
+    const removed = mergeManifest(base(), overlay({ web: { plugins: { [alias]: { remove: true } } } }), 'laptop').manifest;
+    expect(Object.hasOwn(removed.profiles.web.plugins, alias)).toBe(false);
     const { manifest } = mergeManifest(
       base(),
       overlay({ web: { plugins: { [alias]: { package: 'str-plugin', source: { type: 'npm', version: '1.0.0' } } } } }),
@@ -124,6 +123,16 @@ describe('mergeManifest', () => {
     expect(manifest.environment).toEqual({ harness: { sourceDir: '/srv/harness', allowUntestedVersion: false } });
   });
 
+  it('ignores removing or adjusting a plugin the base no longer declares', () => {
+    const { manifest, provenance } = mergeManifest(
+      base(),
+      overlay({ web: { plugins: { ghost: { remove: true }, gone: { enabled: false, source: { type: 'local-link', path: '/src/gone' } } } } }),
+      'laptop'
+    );
+    expect(manifest).toEqual(base());
+    expect(Object.keys(provenance.web).sort()).toEqual(['heavy', 'teams']);
+  });
+
   it('does not mutate the base manifest', () => {
     const original = base();
     mergeManifest(original, overlay({ web: { plugins: { teams: { enabled: false }, heavy: { remove: true } } } }), 'laptop');
@@ -131,7 +140,6 @@ describe('mergeManifest', () => {
   });
 
   it.each([
-    ['removing a plugin missing from the base', { web: { plugins: { ghost: { remove: true as const } } } }, /cannot remove a plugin that is not in the base manifest/],
     ['adding a plugin without source', { web: { plugins: { extra: { package: 'extra-plugin' } } } }, /must declare package and source/],
     ['changing package', { web: { plugins: { teams: { package: 'other-plugin' } } } }, /cannot change package/],
     ['adding a patch id without config', { web: { plugins: { teams: { patches: [{ id: 'new' }] } } } }, /patch 'new' is not in the base manifest and must declare config/],

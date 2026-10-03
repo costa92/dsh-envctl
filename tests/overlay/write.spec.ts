@@ -89,7 +89,7 @@ describe('saveOverlay', () => {
     expect(parseOverlay(fs.readFileSync(file, 'utf8'), file)).toEqual(doc);
 
     const bad = empty();
-    setOverlayPluginFields(bad, 'web', 'extra', { enabled: true });
+    setOverlayPluginFields(bad, 'web', 'extra', { package: 'extra-plugin' });
     await expect(saveOverlay(paths, 'laptop', base, bad)).rejects.toThrow(/must declare package and source/);
     expect(parseOverlay(fs.readFileSync(file, 'utf8'), file)).toEqual(doc);
   });
