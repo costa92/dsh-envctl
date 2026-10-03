@@ -217,6 +217,56 @@ profiles:
     await expect(adoptEnvironment(paths, candidate)).rejects.toThrow(/stale|mismatch/i);
   });
 
+  describe('rejects a candidate whose source no longer matches the live install', () => {
+    const setLiveSpec = (spec: string): void => {
+      const file = path.join(tempHome, 'profiles', 'web', 'package.json');
+      const pkg = JSON.parse(fs.readFileSync(file, 'utf8')) as { dependencies: Record<string, string> };
+      pkg.dependencies['@nanmicoder/dsh-agent-teams'] = spec;
+      fs.writeFileSync(file, JSON.stringify(pkg));
+    };
+    const candidateWith = (source: CaptureDocument['manifest']['profiles'][string]['plugins'][string]['source'], lockCommit?: string): CaptureDocument => ({
+      apiVersion: 'dshenv-capture/v1',
+      manifest: {
+        apiVersion: 'dshenv/v1',
+        profiles: { web: { plugins: { 'agent-teams': { package: '@nanmicoder/dsh-agent-teams', enabled: true, source } } } }
+      },
+      lock: {
+        apiVersion: 'dshenv-lock/v1',
+        profiles: lockCommit && source.type === 'git'
+          ? { web: { plugins: { 'agent-teams': { package: '@nanmicoder/dsh-agent-teams', source: { type: 'git', url: source.url, commit: lockCommit } } } } }
+          : {}
+      },
+      warnings: []
+    });
+
+    it('when the git commit moved since capture', async () => {
+      const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+      setLiveSpec('git+https://github.com/x/y.git#bbbbbbb');
+      const candidate = candidateWith({ type: 'git', url: 'git+https://github.com/x/y.git' }, 'aaaaaaa');
+      await expect(adoptEnvironment(paths, candidate)).rejects.toThrow(/stale/);
+      expect(fs.existsSync(paths.lockFile)).toBe(false);
+    });
+
+    it('when the source type changed since capture', async () => {
+      const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+      setLiveSpec('link:/src/agent-teams');
+      await expect(adoptEnvironment(paths, candidateWith({ type: 'npm', version: '0.1.21' }))).rejects.toThrow(/stale/);
+    });
+
+    it('when the local path changed since capture', async () => {
+      const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+      setLiveSpec('link:/src/agent-teams-v2');
+      await expect(adoptEnvironment(paths, candidateWith({ type: 'local-link', path: '/src/agent-teams' }))).rejects.toThrow(/stale/);
+    });
+
+    it('but adopts a git candidate that still matches', async () => {
+      const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+      setLiveSpec('git+https://github.com/x/y.git#aaaaaaa');
+      await adoptEnvironment(paths, candidateWith({ type: 'git', url: 'git+https://github.com/x/y.git' }, 'aaaaaaa'));
+      expect(loadManifest(fs.readFileSync(paths.manifestFile, 'utf8')).profiles.web.plugins['agent-teams'].source.type).toBe('git');
+    });
+  });
+
   it('adopts a package under a free alias when its captured alias names another declared package', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const webProfile = path.join(tempHome, 'profiles', 'web');
