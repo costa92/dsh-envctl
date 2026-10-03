@@ -257,6 +257,22 @@ describe('CLI remote', () => {
     expect(JSON.parse((await run(['remote', 'show', '--json'])).stdout)).toEqual({ subscribed: false });
   });
 
+  it('clones the remote again when a rollback brought back the subscription that remote remove dropped', async () => {
+    expect((await run(['remote', 'add', team.url, '--yes'])).code).toBe(0);
+    await commitTeamFiles(team, { 'envctl/overlays/new.yaml': 'apiVersion: dshenv-overlay/v1\n' }, 'new overlay');
+    // The sync snapshot holds remote.json as it was before this sync.
+    expect((await run(['remote', 'sync', '--yes'])).code).toBe(0);
+    expect((await run(['remote', 'remove', '--yes'])).code).toBe(0);
+    expect((await run(['rollback', '--yes'])).code).toBe(0);
+    expect(fs.existsSync(paths.remoteFile)).toBe(true);
+    expect(fs.existsSync(paths.remoteDir)).toBe(false);
+
+    const sync = await run(['remote', 'sync']);
+    expect(sync.stderr).toBe('');
+    expect(sync.code).toBe(2);
+    expect(sync.stdout).toContain('+ overlays/new.yaml');
+  });
+
   it('removes the subscription only with --yes and leaves the files writable', async () => {
     const addDryRun = await run(['remote', 'add', team.url, '--yes', '--dry-run']);
     expect(addDryRun.code).toBe(2);

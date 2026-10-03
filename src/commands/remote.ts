@@ -246,8 +246,9 @@ export function registerRemoteCommands(ctx: CommandContext): void {
             throw new ValidationError('No remote is configured; run dshenv remote add <url> first');
           }
           const repoDir = remoteRepoDir(paths);
+          // remote remove deletes the clone, and rolling back past it brings remote.json back without one.
           if (!fs.existsSync(repoDir)) {
-            throw new ValidationError(`Remote clone is missing at ${repoDir}; run dshenv remote remove --yes, then dshenv remote add ${config.url}`);
+            await cloneRemoteRepo(config.url, repoDir);
           }
           const tip = await fetchBranch(repoDir, config.branch);
           let target = tip;

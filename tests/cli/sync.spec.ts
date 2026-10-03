@@ -340,6 +340,21 @@ profiles:
     expect(read(paths.manifestFile)).toBe(V2_MANIFEST);
   });
 
+  it('keeps pointing at rollback after a rollback to a snapshot taken since the interrupted accept', async () => {
+    await commitTeamFiles(team, { 'envctl/manifest.yaml': V2_MANIFEST }, 'v2');
+    const operationId = 'sync-0123456789ab';
+    await createEnvironmentSnapshot(paths, operationId);
+    await appendJournalEntry(paths, { operationId, type: 'sync-started', timestamp: new Date().toISOString() });
+    fs.writeFileSync(paths.manifestFile, V2_MANIFEST);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await createEnvironmentSnapshot(paths, 'apply-later');
+
+    expect((await run(['rollback', 'apply-later', '--yes'])).code).toBe(0);
+    const { code, stderr } = await run(['sync']);
+    expect(code).toBe(3);
+    expect(stderr).toContain(`The previous sync ${operationId} did not finish`);
+  });
+
   it('is undone by rollback, after which sync still fast-forwards', async () => {
     const second = await commitTeamFiles(team, { 'envctl/manifest.yaml': V2_MANIFEST }, 'v2');
     expect((await run(['sync', '--yes'])).code).toBe(0);
@@ -354,11 +369,11 @@ profiles:
     expect(readRemoteConfig(paths)?.commit).toBe(second);
   });
 
-  it('explains a missing clone and a missing subscription', async () => {
+  it('clones a missing clone again and explains a missing subscription', async () => {
     fs.rmSync(paths.remoteDir, { recursive: true, force: true });
     const noClone = await run(['sync']);
-    expect(noClone.code).toBe(3);
-    expect(noClone.stderr).toContain(`Remote clone is missing at ${path.join(paths.remoteDir, 'repo.git')}`);
+    expect(noClone.code).toBe(0);
+    expect(fs.existsSync(path.join(paths.remoteDir, 'repo.git'))).toBe(true);
 
     expect((await run(['remote', 'remove', '--yes'])).code).toBe(0);
     const none = await run(['sync']);

@@ -19,7 +19,9 @@ describe('git URLs with embedded credentials', () => {
     'https://alice:ghp_SECRET@github.com/x/demo.git',
     'https://ghp_SECRET@github.com/x/demo.git',
     'git+https://alice:ghp_SECRET@github.com/x/demo.git',
-    'ssh://git:ghp_SECRET@example.com/x/demo.git'
+    'ssh://git:ghp_SECRET@example.com/x/demo.git',
+    'https://gitlab.example.com/x/demo.git?private_token=ghp_SECRET',
+    'https://example.com/x/demo.git?ref=main&access_token=ghp_SECRET'
   ])('are rejected in the manifest without echoing the secret: %s', (url) => {
     let message = '';
     try {
@@ -31,7 +33,7 @@ describe('git URLs with embedded credentials', () => {
     expect(message).not.toContain('ghp_SECRET');
   });
 
-  it.each(['https://github.com/x/demo.git', 'git@github.com:x/demo.git', 'ssh://git@example.com/x/demo.git', 'file:///srv/demo.git'])(
+  it.each(['https://github.com/x/demo.git', 'https://example.com/x/demo.git?ref=main', 'git@github.com:x/demo.git', 'ssh://git@example.com/x/demo.git', 'file:///srv/demo.git'])(
     'are allowed when they carry none: %s',
     (url) => {
       expect(loadManifest(manifestWithUrl(url)).profiles.web.plugins.demo.source).toEqual({ type: 'git', url });

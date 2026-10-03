@@ -18,9 +18,15 @@ export const NpmSourceSchema = z
   })
   .strict();
 
+const CredentialParamRegex = /^(?:access_?token|private_?token|oauth_?token|token|password|passwd|secret|api_?key|auth)$/i;
+
 // Manifest and lock are meant to be shared, so a URL may not carry a password or token: any userinfo on
-// http(s), or user:password on other schemes (scp-style and ssh://git@ URLs stay allowed).
+// http(s), user:password on other schemes (scp-style and ssh://git@ URLs stay allowed), or a token query parameter.
 export function hasEmbeddedCredentials(url: string): boolean {
+  const query = url.split('#')[0].split('?')[1];
+  if (query !== undefined && [...new URLSearchParams(query).keys()].some((key) => CredentialParamRegex.test(key))) {
+    return true;
+  }
   const match = url.match(/^(?:git\+)?([a-z][a-z0-9+.-]*):\/\/([^/@]*)@/i);
   if (!match) return false;
   const scheme = match[1].toLowerCase();

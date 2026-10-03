@@ -65,8 +65,10 @@ export function describeRemoteDrift(files: RemoteFileDrift[], entries: LockEntry
 }
 
 export function remoteOwnedKey(paths: EnvironmentPaths, config: RemoteConfig, file: string): string | null {
-  const target = path.resolve(file);
-  return Object.keys(config.files).find((key) => remoteFilePath(paths, key) === target) ?? null;
+  // macOS and Windows filesystems ignore case by default, so Team.yaml there is the team's team.yaml.
+  const fold = process.platform === 'darwin' || process.platform === 'win32' ? (p: string) => p.toLowerCase() : (p: string) => p;
+  const target = fold(path.resolve(file));
+  return Object.keys(config.files).find((key) => fold(remoteFilePath(paths, key)) === target) ?? null;
 }
 
 // Remote files change only through sync; local customisation belongs in a local overlay.
