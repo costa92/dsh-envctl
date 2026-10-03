@@ -40,12 +40,10 @@ async function withPatchFileLock<T>(file: string, operation: () => Promise<T>): 
   return withProfilePackageLock(path.join(profileDir, 'package.json'), operation);
 }
 
-// What dshenv last wrote to each patch file, so a rollback can tell whether DSH has written it since.
-const lastWritten = new Map<string, string>();
-
-async function writePatchFile(file: string, content: string): Promise<void> {
+// Returns what was written, for the undo to compare with.
+async function writePatchFile(file: string, content: string): Promise<string> {
   await writeAtomic(file, content, 'overwrite');
-  lastWritten.set(file, content);
+  return content;
 }
 
 export async function readProfilePatchFile(paths: EnvironmentPaths, profileName: string): Promise<string> {
@@ -62,28 +60,27 @@ export async function readProfilePatchFile(paths: EnvironmentPaths, profileName:
 
 export type RestorePatchFile = () => Promise<void>;
 
-// Restores the file as it was, unless DSH wrote it after dshenv did; then only this plugin's blocks go back.
+// Restores the file as it was, unless anything wrote it after the write this undoes; then only this plugin's blocks go back.
 // `content` must be read under the same lock hold as the write it undoes, or a DSH edit made in between is lost.
 function restorePatchFile(
   paths: EnvironmentPaths,
   profileName: string,
   pluginAlias: string,
   existed: boolean,
-  content: string
+  content: string,
+  written: string
 ): RestorePatchFile {
   const file = profilePatchFile(paths, profileName);
   return () =>
     withPatchFileLock(file, async () => {
       const current = fs.existsSync(file) ? await readProfilePatchFile(paths, profileName) : null;
-      const expected = lastWritten.get(file) ?? (existed ? content : null);
-      if (current !== null && current !== expected) {
+      if (current !== null && current !== written) {
         const blocks = extractPluginBlocks(content, profileName, pluginAlias);
         await writePatchFile(file, splicePluginBlocks(current, profileName, pluginAlias, blocks));
       } else if (existed) {
         await writePatchFile(file, content);
       } else {
         await fs.promises.rm(file, { force: true });
-        lastWritten.delete(file);
       }
     });
 }
@@ -112,8 +109,8 @@ export async function writeManagedPatches(
     const before = await readProfilePatchFile(paths, profileName);
     const content = replacePluginBlocks(repairedOrSelf(before), profileName, pluginAlias, active);
     assertPatchFileArray(content, file);
-    await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
-    return restorePatchFile(paths, profileName, pluginAlias, existed, before);
+    const written = await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
+    return restorePatchFile(paths, profileName, pluginAlias, existed, before, written);
   });
 }
 
@@ -137,8 +134,8 @@ export async function writePluginMount(
       return async () => {};
     }
     assertPatchFileArray(content, file);
-    await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
-    return restorePatchFile(paths, profileName, mountBlockAlias(pluginAlias), existed, before);
+    const written = await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
+    return restorePatchFile(paths, profileName, mountBlockAlias(pluginAlias), existed, before, written);
   });
 }
 
@@ -155,8 +152,8 @@ export async function clearManagedPatches(
   return withPatchFileLock(file, async () => {
     const existed = fs.existsSync(file);
     const before = await readProfilePatchFile(paths, profileName);
-    await writePatchFile(file, removePatchBlock(repairedOrSelf(before), profileName, pluginAlias));
-    return restorePatchFile(paths, profileName, pluginAlias, existed, before);
+    const written = await writePatchFile(file, removePatchBlock(repairedOrSelf(before), profileName, pluginAlias));
+    return restorePatchFile(paths, profileName, pluginAlias, existed, before, written);
   });
 }
 
@@ -172,8 +169,8 @@ export async function writeProfilePatches(
     const before = await readProfilePatchFile(paths, profileName);
     const content = replaceProfileBlock(repairedOrSelf(before), profileName, entries);
     assertPatchFileArray(content, file);
-    await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
-    return restorePatchFile(paths, profileName, PROFILE_PATCHES_ALIAS, existed, before);
+    const written = await writePatchFile(file, content.endsWith('\n') ? content : `${content}\n`);
+    return restorePatchFile(paths, profileName, PROFILE_PATCHES_ALIAS, existed, before, written);
   });
 }
 
