@@ -222,7 +222,9 @@ describe('release workflow', () => {
       'pnpm build',
       'pnpm pack --pack-destination dist'
     ]);
-    for (const id of ['verify-tag', 'notes']) {
+    // Full history, so the tag can be checked against master.
+    expect(build.steps[0].with).toMatchObject({ 'fetch-depth': 0, 'persist-credentials': false });
+    for (const id of ['verify-tag', 'verify-on-master', 'notes']) {
       expect(build.steps.find((step) => step.id === id)?.if).toBe("github.event_name == 'push'");
     }
     // The smoke check runs on the packed tarball, and only what passed it is handed to publish.
@@ -314,6 +316,22 @@ describe('release workflow', () => {
     const mismatch = await runStep('verify-tag', { GITHUB_REF_NAME: 'v99.0.0' });
     expect(mismatch.exitCode).toBe(1);
     expect(mismatch.stderr).toContain(`Tag v99.0.0 does not match package.json version ${packageJson.version}`);
+  });
+
+  it('publishes only a tag that points at a commit on master, which only reviewed PRs reach', async () => {
+    const git = (...args: string[]) => execa('git', ['-c', 'user.name=T', '-c', 'user.email=t@e', ...args], { cwd: workDir });
+    await git('init', '--quiet', '--initial-branch=master');
+    await git('commit', '--quiet', '--allow-empty', '-m', 'on master');
+    const onMaster = (await git('rev-parse', 'HEAD')).stdout.trim();
+    await git('update-ref', 'refs/remotes/origin/master', onMaster);
+    await git('checkout', '--quiet', '-b', 'side');
+    await git('commit', '--quiet', '--allow-empty', '-m', 'unreviewed');
+    const offMaster = (await git('rev-parse', 'HEAD')).stdout.trim();
+
+    expect((await runStep('verify-on-master', { GITHUB_SHA: onMaster, GITHUB_REF_NAME: 'v1.0.0' }, workDir)).exitCode).toBe(0);
+    const off = await runStep('verify-on-master', { GITHUB_SHA: offMaster, GITHUB_REF_NAME: 'v1.0.0' }, workDir);
+    expect(off.exitCode).toBe(1);
+    expect(off.stderr).toContain(`Tag v1.0.0 points at ${offMaster}, which is not on master`);
   });
 
   it('takes the release notes from the CHANGELOG section of the tagged version', async () => {
