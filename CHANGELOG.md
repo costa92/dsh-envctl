@@ -10,6 +10,7 @@
 - `web start` 与 `verify --start` 启动 `dsh web` 前与 `apply` 一样检查 DSH 版本，不支持的版本以退出码 4 拒绝（`--allow-untested-dsh` 或清单的 `allowUntestedVersion` 可放行）；此前会直接启动，不支持的 DSH 可能在打印 URL 后才崩溃，`web start` 却已报告 Started。
 - 对不跑 `dsh web` 的 Profile（bundles 选了 `dsh-headless`、`dsh-acp-app` 或 `dsh-sdk-app`）执行 `web start` 或 `verify --start` 时直接说明原因，退出码 3，不再只转述 DSH 的 `unknown option '--no-open'`。
 - `apply` 失败撤销 `cordis.patch.yml` 时，保留 DSH 在两次 dshenv 写入之间加入的条目；此前同一 Profile 先后写了两次、DSH 在中间改过该文件时，逆序撤销会把整份文件恢复到两次写入之前，DSH 的改动丢失。
+- overlay 的插件别名与 base 清单一样拒绝 `__proto__`、`constructor`、`prototype`、`@profile` 和含空白的名字；此前 overlay 里写 `constructor: { enabled: false }` 不报错，改动被丢掉，还会改到全局 `Object`。别名或 Profile 名与 `toString` 等继承属性同名时，合并按新条目处理，不再误认作 base 中已有。
 
 ## 0.5.0 - 2026-09-30
 

@@ -32,6 +32,32 @@ describe('mergeManifest', () => {
     expect(provenance.web.teams).toEqual({ origin: 'base', overridden: [] });
   });
 
+  it('treats an alias named like an inherited property as absent from the base', () => {
+    const alias: string = 'toString';
+    expect(() => mergeManifest(base(), overlay({ web: { plugins: { [alias]: { remove: true } } } }), 'laptop')).toThrow(
+      /cannot remove a plugin that is not in the base manifest/
+    );
+    const { manifest } = mergeManifest(
+      base(),
+      overlay({ web: { plugins: { [alias]: { package: 'str-plugin', source: { type: 'npm', version: '1.0.0' } } } } }),
+      'laptop'
+    );
+    expect(Object.hasOwn(manifest.profiles.web.plugins, alias)).toBe(true);
+    expect(manifest.profiles.web.plugins[alias]).toMatchObject({ package: 'str-plugin', enabled: true });
+    expect(Object.prototype.toString).not.toHaveProperty('enabled');
+  });
+
+  it('treats a profile named like an inherited property as new', () => {
+    const profile: string = 'valueOf';
+    const { manifest } = mergeManifest(
+      base(),
+      overlay({ [profile]: { plugins: { tool: { package: 'tool-plugin', source: { type: 'npm', version: '1.0.0' } } } } }),
+      'laptop'
+    );
+    expect(Object.hasOwn(manifest.profiles, profile)).toBe(true);
+    expect(Object.keys(manifest.profiles[profile].plugins)).toEqual(['tool']);
+  });
+
   it('adds new plugins and profiles with overlay origin', () => {
     const { manifest, provenance } = mergeManifest(
       base(),
