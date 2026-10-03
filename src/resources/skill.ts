@@ -55,6 +55,20 @@ export function remoteSkillNames(remoteFiles: Record<string, string>): Set<strin
   return new Set(Object.keys(remoteFiles).flatMap((key) => skillPathFromKey(key)?.[0] ?? []));
 }
 
+function skillUpdateReason(declared: string, recorded: string | undefined, team: boolean): string {
+  if (recorded === undefined) {
+    return team
+      ? 'Skill differs between the team copy and DSH, which were never synced; apply installs the team copy (the DSH copy goes to trash)'
+      : "Skill differs between the manifest and DSH, which were never synced; apply installs the manifest copy (the DSH copy goes to trash), or 'dshenv pull --yes --prefer dsh' keeps the DSH copy";
+  }
+  if (recorded !== declared) {
+    return 'Skill changed in the manifest';
+  }
+  return team
+    ? 'Skill was edited in DSH but belongs to the team remote; change it in the team repository, or apply to restore the team copy (the DSH copy goes to trash)'
+    : "Skill was edited in DSH; run 'dshenv pull --yes' to keep the edits, or apply to overwrite them (the DSH copy goes to trash)";
+}
+
 // `owned` holds the digest each skill had when both sides last matched (state.skills).
 export function planSkills(
   skills: SkillInventory,
@@ -67,17 +81,7 @@ export function planSkills(
     if (live === undefined) {
       operations.push({ resource: 'skill', kind: 'install', name, reason: 'Skill is declared but not in DSH_HOME/skills' });
     } else if (live !== digest) {
-      const editedInDsh = owned?.[name] === digest;
-      operations.push({
-        resource: 'skill',
-        kind: 'update',
-        name,
-        reason: !editedInDsh
-          ? 'Skill changed in the manifest'
-          : skills.remote?.includes(name)
-            ? 'Skill was edited in DSH but belongs to the team remote; change it in the team repository, or apply to restore the team copy (the DSH copy goes to trash)'
-            : "Skill was edited in DSH; run 'dshenv pull --yes' to keep the edits, or apply to overwrite them (the DSH copy goes to trash)"
-      });
+      operations.push({ resource: 'skill', kind: 'update', name, reason: skillUpdateReason(digest, owned?.[name], skills.remote?.includes(name) ?? false) });
     }
   }
   for (const name of Object.keys(skills.live)) {
@@ -177,7 +181,8 @@ export function planSkillImport(
     if (!dshChanged) {
       continue;
     }
-    const manifestChanged = recorded !== undefined && declared !== recorded;
+    // Two differing copies never synced have no base to tell which side changed.
+    const manifestChanged = recorded !== undefined ? declared !== recorded : declared !== undefined && live !== undefined;
     if (manifestChanged && !prefer) {
       conflicts.push(name);
       continue;
