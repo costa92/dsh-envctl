@@ -98,6 +98,25 @@ profiles:
     expect(plan.operations).toEqual([expect.objectContaining({ kind: 'remove', name: 'demo' })]);
   });
 
+  it('keeps a committed apply when the journal cannot record its completion', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles: {}\n');
+    fs.mkdirSync(path.join(paths.skillsDir, 'demo'), { recursive: true });
+    fs.writeFileSync(path.join(paths.skillsDir, 'demo', 'SKILL.md'), '# demo\n');
+    const journal = path.join(paths.logsDir, 'journal.jsonl');
+    const applied = await applyEnvironment(paths, {
+      executor: async () => {
+        // A directory where the journal file was makes the completion entry fail to append.
+        fs.rmSync(journal, { force: true });
+        fs.mkdirSync(journal);
+        return { success: true };
+      }
+    });
+    expect(applied.applied).toBe(true);
+    expect(fs.existsSync(path.join(paths.dshSkillsDir, 'demo', 'SKILL.md'))).toBe(true);
+    expect(ownedSkillDigests(loadState(fs.readFileSync(paths.stateFile, 'utf8')))).toHaveProperty('demo');
+  });
+
   it('picks the snapshot once it holds the lock, so one taken while it waited counts', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     await createEnvironmentSnapshot(paths, 'apply-older');

@@ -22,6 +22,12 @@
 - `adopt` 接管本地来源（`link:`、`file:`）插件时与 `pull` 一致：放进本机 overlay（缺省新建并选中 `local`）并记录源码摘要，不再把本机绝对路径写进 base；此前接管后 `plan` 立即报 `Local source has no recorded digest` 要求重装。
 - 回收失效的环境锁时，经同一个文件句柄读取锁的修改时间与内容，删除前核对仍是同一个文件；此前两次读取之间锁被释放并由另一进程新建时，可能按旧锁的时间删掉新锁，两个进程同时进入。
 - `rollback`、`purge`、`gc` 在取得环境锁之后才选择快照、解析所有权与收集待删项；此前在加锁前决定，等锁期间其他命令的改动不会被看到。`overlay create` 也改为持有环境锁。
+- `apply` 中途失败时，此前已成功的 `update`（替换 DSH 自装或来源不同的版本）也记入所有权，与成功时一致；此前只记 `install`，之后从清单删除该插件时只会标为未受管而不卸载。
+- `apply` 写完 `state.json` 后追加日志失败时不再整套回滚：此时安装已完成、状态已提交，此前会撤销 bundles 与 patch 并恢复 lock/state，留下半回滚的环境并报告失败。
+- `remote sync` 发现本地裸克隆缺失（如 `remote remove` 之后又 `rollback` 回订阅状态）时按订阅地址重新克隆，不再要求先 `remote remove` 再 `remote add`。
+- 上一次 `sync` 被中断后，只有回滚到该次 `sync` 之前的快照才解除「先 rollback」的提示；此前任意一次 `rollback` 都会解除，文件可能仍是写了一半的状态。
+- macOS 与 Windows 上判断文件是否归团队 remote 所有时不区分大小写；此前 `--overlay Team --layer overlay` 能写进团队的 `team.yaml`，直到下次 `sync` 才作为本地改动被发现。
+- Git 地址带 `private_token`、`access_token`、`token`、`password` 等查询参数时与带用户信息一样拒绝，避免写进共享的清单、lock 与 `remote.json`。
 
 ## 0.5.0 - 2026-09-30
 

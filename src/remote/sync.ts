@@ -185,12 +185,26 @@ async function declaredSkillsAfter(paths: EnvironmentPaths, snapshot: RemoteSnap
   }
 }
 
+// The time in a snapshot id, `<ISO time with ':' and '.' as '-'>-<operation id>`.
+function snapshotTime(snapshotId: unknown): string | null {
+  const match = typeof snapshotId === 'string' ? snapshotId.match(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z-/) : null;
+  return match ? `${match[1]}:${match[2]}:${match[3]}.${match[4]}Z` : null;
+}
+
 // A killed accept leaves files half-written and remote.json stale; drift errors would then give the wrong advice.
 async function assertNoUnfinishedSync(paths: EnvironmentPaths): Promise<void> {
-  const last = (await readJournalEntries(paths))
-    .filter((entry) => entry.type.startsWith('sync-') || entry.type === 'rollback-completed')
-    .at(-1);
-  if (last && (last.type === 'sync-started' || last.type === 'sync-rollback-failed')) {
+  const entries = await readJournalEntries(paths);
+  const last = entries.filter((entry) => entry.type.startsWith('sync-')).at(-1);
+  if (!last || (last.type !== 'sync-started' && last.type !== 'sync-rollback-failed')) {
+    return;
+  }
+  const started = entries.find((entry) => entry.type === 'sync-started' && entry.operationId === last.operationId)?.timestamp ?? last.timestamp;
+  // Only a rollback to a snapshot from before that sync put its files back; a newer one restores them half-written.
+  const undone = entries.some((entry) => {
+    const restored = entry.type === 'rollback-completed' && entry.timestamp > last.timestamp ? snapshotTime(entry.details?.snapshotId) : null;
+    return restored !== null && restored <= started;
+  });
+  if (!undone) {
     throw new ValidationError(
       `The previous sync ${last.operationId} did not finish; run dshenv rollback ${last.operationId} --yes to restore the files it started changing, then sync again`
     );

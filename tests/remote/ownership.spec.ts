@@ -94,6 +94,18 @@ describe('remote ownership', () => {
     expect(() => assertNotRemoteOwned(paths, paths.lockFile)).not.toThrow();
   });
 
+  it('matches owned files regardless of case where the filesystem does', () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    for (const name of ['darwin', 'win32', 'linux']) {
+      Object.defineProperty(process, 'platform', { value: name });
+      try {
+        expect(remoteOwnedKey(paths, config, overlayFile('TEAM'))).toBe(name === 'linux' ? null : 'overlays/team.yaml');
+      } finally {
+        Object.defineProperty(process, 'platform', platform);
+      }
+    }
+  });
+
   it('guards only the entries the team lock pins', () => {
     expect(() => assertLockEntryNotRemoteOwned(paths, 'web', 'shared')).toThrow(
       `Lock entry 'web/shared' is pinned by the team lock of remote ${FIXTURE_REMOTE_URL}; change it in the team repository and run dshenv remote sync`
