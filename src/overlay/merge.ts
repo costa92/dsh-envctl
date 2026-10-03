@@ -79,14 +79,21 @@ export function mergeManifest(base: EnvironmentManifest, overlay: EnvironmentOve
   }
 
   for (const [profileName, profileOverlay] of Object.entries(overlay.profiles ?? {})) {
-    const target = (manifest.profiles[profileName] ??= { plugins: {} });
-    const profileProvenance = (provenance[profileName] ??= {});
+    // Own-property checks, so names like `toString` are not mistaken for inherited members.
+    if (!Object.hasOwn(manifest.profiles, profileName)) {
+      manifest.profiles[profileName] = { plugins: {} };
+    }
+    if (!Object.hasOwn(provenance, profileName)) {
+      provenance[profileName] = {};
+    }
+    const target = manifest.profiles[profileName];
+    const profileProvenance = provenance[profileName];
     if (profileOverlay.patches) {
       target.patches = mergeProfilePatches(target.patches ?? [], profileOverlay.patches);
     }
     for (const [alias, entry] of Object.entries(profileOverlay.plugins ?? {})) {
       const where = `Overlay '${name}' profile '${profileName}' plugin '${alias}'`;
-      const existing = target.plugins[alias];
+      const existing = Object.hasOwn(target.plugins, alias) ? target.plugins[alias] : undefined;
 
       if (entry.remove) {
         if (!existing) {

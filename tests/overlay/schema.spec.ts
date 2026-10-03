@@ -30,6 +30,11 @@ describe('overlay schema', () => {
     expect(overlay.profiles?.web.plugins?.['agent-teams']).not.toHaveProperty('package');
   });
 
+  it.each(['constructor', 'prototype', '@profile', 'has space'])('rejects %j as an overlay plugin alias', (alias) => {
+    const content = `apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      "${alias}": { enabled: false }\n`;
+    expect(() => parseOverlay(content, '/x/a.yaml')).toThrow(/Invalid overlay schema/);
+  });
+
   it('rejects unknown fields', () => {
     expect(() => parseOverlay('apiVersion: dshenv-overlay/v1\nextra: 1\n', '/x/a.yaml')).toThrow(
       /Invalid overlay schema in \/x\/a\.yaml/
