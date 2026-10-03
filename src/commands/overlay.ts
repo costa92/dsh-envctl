@@ -6,6 +6,7 @@ import { ValidationError } from '../errors.js';
 import { loadEffectiveManifest } from '../overlay/effective.js';
 import { isValidOverlayName, overlayFilePath, validateOverlayName, writeSelectionFile } from '../overlay/selection.js';
 import { overlayBanner, resolveCliOverlay, resolveCliPaths, profileOption, PROFILE_FILTER_HELP, type CommandContext } from './context.js';
+import { withEnvironmentLock } from '../io/lock.js';
 
 const OVERLAY_SKELETON = `apiVersion: dshenv-overlay/v1
 # Merged over envctl/manifest.yaml on this machine. For example:
@@ -85,12 +86,14 @@ export function registerOverlayCommands(ctx: CommandContext): void {
       const opts = program.opts();
       const paths = resolveCliPaths(opts);
       const file = overlayFilePath(paths, name);
-      if (fs.existsSync(file)) {
-        throw new ValidationError(`Overlay '${name}' already exists: ${file}`);
-      }
-      assertNotRemoteOwned(paths, file);
-      await fs.promises.mkdir(path.dirname(file), { recursive: true });
-      await writeAtomic(file, OVERLAY_SKELETON, 'create');
+      await withEnvironmentLock(paths, async () => {
+        if (fs.existsSync(file)) {
+          throw new ValidationError(`Overlay '${name}' already exists: ${file}`);
+        }
+        assertNotRemoteOwned(paths, file);
+        await fs.promises.mkdir(path.dirname(file), { recursive: true });
+        await writeAtomic(file, OVERLAY_SKELETON, 'create');
+      });
       if (opts.json) {
         writeOut(JSON.stringify({ status: 'created', overlay: name, file }, null, 2) + '\n');
       } else {

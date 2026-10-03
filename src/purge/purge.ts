@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
 import type { EnvironmentManifest, EnvironmentState } from '../domain.js';
 import { ValidationError } from '../errors.js';
-import { acquireEnvironmentLock } from '../io/lock.js';
+import { withEnvironmentLock } from '../io/lock.js';
 import { retryWhileBusy } from '../io/windows-retry.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { loadManifest, loadState } from '../manifest/files.js';
@@ -65,7 +65,18 @@ function findOwnedPlugin(
   throw new ValidationError(`Refusing to purge '${pluginRef}' in '${profileName}': no ownership record`);
 }
 
+// Decided under the lock, so state and the clone cannot change between the checks and the move.
 export async function purgePlugin(
+  paths: EnvironmentPaths,
+  profileName: string,
+  pluginRef: string,
+  options?: PurgeOptions
+): Promise<PurgeResult> {
+  const purge = () => purgeDecided(paths, profileName, pluginRef, options);
+  return options?.dryRun ? purge() : withEnvironmentLock(paths, purge);
+}
+
+async function purgeDecided(
   paths: EnvironmentPaths,
   profileName: string,
   pluginRef: string,
@@ -105,61 +116,56 @@ export async function purgePlugin(
 
   const operationId = `purge-${Date.now().toString(16)}`;
   const trashRoot = path.join(paths.trashDir, operationId);
-  const lockHandle = await acquireEnvironmentLock(paths);
-  try {
-    await fs.promises.mkdir(trashRoot, { recursive: true });
-    await appendJournalEntry(paths, {
-      operationId,
-      type: 'purge-started',
-      timestamp: new Date().toISOString(),
-      details: { profile: profileName, package: owned.packageName }
-    });
+  await fs.promises.mkdir(trashRoot, { recursive: true });
+  await appendJournalEntry(paths, {
+    operationId,
+    type: 'purge-started',
+    timestamp: new Date().toISOString(),
+    details: { profile: profileName, package: owned.packageName }
+  });
 
-    // Both are checked before either changes, so a refusal leaves everything as it was.
-    const hasPatchFile = fs.existsSync(patchFile);
-    const hasClone = fs.existsSync(cloneDir);
-    if (hasPatchFile) {
-      await assertSafeManagedPath(patchFile, paths.profilesDir);
-    }
-    if (hasClone) {
-      await assertSafeManagedPath(cloneDir, paths.managerDir);
-    }
-
-    let restorePatches: (() => Promise<void>) | null = null;
-    if (hasPatchFile) {
-      const dest = path.join(trashRoot, 'cordis.patch.yml');
-      await fs.promises.copyFile(patchFile, dest);
-      moved.push(dest);
-      restorePatches = await clearManagedPatches(paths, profileName, owned.alias);
-    }
-
-    if (hasClone) {
-      const dest = path.join(trashRoot, 'source');
-      try {
-        await retryWhileBusy(() => fs.promises.rename(cloneDir, dest));
-      } catch (err) {
-        await restorePatches?.();
-        throw err;
-      }
-      moved.push(dest);
-    }
-
-    await appendJournalEntry(paths, {
-      operationId,
-      type: 'purge-completed',
-      timestamp: new Date().toISOString(),
-      details: { moved }
-    });
-
-    return {
-      dryRun: false,
-      profile: profileName,
-      plugin: owned.alias,
-      package: owned.packageName,
-      moved,
-      message: `Purged managed resources for ${owned.alias} into ${trashRoot}`
-    };
-  } finally {
-    await lockHandle.release();
+  // Both are checked before either changes, so a refusal leaves everything as it was.
+  const hasPatchFile = fs.existsSync(patchFile);
+  const hasClone = fs.existsSync(cloneDir);
+  if (hasPatchFile) {
+    await assertSafeManagedPath(patchFile, paths.profilesDir);
   }
+  if (hasClone) {
+    await assertSafeManagedPath(cloneDir, paths.managerDir);
+  }
+
+  let restorePatches: (() => Promise<void>) | null = null;
+  if (hasPatchFile) {
+    const dest = path.join(trashRoot, 'cordis.patch.yml');
+    await fs.promises.copyFile(patchFile, dest);
+    moved.push(dest);
+    restorePatches = await clearManagedPatches(paths, profileName, owned.alias);
+  }
+
+  if (hasClone) {
+    const dest = path.join(trashRoot, 'source');
+    try {
+      await retryWhileBusy(() => fs.promises.rename(cloneDir, dest));
+    } catch (err) {
+      await restorePatches?.();
+      throw err;
+    }
+    moved.push(dest);
+  }
+
+  await appendJournalEntry(paths, {
+    operationId,
+    type: 'purge-completed',
+    timestamp: new Date().toISOString(),
+    details: { moved }
+  });
+
+  return {
+    dryRun: false,
+    profile: profileName,
+    plugin: owned.alias,
+    package: owned.packageName,
+    moved,
+    message: `Purged managed resources for ${owned.alias} into ${trashRoot}`
+  };
 }

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EnvironmentPaths } from '../environment/paths.js';
-import { acquireEnvironmentLock } from '../io/lock.js';
+import { withEnvironmentLock } from '../io/lock.js';
 import { appendJournalEntry } from '../io/journal.js';
 import { ValidationError } from '../errors.js';
 
@@ -55,7 +55,16 @@ export async function collectTrashGcTargets(
   return { deleted, skipped };
 }
 
+// Collected under the lock, so a concurrent purge or gc cannot change the trash in between.
 export async function gcEnvironment(
+  paths: EnvironmentPaths,
+  options?: GcOptions
+): Promise<GcResult> {
+  const gc = () => gcDecided(paths, options);
+  return options?.dryRun ? gc() : withEnvironmentLock(paths, gc);
+}
+
+async function gcDecided(
   paths: EnvironmentPaths,
   options?: GcOptions
 ): Promise<GcResult> {
@@ -71,37 +80,32 @@ export async function gcEnvironment(
     };
   }
 
-  const lockHandle = await acquireEnvironmentLock(paths);
-  try {
-    const operationId = `gc-${Date.now().toString(16)}`;
-    await appendJournalEntry(paths, {
-      operationId,
-      type: 'gc-started',
-      timestamp: new Date().toISOString(),
-      details: { olderThanDays, count: targets.deleted.length }
-    });
+  const operationId = `gc-${Date.now().toString(16)}`;
+  await appendJournalEntry(paths, {
+    operationId,
+    type: 'gc-started',
+    timestamp: new Date().toISOString(),
+    details: { olderThanDays, count: targets.deleted.length }
+  });
 
-    for (const target of targets.deleted) {
-      if (!isPathInside(paths.trashDir, target)) {
-        continue;
-      }
-      await fs.promises.rm(target, { recursive: true, force: true });
+  for (const target of targets.deleted) {
+    if (!isPathInside(paths.trashDir, target)) {
+      continue;
     }
-
-    await appendJournalEntry(paths, {
-      operationId,
-      type: 'gc-completed',
-      timestamp: new Date().toISOString(),
-      details: { deleted: targets.deleted }
-    });
-
-    return {
-      dryRun: false,
-      deleted: targets.deleted,
-      skipped: targets.skipped,
-      message: `Deleted ${String(targets.deleted.length)} trash item(s)`
-    };
-  } finally {
-    await lockHandle.release();
+    await fs.promises.rm(target, { recursive: true, force: true });
   }
+
+  await appendJournalEntry(paths, {
+    operationId,
+    type: 'gc-completed',
+    timestamp: new Date().toISOString(),
+    details: { deleted: targets.deleted }
+  });
+
+  return {
+    dryRun: false,
+    deleted: targets.deleted,
+    skipped: targets.skipped,
+    message: `Deleted ${String(targets.deleted.length)} trash item(s)`
+  };
 }

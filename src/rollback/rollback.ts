@@ -1,6 +1,6 @@
 import * as crypto from 'node:crypto';
 import type { EnvironmentPaths } from '../environment/paths.js';
-import { acquireEnvironmentLock } from '../io/lock.js';
+import { withEnvironmentLock } from '../io/lock.js';
 import {
   createEnvironmentSnapshot,
   findEnvironmentSnapshot,
@@ -143,7 +143,16 @@ async function pickSnapshot(paths: EnvironmentPaths, operationId: string | undef
   );
 }
 
+// Picked under the lock, so a concurrent apply cannot add or undo a snapshot between the choice and the restore.
 export async function rollbackEnvironment(
+  paths: EnvironmentPaths,
+  options?: RollbackOptions
+): Promise<RollbackResult> {
+  const rollback = () => rollbackDecided(paths, options);
+  return options?.dryRun ? rollback() : withEnvironmentLock(paths, rollback);
+}
+
+async function rollbackDecided(
   paths: EnvironmentPaths,
   options?: RollbackOptions
 ): Promise<RollbackResult> {
@@ -175,42 +184,37 @@ export async function rollbackEnvironment(
   }
 
   const operationId = `rollback-${snapshot.snapshotId}`;
-  const lockHandle = await acquireEnvironmentLock(paths);
-  try {
-    await appendJournalEntry(paths, {
-      operationId,
-      type: 'rollback-started',
-      timestamp: new Date().toISOString(),
-      details: { snapshotId: snapshot.snapshotId, targetOperationId: options?.operationId }
-    });
-    // A fresh id, so lookups by the restored snapshot's operation id never match this backup.
-    // Overlays the restore overwrites or deletes may hold local edits by now, so the backup must hold them too.
-    const backup = await createEnvironmentSnapshot(paths, `pre-rollback-${crypto.randomBytes(6).toString('hex')}`, {
-      overlayKeys: snapshotOverlayKeys(snapshot)
-    });
-    const before = readState(paths);
-    await restoreEnvironmentSnapshot(snapshot, paths);
-    await keepInstalledOwnership(paths, before);
-    // A pull may have created and selected the overlay the restore just removed; a selection of nothing breaks every command.
-    const selected = readSelectionFile(paths);
-    if (selected && !fs.existsSync(overlayFilePath(paths, selected)) && readAbsentKeys(snapshot).includes(`overlays/${selected}.yaml`)) {
-      await writeSelectionFile(paths, null);
-    }
-    await appendJournalEntry(paths, {
-      operationId,
-      type: 'rollback-completed',
-      timestamp: new Date().toISOString(),
-      details: { snapshotId: snapshot.snapshotId }
-    });
-    return {
-      rolledBack: true,
-      dryRun: false,
-      snapshotId: snapshot.snapshotId,
-      operationId: options?.operationId,
-      backupSnapshotId: backup.snapshotId,
-      message: `Restored the envctl files ${target}; the files it replaced are saved as snapshot ${backup.snapshotId}${skippedNote}`
-    };
-  } finally {
-    await lockHandle.release();
+  await appendJournalEntry(paths, {
+    operationId,
+    type: 'rollback-started',
+    timestamp: new Date().toISOString(),
+    details: { snapshotId: snapshot.snapshotId, targetOperationId: options?.operationId }
+  });
+  // A fresh id, so lookups by the restored snapshot's operation id never match this backup.
+  // Overlays the restore overwrites or deletes may hold local edits by now, so the backup must hold them too.
+  const backup = await createEnvironmentSnapshot(paths, `pre-rollback-${crypto.randomBytes(6).toString('hex')}`, {
+    overlayKeys: snapshotOverlayKeys(snapshot)
+  });
+  const before = readState(paths);
+  await restoreEnvironmentSnapshot(snapshot, paths);
+  await keepInstalledOwnership(paths, before);
+  // A pull may have created and selected the overlay the restore just removed; a selection of nothing breaks every command.
+  const selected = readSelectionFile(paths);
+  if (selected && !fs.existsSync(overlayFilePath(paths, selected)) && readAbsentKeys(snapshot).includes(`overlays/${selected}.yaml`)) {
+    await writeSelectionFile(paths, null);
   }
+  await appendJournalEntry(paths, {
+    operationId,
+    type: 'rollback-completed',
+    timestamp: new Date().toISOString(),
+    details: { snapshotId: snapshot.snapshotId }
+  });
+  return {
+    rolledBack: true,
+    dryRun: false,
+    snapshotId: snapshot.snapshotId,
+    operationId: options?.operationId,
+    backupSnapshotId: backup.snapshotId,
+    message: `Restored the envctl files ${target}; the files it replaced are saved as snapshot ${backup.snapshotId}${skippedNote}`
+  };
 }
