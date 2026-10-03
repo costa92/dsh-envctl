@@ -100,6 +100,42 @@ describe('captureEnvironment and initEnvironment', () => {
     expect(JSON.stringify(doc)).not.toContain('0.0.0');
   });
 
+  it.each([
+    ['a tarball URL that is not installed', 'https://example.com/pkg-1.0.0.tgz', false, undefined],
+    ['an installed tarball URL', 'https://example.com/pkg-1.0.0.tgz', true, '1.0.0'],
+    ['an npm: alias', 'npm:other-pkg@2.0.0', true, '2.0.0']
+  ])('skips %s instead of recording a registry version', (_label, spec, installed, version) => {
+    const doc = captureEnvironment({
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            odd: { name: 'odd', installed, ...(version ? { version } : {}), sourceType: 'npm', resolvedSource: spec, isSymlink: false, isExternalSymlink: false, enabled: true }
+          }
+        }
+      }
+    });
+    expect(doc.manifest.profiles.web.plugins).toEqual({});
+    expect(doc.lock.profiles.web.plugins).toEqual({});
+    expect(doc.warnings.some((w) => w.includes('odd') && w.includes(spec))).toBe(true);
+  });
+
+  it('keeps an installed range as the exact installed version', () => {
+    const doc = captureEnvironment({
+      profiles: {
+        web: {
+          name: 'web',
+          path: '/dummy',
+          plugins: {
+            ranged: { name: 'ranged', installed: true, version: '1.2.3', sourceType: 'npm', resolvedSource: '^1.2.0', isSymlink: false, isExternalSymlink: false, enabled: true }
+          }
+        }
+      }
+    });
+    expect(doc.manifest.profiles.web.plugins.ranged.source).toEqual({ type: 'npm', version: '1.2.3' });
+  });
+
   it('should lock a git commit from the spec and not invent HEAD', () => {
     const doc = captureEnvironment({
       profiles: {
