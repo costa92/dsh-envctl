@@ -11,6 +11,7 @@ import type {
   PluginOwnershipRecord
 } from '../domain.js';
 import { readEnvironmentInventory, type EnvironmentInventory } from '../inventory/profile-reader.js';
+import { captureEnvironment } from './capture.js';
 import {
   serializeManifest,
   serializeLock,
@@ -51,8 +52,13 @@ export function checkCandidateFreshness(
     if (!liveProfile) {
       throw new ValidationError(`Candidate refers to profile "${profileName}" which does not exist in live environment`);
     }
+    // What capture would write now; the candidate must still say the same about each source.
+    const live = captureEnvironment(inventory, { profile: profileName });
+    const liveEntries = Object.values(live.manifest.profiles[profileName]?.plugins ?? {});
+    const liveLockEntries = Object.values(live.lock.profiles[profileName]?.plugins ?? {});
+    const candidateLock = candidate.lock.profiles[profileName]?.plugins ?? {};
 
-    for (const plugin of Object.values(profileManifest.plugins)) {
+    for (const [alias, plugin] of Object.entries(profileManifest.plugins)) {
       const livePlugin = liveProfile.plugins[plugin.package];
       if (!livePlugin || !livePlugin.installed) {
         throw new ValidationError(
@@ -66,6 +72,17 @@ export function checkCandidateFreshness(
             `Candidate is stale: package "${plugin.package}" version in candidate (${plugin.source.version}) does not match live installation (${livePlugin.version})`
           );
         }
+      }
+
+      const liveSource = liveEntries.find((entry) => entry.package === plugin.package)?.source;
+      const liveLockSource = liveLockEntries.find((entry) => entry.package === plugin.package)?.source;
+      const lockSource = candidateLock[alias]?.source;
+      const lockCommit = lockSource?.type === 'git' ? lockSource.commit : undefined;
+      const liveCommit = liveLockSource?.type === 'git' ? liveLockSource.commit : undefined;
+      if (!liveSource || !isDeepStrictEqual(plugin.source, liveSource) || (lockCommit !== undefined && lockCommit !== liveCommit)) {
+        throw new ValidationError(
+          `Candidate is stale: package "${plugin.package}" in profile "${profileName}" is installed from a different source than the candidate records; capture again`
+        );
       }
     }
   }
