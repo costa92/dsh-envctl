@@ -46,6 +46,19 @@ setInterval(() => {}, 1000);
     expect(await reaped(pid)).toBe(true);
   });
 
+  it('leaves colour codes around the printed URL out of it', async () => {
+    const command = fakeDsh(`
+console.log('dsh web: \\u001b[36mhttp://127.0.0.1:4567/?token=abc-DEF_1\\u001b[0m');
+setInterval(() => {}, 1000);
+`);
+    const web = await startDshWeb('web', { command, dshHome: '/tmp/some-home', timeoutMs: 10_000 });
+    try {
+      expect(web.url).toBe('http://127.0.0.1:4567/?token=abc-DEF_1');
+    } finally {
+      await web.stop();
+    }
+  });
+
   it('waits for everything DSH started to stop, not just DSH itself', async () => {
     const childPid = path.join(dir, 'child-pid');
     const command = fakeDsh(`

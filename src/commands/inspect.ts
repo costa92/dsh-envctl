@@ -139,8 +139,10 @@ export function registerInspectCommands(ctx: CommandContext): void {
       } else if (fs.existsSync(paths.manifestFile)) {
         try {
           manifest = loadEffectiveManifest(paths, null).manifest;
-        } catch {
-          // ignore manifest error during doctor probing
+        } catch (err) {
+          // doctor still probes DSH, but without the manifest's harness settings, which may pick another DSH.
+          const reason = err instanceof Error ? err.message : String(err);
+          writeErr(`Warning: the manifest ${paths.manifestFile} is invalid (${reason}); doctor ignores its harness settings\n`);
         }
       }
       const manifestHarnessSource = manifest?.environment?.harness?.sourceDir;
