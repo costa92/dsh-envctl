@@ -56,7 +56,9 @@ export function registerLifecycleCommands(ctx: CommandContext): void {
         const { manifest } = loadEffectiveManifest(paths, selection);
         const profiles = [...new Set(res.plan.operations.filter(isProfileOperation).map((operation) => operation.profile))];
         for (const profile of profiles) {
-          verify.push(await verifyProfileRuntime(paths, manifest, profile, Number(cmdOpts.verifyTimeout) * 1000));
+          verify.push(
+            await verifyProfileRuntime(paths, manifest, profile, Number(cmdOpts.verifyTimeout) * 1000, { severalProfiles: profiles.length > 1 })
+          );
         }
       }
 

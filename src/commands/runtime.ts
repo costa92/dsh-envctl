@@ -181,14 +181,22 @@ export type ProfileVerification =
 const HOT_RELOAD_PENDING: ReadonlySet<RuntimeCheckItem['result']> = new Set(['loading', 'not-loaded', 'still-loaded']);
 
 // Checks the profile after apply; DSH hot-reloads a moment later, so such results are asked about again until the timeout.
+// With several profiles to check, DSHENV_DSH_URL cannot tell which one its dsh web runs, so only `web start` records count.
 export async function verifyProfileRuntime(
   paths: EnvironmentPaths,
   manifest: EnvironmentManifest,
   profile: string,
-  timeoutMs: number
+  timeoutMs: number,
+  options: { severalProfiles?: boolean } = {}
 ): Promise<ProfileVerification> {
-  const url = await dshWebUrlFor(paths, profile);
+  const url = options.severalProfiles ? (await runningWebRecord(paths, profile))?.url : await dshWebUrlFor(paths, profile);
   if (url === undefined) {
+    if (options.severalProfiles && process.env[DSH_URL_ENV]?.trim()) {
+      return {
+        profile,
+        skipped: `${DSH_URL_ENV} names one dsh web but apply changed several profiles; run dshenv web start -p ${profile}, or dshenv verify -p ${profile}`
+      };
+    }
     return { profile, skipped: `no dsh web is running for profile ${profile}; run dshenv web start -p ${profile}, or set ${DSH_URL_ENV}` };
   }
   try {
