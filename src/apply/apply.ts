@@ -571,7 +571,7 @@ async function planAndApply(
 
     await writeAtomic(paths.stateFile, serializeState(nextState), 'overwrite');
 
-    // 5. Log operation completion
+    // 5. Log operation completion; state is committed, so a journal that cannot be written must not undo the apply.
     await appendJournalEntry(paths, {
       operationId,
       type: 'apply-completed',
@@ -579,7 +579,7 @@ async function planAndApply(
       details: {
         appliedOperations: plan.operations.filter(isProfileOperation).length
       }
-    });
+    }).catch(() => {});
 
     return {
       applied: true,

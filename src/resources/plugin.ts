@@ -583,7 +583,8 @@ export async function applyPluginOperation(operation: PluginOperation, ctx: Plug
     assertNotInterrupted(signal);
     return dshFailure(result, ctx.commandTimeoutMs);
   }
-  if (operation.kind === 'install') {
+  // An update replaces what DSH had, so it is owned as an install is.
+  if (operation.kind === 'install' || operation.kind === 'update') {
     await onInstalled(operation);
   }
   // Only now is the package on disk to tell whether DSH loads it as a bundle.

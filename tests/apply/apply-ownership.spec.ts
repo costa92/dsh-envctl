@@ -122,6 +122,21 @@ describe('applyEnvironment ownership and recovery', () => {
     expect(plan.plan.unmanaged).toEqual([]);
   });
 
+  it('owns a plugin it updated even when a later operation of the same apply fails', async () => {
+    // DSH installed aa and zz 0.9.0 on its own; the manifest wants 1.0.0, so apply replaces both.
+    const profileDir = path.join(tempHome, 'profiles', 'web');
+    for (const name of ['aa', 'zz']) {
+      fs.mkdirSync(path.join(profileDir, 'node_modules', name), { recursive: true });
+      fs.writeFileSync(path.join(profileDir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version: '0.9.0', dsh: { bundle: {} } }));
+    }
+    fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({ name: 'p', dependencies: { aa: '0.9.0', zz: '0.9.0' }, dsh: { profile: { bundles: ['aa', 'zz'] } } }));
+    declare(plugin('aa'), plugin('zz'));
+    expect((await dryRun()).plan.operations.filter((op) => op.resource === 'plugin').map((op) => `${op.kind}:${op.package}`)).toEqual(['update:aa', 'update:zz']);
+    process.env.FAIL_ON = 'zz';
+    await expect(applyEnvironment(paths, options)).rejects.toThrow(/exited with code 7/);
+    expect(owned()).toEqual(['aa']);
+  });
+
   it('leaves the manifest and envctl skills alone when apply fails, restoring only lock and state', async () => {
     declare(plugin('aa'));
     fs.mkdirSync(path.join(paths.skillsDir, 'myskill'), { recursive: true });
