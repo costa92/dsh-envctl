@@ -17,6 +17,7 @@ import { loadLock, loadManifest, loadState, serializeState, withResources } from
 import * as path from 'node:path';
 import { writeAtomic } from '../io/atomic-file.js';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
+import { readSkillDigests } from '../resources/skill.js';
 import type { EnvironmentState } from '../domain.js';
 import * as fs from 'node:fs';
 
@@ -44,27 +45,40 @@ function readState(paths: EnvironmentPaths): EnvironmentState | null {
 }
 
 // Rollback leaves the profiles alone, so a plugin an apply installed is still installed and must stay dshenv's to remove.
+// Skills in DSH_HOME/skills stay too: one still as dshenv last synced it keeps that baseline, so apply converges it.
 async function keepInstalledOwnership(paths: EnvironmentPaths, before: EnvironmentState | null): Promise<void> {
   const restored = readState(paths);
-  if (!before?.resources?.plugin || (fs.existsSync(paths.stateFile) && !restored)) {
+  if ((!before?.resources?.plugin && !before?.resources?.skill) || (fs.existsSync(paths.stateFile) && !restored)) {
     return;
   }
-  const inventory = await readEnvironmentInventory(paths);
   const next: EnvironmentState = restored ?? { apiVersion: 'dshenv-state/v1', lastApplied: '', appliedLockHash: '', profiles: {} };
   const plugin = structuredClone(next.resources?.plugin ?? {});
+  const skill = structuredClone(next.resources?.skill ?? {});
   let changed = false;
-  for (const [profile, packages] of Object.entries(before.resources.plugin)) {
-    for (const [packageName, record] of Object.entries(packages)) {
-      // Adopted plugins were DSH's before; rolling back an adopt gives them back.
-      if (!record.adoptedBy.startsWith('apply-') || plugin[profile]?.[packageName] || !inventory.profiles[profile]?.plugins[packageName]?.installed) {
-        continue;
+  if (before?.resources?.plugin) {
+    const inventory = await readEnvironmentInventory(paths);
+    for (const [profile, packages] of Object.entries(before.resources.plugin)) {
+      for (const [packageName, record] of Object.entries(packages)) {
+        // Adopted plugins were DSH's before; rolling back an adopt gives them back.
+        if (!record.adoptedBy.startsWith('apply-') || plugin[profile]?.[packageName] || !inventory.profiles[profile]?.plugins[packageName]?.installed) {
+          continue;
+        }
+        (plugin[profile] ??= {})[packageName] = record;
+        changed = true;
       }
-      (plugin[profile] ??= {})[packageName] = record;
-      changed = true;
+    }
+  }
+  if (before?.resources?.skill) {
+    const live = await readSkillDigests(paths.dshSkillsDir);
+    for (const [name, record] of Object.entries(before.resources.skill)) {
+      if (live[name] === record.digest && skill[name]?.digest !== record.digest) {
+        skill[name] = record;
+        changed = true;
+      }
     }
   }
   if (changed) {
-    await writeAtomic(paths.stateFile, serializeState(withResources(next, { plugin })), 'overwrite');
+    await writeAtomic(paths.stateFile, serializeState(withResources(next, { plugin, skill })), 'overwrite');
   }
 }
 

@@ -7,6 +7,8 @@ import { rollbackEnvironment } from '../../src/rollback/rollback.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 import { readJournalEntries } from '../../src/io/journal.js';
 import { createEnvironmentSnapshot } from '../../src/io/backup.js';
+import { ownedSkillDigests, planSkills, readSkillInventory } from '../../src/resources/skill.js';
+import { loadState } from '../../src/manifest/files.js';
 
 describe('rollbackEnvironment', () => {
   let tempHome: string;
@@ -75,6 +77,24 @@ profiles:
     expect(fs.readFileSync(paths.manifestFile, 'utf8')).toBe(original);
     const journal = await readJournalEntries(paths);
     expect(journal.some((entry) => entry.type === 'rollback-completed')).toBe(true);
+  });
+
+  it('keeps the baseline of a skill an apply put into DSH, so the next apply removes it again', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    fs.writeFileSync(paths.manifestFile, 'apiVersion: dshenv/v1\nprofiles: {}\n');
+    await createEnvironmentSnapshot(paths, 'apply-before-skill');
+    fs.mkdirSync(path.join(paths.skillsDir, 'demo'), { recursive: true });
+    fs.writeFileSync(path.join(paths.skillsDir, 'demo', 'SKILL.md'), '# demo\n');
+    const applied = await applyEnvironment(paths, { executor: async () => ({ success: true }) });
+    expect(applied.applied).toBe(true);
+    expect(fs.existsSync(path.join(paths.dshSkillsDir, 'demo', 'SKILL.md'))).toBe(true);
+
+    await rollbackEnvironment(paths, { operationId: 'apply-before-skill' });
+
+    expect(fs.existsSync(path.join(paths.skillsDir, 'demo'))).toBe(false);
+    const plan = planSkills(await readSkillInventory(paths), ownedSkillDigests(loadState(fs.readFileSync(paths.stateFile, 'utf8'))));
+    expect(plan.unmanaged).toEqual([]);
+    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'remove', name: 'demo' })]);
   });
 
   it('should preview rollback without writing when dry-run', async () => {

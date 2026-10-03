@@ -14,6 +14,8 @@
 - `adopt` 核对候选清单是否过期时，除 npm 版本外还比对 Git 地址与锁定 commit、本地路径和来源类型，不一致时以 `Candidate is stale` 拒绝；此前 capture 之后插件在 DSH 里换了 commit 或改为本地链接安装，`adopt --yes` 仍会接受，把旧 commit 写进 lock，下一次 `apply` 会把插件降回旧版本。
 - `apply --yes --verify` 一次改了多个 Profile 时不再拿 `DSHENV_DSH_URL` 逐个核对：它只指向一个 `dsh web`，此前其他 Profile 会被误判为核对出错（退出码 5），依赖碰巧相同时还会核错对象却报通过。现在只核对各 Profile 自己 `web start` 启动的那个，其余注明 `Not verified`。
 - `capture`、`pull` 与 `adopt` 遇到声明为 tarball URL 或 `npm:` 别名的依赖时跳过并警告；此前未安装的 tarball 会被记成 `0.0.0`（之后 `apply` 必然失败），已安装的会被记成公共 registry 上同名包的版本，换一台机器会装成别的东西。
+- `rollback` 保留 apply 放进 `DSH_HOME/skills` 的 skill 的基线（与插件所有权一样）：回滚到不含该 skill 的快照后，下一次 `apply` 会把它移进 trash；此前它变成未受管，`apply` 不再清理，`pull --yes` 还会把它当作 DSH 新增的 skill 收回清单。
+- 清单与 `DSH_HOME/skills` 都有、内容不同又从未同步过的 skill，`pull` 视为两边都改过，需要 `--prefer dsh` 或 `--prefer manifest`；此前 `pull` 默认用 DSH 的副本覆盖清单里的新版本，`plan` 却说是清单改了，两边结论相反。`plan` 对这种 skill 说明 `apply` 会装清单的副本，并提示可用 `pull --yes --prefer dsh` 保留 DSH 的。
 
 ## 0.5.0 - 2026-09-30
 

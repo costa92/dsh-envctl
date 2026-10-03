@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { resolveEnvironmentPaths, type EnvironmentPaths } from '../../src/environment/paths.js';
-import { applySkillOperation, planSkills, readSkillInventory, replaceSkillDir } from '../../src/resources/skill.js';
+import { applySkillOperation, planSkillImport, planSkills, readSkillInventory, replaceSkillDir } from '../../src/resources/skill.js';
 
 describe('planSkills', () => {
   it('installs a declared skill DSH lacks and updates one whose content differs', () => {
@@ -24,6 +24,18 @@ describe('planSkills', () => {
     const { operations } = planSkills({ declared: { a: 'same' }, live: { a: 'edited' }, remote: ['a'] }, { a: 'same' });
     expect(operations[0].reason).not.toMatch(/pull/);
     expect(operations[0].reason).toMatch(/edited in DSH.*team repository.*trash/);
+  });
+
+  it('says which side wins when the two copies differ and were never synced', () => {
+    const { operations } = planSkills({ declared: { a: 'manifest' }, live: { a: 'dsh' } }, {});
+    expect(operations[0]).toMatchObject({ kind: 'update', name: 'a' });
+    expect(operations[0].reason).toMatch(/never synced.*trash.*--prefer dsh/);
+  });
+
+  it('does not point to pull for a never-synced team skill, since pull refuses it', () => {
+    const { operations } = planSkills({ declared: { a: 'team' }, live: { a: 'dsh' }, remote: ['a'] }, {});
+    expect(operations[0].reason).toMatch(/team copy.*never synced/);
+    expect(operations[0].reason).not.toMatch(/pull/);
   });
 
   it('removes an owned skill the manifest dropped and reports the others as unmanaged', () => {
@@ -121,5 +133,22 @@ describe('replaceSkillDir failures', () => {
     await expect(replaceSkillDir(source(), target(), trash())).rejects.toThrow(/EXDEV/);
     expect(fs.readdirSync(path.dirname(target()))).toEqual(['wiki']);
     expect(fs.readFileSync(path.join(target(), 'SKILL.md'), 'utf8')).toBe('old');
+  });
+});
+
+describe('planSkillImport', () => {
+  it('does not pick a side for two differing copies that were never synced', () => {
+    const skills = { declared: { a: 'manifest' }, live: { a: 'dsh' } };
+    expect(planSkillImport(skills, {}, undefined)).toMatchObject({ actions: [], conflicts: ['a'] });
+    expect(planSkillImport(skills, {}, 'dsh')).toMatchObject({ actions: [{ name: 'a', kind: 'changed' }], conflicts: [], owned: { a: 'dsh' } });
+    expect(planSkillImport(skills, {}, 'manifest')).toMatchObject({ actions: [], conflicts: [] });
+  });
+
+  it('still takes a skill only DSH has and records a matching pair', () => {
+    expect(planSkillImport({ declared: { same: 'x' }, live: { same: 'x', fresh: 'y' } }, {}, undefined)).toEqual({
+      actions: [{ name: 'fresh', kind: 'added' }],
+      conflicts: [],
+      owned: { same: 'x', fresh: 'y' }
+    });
   });
 });
