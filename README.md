@@ -26,7 +26,7 @@
 - **声明式漂移检测**：自动计算实际安装态与目标清单差异（`plan` / `status`）。
 - **无损环境捕获与接管**：将现有 DSH Profile 盘点为可审阅的候选清单（`capture`），确认事实未过期后再建立所有权（`adopt`）。
 - **多运行时与能力探测**：无缝支持源码运行模式（`--harness-source`）、环境变量（`DSH_CLI`）及全局 PATH 探测（`doctor`）。
-- **结构化输出**：所有命令的成功结果均支持 `--json` 格式；带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr（命令行参数解析错误除外，仍为 commander 的纯文本）。
+- **结构化输出**：所有命令的成功结果均支持 `--json` 格式；带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr，命令行参数解析错误（未知选项、缺参数）也一样。
 - **DSH 配置双向同步**：你在 DSH 里改的设置（模型、语言、权限、技能目录等写进 `cordis.patch.yml` 的条目）由 `dshenv pull` 收进清单，含本机绝对路径的条目放进本机 overlay；`~/.dsh/skills` 下的 loose skill 收进 `envctl/skills`。`apply` 按清单写回，`plan` 能分辨改动来自 DSH 还是清单。
 - **组件脚手架**：`dshenv new` 从模板生成 skill/agent/tool/mcp 组件包，可选直接登记进清单。
 - **团队共享基线**：`dshenv remote add` 订阅团队 Git 配置仓库，`dshenv remote sync` 预览并显式接受固定 commit 的更新；远程文件与团队 lock 条目只读，本机定制写本地 overlay，其插件的 lock 条目照常由本机维护。
@@ -264,7 +264,7 @@ dshenv 改写 Profile `package.json`（启用、停用、卸载前移出 bundle�
 - 等 Profile 锁超时后 apply 会回滚，但回滚本身写 bundle 与 `cordis.patch.yml` 时也可能要等这把锁；回滚未能完成时运行 `dshenv plan` 查看现状。DSH Web 安装插件时整个安装过程都持锁，可能超过 dshenv 的 30 秒等待，等安装结束后再重试。
 
 ### 7. `dshenv rollback`
-从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照：`manifest.yaml` / `lock.json` / `state.json`、`envctl/skills`、`remote.json`，以及快照时保存的 overlay（团队 overlay、`pull`/`sync` 改写的本机 overlay、`apply` 时生效的 overlay）。不带 id 时跳过失败的 `apply` 留下的快照（它们已经自己恢复了 `lock.json` 与 `state.json`，恢复它们等于什么都不做），输出会写明跳过了哪些；`apply` 的快照保存的正是它所应用的清单与 overlay，所以回到某次成功的 apply 就是回到它应用的清单。不撤销已经发生的 DSH 包安装；由 `apply` 安装、仍装在 Profile 里的插件保留所有权记录，之后从清单删除时照常卸载。`DSH_HOME/skills` 里仍与 dshenv 上次同步时一致的 skill 同样保留基线，恢复后的清单不再声明它时，下一次 `apply` 把它移进 trash。恢复前会把当前这些文件另存为一份新快照（输出中给出其 id，可再 rollback 回去）；快照里没有的文件会被删除。
+从 `envctl/backups/` 恢复最近一次（或指定 operation id 的）管理文件快照（rollback 自己也会先存一份 `pre-rollback-*` 快照，所以连续执行不带 id 的 `rollback` 会在两个状态之间来回切换；要再往前退须指定 id）：`manifest.yaml` / `lock.json` / `state.json`、`envctl/skills`、`remote.json`，以及快照时保存的 overlay（团队 overlay、`pull`/`sync` 改写的本机 overlay、`apply` 时生效的 overlay）。不带 id 时跳过失败的 `apply` 留下的快照（它们已经自己恢复了 `lock.json` 与 `state.json`，恢复它们等于什么都不做），输出会写明跳过了哪些；`apply` 的快照保存的正是它所应用的清单与 overlay，所以回到某次成功的 apply 就是回到它应用的清单。不撤销已经发生的 DSH 包安装；由 `apply` 安装、仍装在 Profile 里的插件保留所有权记录，之后从清单删除时照常卸载。`DSH_HOME/skills` 里仍与 dshenv 上次同步时一致的 skill 同样保留基线，恢复后的清单不再声明它时，下一次 `apply` 把它移进 trash。恢复前会把当前这些文件另存为一份新快照（输出中给出其 id，可再 rollback 回去）；快照里没有的文件会被删除。
 
 ```bash
 dshenv rollback --dry-run
@@ -324,10 +324,11 @@ dshenv plugins config unset agent-teams taskPlanning --profile web     # 删掉�
 ```
 
 ### 13. `dshenv status`
-显示当前环境状态摘要与操作统计。退出码与 `plan` 相同：有待执行的变更时为 2，环境已同步时为 0。
+显示当前环境状态摘要与操作统计；给出插件别名或包名时只显示该插件。有待执行的变更时退出码 2，环境已同步时为 0；环境降级（`degraded`）或 DSH 不兼容（`incompatible`）时为 5。
 
 ```bash
 dshenv status
+dshenv status agent-teams -p web
 dshenv status --json
 ```
 
@@ -359,7 +360,7 @@ dshenv plan --overlay server   # 单次命令临时指定
 dshenv plan --no-overlay       # 单次命令只用 base
 ```
 
-overlay 文件格式与清单相同的 `profiles` 结构，只写需要覆盖的字段；`remove: true` 删除 base 中的同名插件或 patch：
+overlay 文件格式与清单相同的 `profiles` 结构，只写需要覆盖的字段；插件条目写 `remove: true` 删除 base 中的同名插件，Profile 级 `patches` 中写 `{ id, remove: true }` 删除同 id 的条目；插件自己的 `patches` 只能按 id 覆盖或新增，不能删除：
 
 ```yaml
 apiVersion: dshenv-overlay/v1
@@ -402,7 +403,7 @@ dshenv verify --profile web
 - 没有设置 `DSHENV_DSH_URL` 时，使用 `dshenv web start` 为该 Profile 启动并仍在运行的 dsh web（见第 24 节）。
 - 也可以用 `dshenv verify --profile web --start` 临时启动一个（`dsh --profile web --no-open --port 0`），核对完即停止；它不读取 `DSHENV_DSH_URL`，Profile 须已存在。
 - 地址只从环境变量 `DSHENV_DSH_URL` 读取。它等同于登录凭据，dshenv 不会输出或记录其中的 token；默认只连本机，连其他主机需加 `--allow-remote`，且地址必须是 https（明文 http 会把 token 暴露在网络上）。
-- 只适用于 `dsh web`；headless、sdk、acp 运行不开 web 服务，无法核对（`--start` 会报 `did not start dsh web`）。
+- 只适用于 `dsh web`；headless、sdk、acp 运行不开 web 服务，无法核对（`--start` 以退出码 3 报 `Profile <p> runs <应用包>, not dsh web`）。
 - 每个插件的结果：`loaded`、`unloaded`（符合清单），`loading`（热加载进行中，也覆盖 `apply` 之后 DSH 还未热加载的瞬间；若持续为 `loading`，说明热加载没有生效，需重启 DSH；带 `is waiting for services it injects` 时，是插件依赖的 service 还没有任何插件提供，检查是否漏装或停用了提供它的插件），`unverifiable`（包没有可核对的插件行），`missing`、`failed`、`not-loaded`、`still-loaded`（与清单不符）。
 - 退出码：`0` 全部符合；`2` 仍在加载，稍后重跑；`5` 有不符项；`1` 无法连接、登录失败或运行中的 DSH 不是该 profile；`3` 用法错误。
 - 不核对版本：DSH 只报告磁盘上的版本，看不出内存中加载的是哪个版本；升级插件后仍需重启 DSH。
@@ -447,7 +448,7 @@ dshenv remote remove --yes                                   # 取消订阅，�
 
 顶层的 `dshenv sync` 是 `remote sync` 的旧名，仍可使用。
 
-- 只采用 `<path>/manifest.yaml`（必需）、`<path>/lock.json`、`<path>/overlays/*.yaml`；`--path` 指定仓库内目录（`.` 为仓库根），`--branch` 指定分支（默认远程 HEAD 所指分支）。团队 manifest、团队 overlay 与团队 lock 都不能使用 `local-link` / `local-file` 源或指向本机的 Git 地址（`file://`、本地路径），团队 manifest 与团队 overlay 也不能设置 `environment.harness.sourceDir` / `environment.sourceRoot`（本机路径无法跨机器共享，且 dshenv 会执行该目录下的 DSH），团队 manifest 与团队 overlay 的插件 patch 与 profile patch 也不能含 JavaScript 表达式（`__jsExpr`，dshenv 会把它写成 DSH 执行的 `!!js` 值），否则整个 commit 被拒绝；这些请写在本机 overlay 里。
+- 只采用 `<path>/manifest.yaml`（必需）、`<path>/lock.json`、`<path>/overlays/*.yaml` 与 `<path>/skills/<名字>/...`（团队 skill，随 `apply` 装进 `DSH_HOME/skills`）；`--path` 指定仓库内目录（`.` 为仓库根），`--branch` 指定分支（默认远程 HEAD 所指分支）。团队 manifest、团队 overlay 与团队 lock 都不能使用 `local-link` / `local-file` 源或指向本机的 Git 地址（`file://`、本地路径），团队 manifest 与团队 overlay 也不能设置 `environment.harness.sourceDir` / `environment.sourceRoot`（本机路径无法跨机器共享，且 dshenv 会执行该目录下的 DSH），团队 manifest 与团队 overlay 的插件 patch 与 profile patch 也不能含 JavaScript 表达式（`__jsExpr`，dshenv 会把它写成 DSH 执行的 `!!js` 值），否则整个 commit 被拒绝；这些请写在本机 overlay 里。这些限制并不让团队配置变得无害：团队声明的插件会被安装并运行，插件配置（如 `dsh-mcp-client` 的 `command`）与 profile patch 也能让 DSH 在成员机器上启动进程。只订阅可信的仓库，并在 `sync --yes` 前审阅预览。
 - `manifest.yaml` 与团队 overlay 整文件归远程；`lock.json` 按 `profile/alias` 条目归属：团队 lock 中的条目归远程，其余条目（本地 overlay 插件的 Git commit、本地源摘要）归本机，同步时只替换团队条目。本地 overlay 把团队 lock 已固定的插件改为 `local-link` / `local-file` 源时，`apply` 以退出码 3 拒绝；应在本地 overlay 中对它写 `remove: true`，再以新 alias 加入本地源插件。
 - 远程内容只读：写 base、写远程 overlay、改写团队 lock 条目的命令都以退出码 3 拒绝；本机定制写本地 overlay（`--layer overlay`），`source clone --profile` 等写本机条目的命令照常可用。
 - 本地已有 `manifest.yaml`、同名 overlay，或本地 lock 已有团队 lock 同名条目时，`remote add` 需要 `--replace`（先快照再覆盖）；本地改过远程文件或团队条目时 `sync` 拒绝，`--discard-local-changes` 可覆盖。
@@ -474,7 +475,7 @@ dshenv pull --yes --prefer dsh     # DSH 与清单都改过时，以 DSH 为准�
 - 条目写进清单的 `profiles.<profile>.patches`，原样保留 `id`、`name`、`config`、`disabled`、`insert` 与 `!!js` 表达式（清单里记作 `{ __jsExpr: ... }`）。
 - 含本机绝对路径（如技能目录）的条目写进当前 overlay；没有选中 overlay 时新建并选中 `local`。带 `--no-overlay` 时遇到这类条目会拒绝。订阅了团队 remote 时基础清单只读，全部条目写进本机 overlay。
 - 自上次 `apply` 以来 DSH 与清单都改过时拒绝执行，需用 `--prefer` 指定以哪一边为准。
-- `plan` 在 `Unmanaged plugins` 下列出的插件（装在 Profile 里、清单没有声明）也一并接管，描述方式与 `capture` 相同（别名、来源、版本；只靠 `insert` 加载、不在 bundles 里的记为 `enabled: false`），并像 `adopt` 一样写入 lock 与所有权记录，之后 `plan` 不会要求重装。`local-link`/`local-file` 插件按含本机路径条目的规则写进 overlay（`local-link` 同时记下源码 digest），其余写进基础清单；团队 remote 拥有基础清单时写进 overlay。`adopt` 之后的那次 `pull` 不接管插件。
+- `plan` 在 `Unmanaged plugins` 下列出的插件（装在 Profile 里、清单没有声明）也一并接管，描述方式与 `capture` 相同（别名、来源、版本；只靠 `insert` 加载、不在 bundles 里的记为 `enabled: false`），并像 `adopt` 一样写入 lock 与所有权记录，之后 `plan` 不会要求重装；`local-file` 插件除外：装进 Profile 的是当时的副本，无法证明与源目录一致，下一次 `apply` 会重装一次以记下源码 digest。`local-link`/`local-file` 插件按含本机路径条目的规则写进 overlay（`local-link` 同时记下源码 digest），其余写进基础清单；团队 remote 拥有基础清单时写进 overlay。`adopt` 之后的那次 `pull` 只接管候选清单中的本地来源插件。
 - 写入前先建快照，`dshenv rollback <快照 id> --yes` 可撤销（id 见 `--json` 输出的 `snapshotId`）。
 - `$DSH_HOME/skills` 下的 loose skill 也一并处理：目录复制到 `envctl/skills/<名字>`，DSH 里删掉的技能从清单里删除。`apply` 反向复制，被覆盖或删除的 DSH 副本移进 `envctl/trash`（`gc` 清理）；`plan` 在 `Planned skill changes` 与 `Skills not in the manifest` 下列出技能。`envctl/skills` 可以放进团队配置仓库，随 `remote`/`sync` 同步；团队拥有的技能在 DSH 里改动后 `pull` 会拒绝。Git 标记为可执行的文件同步后保持可执行；变化按内容判断，只改可执行位、内容不变的提交不会同步，需要连同内容一起改。
 - `--json` 输出 `{dryRun, changes: [{profile, from, added, changed, removed, base, overlay, overlayName?}], skills?: {added, changed, removed}, plugins?: [{profile, alias, package, sourceType, enabled, layer, overlayName?}], warnings?, overlayCreated?, operationId?, snapshotId?}`；`warnings` 列出无法接管的插件（如 npm 版本不是确定版本）。
@@ -516,11 +517,11 @@ dshenv web stop -p web             # 停止它以及它启动的子进程（如 
 ```
 
 - 启动命令为 `dsh --profile <P> --no-open --port <端口>`，DSH CLI 的选择与其他命令相同（`DSH_CLI`、`--harness-source`、`environment.harness.sourceDir`、`PATH`）。dsh web 在独立的进程组中运行，dshenv 退出或关闭终端后继续运行。
-- 地址（含登录 token）与 pid 记在 `envctl/run/<profile>.json`，输出写到 `envctl/run/<profile>.log`，两者权限均为 `0600`；不在快照、同步与团队仓库范围内。`start` 打印一次地址，`status` 从不打印 token。
+- 地址（含登录 token）与 pid 记在 `envctl/run/<profile>.json`，输出写到 `envctl/run/<profile>.log`，两者权限均为 `0600`；不在快照、同步与团队仓库范围内。`start` 打印地址，已在运行时再次 `start` 也会打印现有的地址；`web list`（旧名 `web status`）从不打印 token。
 - 已在运行时 `start` 只报告现有的那个；它自己退出后，`status` 显示 `not running`，再次 `start` 会启动新的。dsh web 自己退出但它启动的子进程还在时，`status` 显示 `not running (leftover processes)`，`start` 先停掉这些子进程再启动，`stop` 也会停掉它们。
 - 记录里保存了 dsh web 的启动时间，`stop` 只停止 pid 与启动时间都对得上的进程，被系统复用的 pid 不会被误停；无法确认时（`status` 显示 `unknown`）`stop` 和 `start` 报错并保留记录，不做任何停止。SIGKILL 后仍未退出时 `stop` 以非零退出码报错并保留记录，可以再次执行。
 - 同一 Profile 的 `start`、`stop` 依次执行，两个 `start` 同时运行也只会启动一个；启动过程中按 Ctrl+C 会停止正在启动的 dsh web（`verify --start` 在核对过程中被中断也一样），不会遗留进程。
-- Profile 必须已存在（DSH 会自动创建不存在的 Profile）；不带 web 应用的 Profile（headless、acp 等）会报 `did not start dsh web`，60 秒内没有打印地址也会停止并报错。
+- Profile 必须已存在（DSH 会自动创建不存在的 Profile）；bundles 选了其他应用（`dsh-headless`、`dsh-acp-app`、`dsh-sdk-app`）的 Profile 以退出码 3 报 `Profile <p> runs <应用包>, not dsh web`，60 秒内没有打印地址也会停止并报错。
 - Windows 上 dsh web 以 detached 方式启动，不附着在启动它的控制台上，关闭启动它的控制台窗口后继续运行；停止用 `taskkill /T /F` 结束整棵进程树。
 
 ### 25. `dshenv install` / `enable` / `disable` / `remove`

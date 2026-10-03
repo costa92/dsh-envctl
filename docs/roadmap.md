@@ -134,7 +134,7 @@
 
 ## 错误输出、Git 安装与版本冒烟（已实现）
 
-- [x] 带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr；解析前抛出的错误按 `--` 之前的 argv 判断；commander 参数错误仍为纯文本
+- [x] 带 `--json` 时错误以 `{"error":{"type","message","exitCode"}}` 写入 stderr；解析前抛出的错误按 `--` 之前的 argv 判断；commander 参数错误同样以 JSON 输出
 - [x] `prepare` 构建 `lib/`，支持从 Git 地址安装：`pnpm add -g --allow-build=@costa92/dshenv "git+https://github.com/costa92/dshenv.git#<ref>"`；隔离 `PNPM_HOME` 实测全局安装可运行。npm 从 Git 地址安装在准备阶段崩溃（npm 10.9 arborist），只支持 pnpm；推荐改用 npm 包（见「发布与分发」）
 - [x] `make smoke-dsh DSH_VERSION=<v>`：临时目录安装 npm 版 DSH，隔离 `DSH_HOME` 下跑 doctor、install/disable/remove 的 apply 与 plan；门禁拒绝时带 `--allow-untested-dsh` 继续。放宽门禁的步骤见 [`DSH版本升级.md`](DSH版本升级.md)
 - [x] 真实冒烟（2026-09-27）：`0.1.7-rc.2` 13 步全部通过；`0.1.6-alpha.2` 被门禁拒绝，带覆盖参数全部通过。npm 上尚无更新的版本
@@ -155,7 +155,7 @@
 - [x] 首次运行（0.1.1）发现并修复：Git 来源缺少 `git+` 前缀导致 `file://` 等地址安装失败；DSH 插件命令失败时只剩退出码（改为显示 DSH 自己的 `dsh:` 诊断行，不显示 pnpm 原始输出）；`adopt` 替换已有插件时丢失已声明的 `patches`；`status <插件>` 不认别名；`source pull --ref <分支名>` 快进到本地分支自身而没有更新
 - [x] Codex 审查上述修复，指出 `source pull` 会把 `HEAD`、`HEAD~1` 等修订改写为上游引用；改为只对与上游分支完全同名的 ref 跟随 `origin/<ref>`，复审无问题
 - [x] 0.1.2、0.1.3 发布后以 npm 安装包重跑，107 项全部通过
-- [x] 主链端到端测试收进仓库：`scripts/e2e-dsh.sh`（`make e2e-dsh`，收进时 123 项，现为 148 项，新增 `runtime --start` 与 `web start/stop/status`：DSH 自装插件的 capture/adopt 与所有权、本地来源安装与源码变更更新、配置补丁、版本漂移修复、对 `dsh web` 的 `runtime`、rollback、受管卸载；skill/agent/mcp 脚手架与 loose skill；Git 来源 clone、pull 与锁定提交；overlay 独有插件的安装与随 overlay 移除；purge 与 gc；profile patches 与 loose skill 的 pull 与 apply 双向同步；独立 `DSH_HOME` 中的团队远程订阅、sync、拒绝本地改动与改写历史），由 `.github/workflows/e2e.yml` 在 PR 与 master 上对已验证的 DSH 运行，与 Vitest CI 分层、不作为合入门禁
+- [x] 主链端到端测试收进仓库：`scripts/e2e-dsh.sh`（`make e2e-dsh`，收进时 123 项，现为 148 项，新增 `runtime --start` 与 `web start/stop/status`：DSH 自装插件的 capture/adopt 与所有权、本地来源安装与源码变更更新、配置补丁、版本漂移修复、对 `dsh web` 的 `runtime`、rollback、受管卸载；skill/agent/mcp 脚手架与 loose skill；Git 来源 clone、pull 与锁定提交；overlay 独有插件的安装与随 overlay 移除；purge 与 gc；profile patches 与 loose skill 的 pull 与 apply 双向同步；独立 `DSH_HOME` 中的团队远程订阅、sync、拒绝本地改动与改写历史），由 `.github/workflows/e2e.yml` 在 PR 与 master 上对已验证的 DSH 运行，与 Vitest CI 分层、自 2026-09-30 起是 master 的必需检查
 - [x] DSH 兼容性矩阵：`.github/workflows/compat.yml` 每天与 master 推送时对 DSH `0.1.7-rc.2`（必须通过）、`latest`、`next`（仅报告）运行 `scripts/smoke-dsh.sh`，可手动指定额外版本
 - [x] 容器检查中的 overlay、Git 来源、四类脚手架、gc/purge、团队远程同步已并入 `e2e-dsh.sh`；DSH 的 pnpm 卸载 `link:` 依赖后会在 `node_modules` 留下符号链接，脚本以 profile 的 `package.json` 判断是否已卸下
 
