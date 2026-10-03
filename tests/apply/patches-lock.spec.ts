@@ -97,6 +97,21 @@ describe('cordis.patch.yml profile lock', () => {
     ]);
   });
 
+  it('keeps a DSH edit made between two dshenv writes when both are undone in reverse', async () => {
+    fs.writeFileSync(patchFile(), '- id: base\n  name: x\n');
+    const undoDemo = await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }]);
+    fs.appendFileSync(patchFile(), dshPatch);
+    const undoOther = await writeManagedPatches(paths, 'web', 'other', [{ id: 'o1', config: { b: 1 } }]);
+
+    await undoOther();
+    await undoDemo();
+
+    const content = fs.readFileSync(patchFile(), 'utf8');
+    expect(content).toContain(dshPatch);
+    expect(content).toContain('id: base');
+    expect(extractManagedPatches(content, 'web')).toEqual([]);
+  });
+
   it('drops the plugin blocks but keeps a DSH edit when the file did not exist before dshenv wrote it', async () => {
     const restore = await writeManagedPatches(paths, 'web', 'demo', [{ id: 'p1', config: { a: 1 } }]);
     fs.appendFileSync(patchFile(), dshPatch);
