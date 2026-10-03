@@ -2,7 +2,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。发布流程见 [docs/发布流程.md](docs/发布流程.md)。
 
-## 未发布
+## 0.6.0 - 2026-10-03
+
+### 升级须知
+
+- 清单与 overlay 中的 npm 版本按 SemVer 2.0 校验，`01.2.3`、`1.2.3-rc.01` 等带前导零的写法会以退出码 3 拒绝，需改为规范写法；`1.2.3-beta.1+build.5` 现在可以使用。
+- `adopt` 遇到 `link:`、`file:` 插件时写进本机 overlay（没有选中的 overlay 时新建并选中 `local`），不再写进 base；`--no-overlay` 且未选 overlay 时拒绝。
+- overlay 对 base 已不再声明的插件写的 `remove: true` 或字段覆盖不再报错，而是不起作用；拼错的别名因此不会被发现，可用 `dshenv overlay show` 核对。
+- `source sync -p` 写 lock 前要求目录的 origin 是清单声明的仓库，且锁定的 commit 已推送到 origin。
+- `DSH_CLI` 指向不存在的路径时退出码由 5 改为 4。
 
 ### 修复
 
