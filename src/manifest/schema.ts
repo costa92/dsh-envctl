@@ -7,7 +7,12 @@ import { PROFILE_PATCHES_ALIAS } from '../profile-patches/entries.js';
 export const PackageNameRegex = /^(?:@[a-z0-9_-][a-z0-9._-]*\/)?[a-z0-9_-][a-z0-9._-]*$/;
 
 // dshenv pins exact npm versions; ranges and tags would never compare equal to an installed version.
-export const ExactVersionRegex = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+// The SemVer 2.0 grammar, as npm takes it: no leading zeros, a prerelease and a build part each optional.
+const SemverNumber = '(?:0|[1-9]\\d*)';
+const SemverPrerelease = `(?:${SemverNumber}|\\d*[A-Za-z-][0-9A-Za-z-]*)`;
+export const ExactVersionRegex = new RegExp(
+  `^${SemverNumber}\\.${SemverNumber}\\.${SemverNumber}(?:-${SemverPrerelease}(?:\\.${SemverPrerelease})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`
+);
 
 const isAbsolutePath = (val: string) => path.isAbsolute(val);
 

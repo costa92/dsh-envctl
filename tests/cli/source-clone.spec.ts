@@ -101,6 +101,33 @@ describe('CLI source clone --profile', () => {
     expect(gitLock.type === 'git' && gitLock.commit).toBe(newHead);
   });
 
+  it('refuses to lock a checkout whose origin is not the declared repository', async () => {
+    await runCli(['source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome]);
+    const lockBefore = fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8');
+    const other = path.join(tempHome, 'other');
+    await execa('git', ['clone', '--quiet', upstream, other]);
+    await execa('git', ['remote', 'set-url', 'origin', 'https://example.com/someone/else.git'], { cwd: other });
+    let stderr = '';
+    const code = await runCli(['source', 'pull', other, 'HEAD', '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome], { stdout: () => {}, stderr: (chunk) => { stderr += chunk; } });
+    expect(code).toBe(3);
+    expect(stderr).toMatch(/origin .*not the repository .* declares/);
+    expect(fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8')).toBe(lockBefore);
+  });
+
+  it('refuses to lock a commit no branch of origin has', async () => {
+    await runCli(['source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome]);
+    const lockBefore = fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8');
+    const cloneDir = path.join(tempHome, 'envctl', 'sources', 'web', 'demo-plugin');
+    await execa('git', ['checkout', '--quiet', '-b', 'local-only'], { cwd: cloneDir });
+    await execa('git', ['-c', 'user.name=T', '-c', 'user.email=t@e', 'commit', '--quiet', '--allow-empty', '-m', 'unpushed'], { cwd: cloneDir });
+    await execa('git', ['checkout', '--quiet', '-'], { cwd: cloneDir });
+    let stderr = '';
+    const code = await runCli(['source', 'pull', '--profile', 'web', '--as', 'demo', '--ref', 'local-only', '--dsh-home', tempHome], { stdout: () => {}, stderr: (chunk) => { stderr += chunk; } });
+    expect(code).toBe(3);
+    expect(stderr).toMatch(/not on any branch of origin/);
+    expect(fs.readFileSync(path.join(tempHome, 'envctl', 'lock.json'), 'utf8')).toBe(lockBefore);
+  });
+
   it('should report the only managed clone via source status --profile', async () => {
     await runCli([
       'source', 'clone', upstream, '--profile', 'web', '--as', 'demo', '--dsh-home', tempHome

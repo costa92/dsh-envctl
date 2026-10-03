@@ -13,8 +13,8 @@ const NPM_VIEW_TIMEOUT_MS = 5_000;
 
 async function npmView(args: string[], timeoutMs: number) {
   // Run from the home directory, like self-update, so a project .npmrc in the current directory picks no registry.
-  // `--` keeps a spec from being read as an npm option.
-  const subprocess = execa('npm', ['view', '--', ...args, '--fetch-retries=0'], { cwd: os.homedir(), reject: false, stdin: 'ignore' });
+  // `--` keeps a spec from being read as an npm option, so options go before it.
+  const subprocess = execa('npm', ['view', '--fetch-retries=0', '--', ...args], { cwd: os.homedir(), reject: false, stdin: 'ignore' });
   const { result, timedOut } = await awaitWithTreeTimeout(subprocess, timeoutMs);
   return { ...result, timedOut };
 }
@@ -27,7 +27,7 @@ function npmErrorCode(stderr: unknown): string | undefined {
 // (offline, no npm, a package npm cannot see, which may be private) never blocks an install.
 export async function checkNpmVersion(packageName: string, version: string, options: { timeoutMs?: number } = {}): Promise<NpmVersionCheck> {
   const timeoutMs = options.timeoutMs ?? NPM_VIEW_TIMEOUT_MS;
-  const exact = await npmView([`${packageName}@${version}`, 'version', '--json'], timeoutMs);
+  const exact = await npmView([`${packageName}@${version}`, 'version'], timeoutMs);
   if (exact.timedOut || (exact.failed && exact.exitCode === undefined)) {
     return { status: 'unknown', reason: exact.timedOut ? 'npm view timed out' : 'npm could not be run', reachable: false };
   }

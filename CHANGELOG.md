@@ -28,6 +28,10 @@
 - 上一次 `sync` 被中断后，只有回滚到该次 `sync` 之前的快照才解除「先 rollback」的提示；此前任意一次 `rollback` 都会解除，文件可能仍是写了一半的状态。
 - macOS 与 Windows 上判断文件是否归团队 remote 所有时不区分大小写；此前 `--overlay Team --layer overlay` 能写进团队的 `team.yaml`，直到下次 `sync` 才作为本地改动被发现。
 - Git 地址带 `private_token`、`access_token`、`token`、`password` 等查询参数时与带用户信息一样拒绝，避免写进共享的清单、lock 与 `remote.json`。
+- 精确版本按 SemVer 2.0 校验：接受 `1.2.3-beta.1+build.5` 这类同时带预发布与构建号的版本，拒绝 `01.2.3`、`1.2.3-rc.01` 等带前导零的写法。
+- 检查 npm 上是否有该版本时，`--fetch-retries=0` 放在 `--` 之前才会生效；此前它被当作位置参数，离线时只能等超时。
+- `capture` 把 Git 依赖 `#<分支或标签>` 片段记为 `ref`，不再留在 URL 里；npm 的 `#semver:` 等 Git 无法检出的片段跳过并警告。
+- `source sync -p <profile> [dir]` 写 lock 前核对该目录的 origin 就是清单声明的仓库，并要求锁定的 commit 已在 origin 的某个分支上；此前会把其他仓库或未推送的 commit 写进 lock，到 `apply` 才失败。
 
 ## 0.5.0 - 2026-09-30
 
