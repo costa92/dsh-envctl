@@ -74,6 +74,30 @@ describe('Lock, Backup and Journal IO', () => {
     expect(JSON.parse(fs.readFileSync(lockFile, 'utf8')).pid).toBe(1);
   });
 
+  it('should not judge a lock replaced between reading its age and its content by the old one\'s age', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    const lockFile = path.join(paths.managerDir, 'dshenv.lock');
+    // An old lock whose holder is alive, so it is not stale itself.
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, hostname: os.hostname() }));
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockFile, old, old);
+    // Its holder releases and another process creates a new lock it has not written yet.
+    const readFile = fs.promises.readFile;
+    const spy = vi.spyOn(fs.promises, 'readFile').mockImplementation(async (file, options) => {
+      if (file === lockFile) {
+        fs.rmSync(lockFile);
+        fs.writeFileSync(lockFile, '');
+      }
+      return readFile(file, options as BufferEncoding);
+    });
+    try {
+      await expect(acquireEnvironmentLock(paths, 200)).rejects.toThrow(/already held/i);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(fs.existsSync(lockFile)).toBe(true);
+  });
+
   it('should let only one of several concurrent waiters reclaim a stale lock', async () => {
     const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
     const lockFile = path.join(paths.managerDir, 'dshenv.lock');

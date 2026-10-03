@@ -29,16 +29,24 @@ async function createLockFile(lockFilePath: string, lockContent: string): Promis
   }
 }
 
-async function isStaleLock(lockFilePath: string): Promise<boolean> {
+// The inode of the lock when it is stale, read through one handle so its age and content belong to the same file.
+async function staleLockInode(lockFilePath: string): Promise<number | null> {
+  let handle: fs.promises.FileHandle;
   try {
-    const stat = await fs.promises.stat(lockFilePath);
-    const raw = await fs.promises.readFile(lockFilePath, 'utf8');
+    handle = await fs.promises.open(lockFilePath, 'r');
+  } catch {
+    // The lock vanished while being inspected; retry.
+    return null;
+  }
+  try {
+    const stat = await handle.stat();
+    const raw = await handle.readFile('utf8');
     let info: { pid?: number; hostname?: string };
     try {
       info = JSON.parse(raw);
     } catch {
       // The holder creates the file before writing it; only an old unreadable lock is abandoned.
-      return Date.now() - stat.mtimeMs > LOCK_WRITE_GRACE_MS;
+      return Date.now() - stat.mtimeMs > LOCK_WRITE_GRACE_MS ? stat.ino : null;
     }
     if (info?.pid && info.hostname === os.hostname()) {
       try {
@@ -46,13 +54,14 @@ async function isStaleLock(lockFilePath: string): Promise<boolean> {
         process.kill(info.pid, 0);
       } catch (err: unknown) {
         // EPERM means the process exists but belongs to another user; only ESRCH proves it is gone.
-        return (err as NodeJS.ErrnoException).code === 'ESRCH';
+        return (err as NodeJS.ErrnoException).code === 'ESRCH' ? stat.ino : null;
       }
     }
-    return false;
+    return null;
   } catch {
-    // The lock vanished while being inspected; retry.
-    return false;
+    return null;
+  } finally {
+    await handle.close();
   }
 }
 
@@ -71,7 +80,9 @@ async function reclaimStaleLock(lockFilePath: string, guardPath: string): Promis
     throw err;
   }
   try {
-    if (await isStaleLock(lockFilePath)) {
+    const stale = await staleLockInode(lockFilePath);
+    // A lock released and created anew since it was judged is another file, and stays.
+    if (stale !== null && (await fs.promises.stat(lockFilePath).catch(() => null))?.ino === stale) {
       await retryWhileBusy(() => fs.promises.rm(lockFilePath, { force: true }));
     }
   } finally {

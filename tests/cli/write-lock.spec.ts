@@ -27,7 +27,7 @@ describe('CLI write commands wait for the environment lock', () => {
     let tries = 0;
     const open = fs.promises.open.bind(fs.promises);
     const spy = vi.spyOn(fs.promises, 'open').mockImplementation(((file: fs.PathLike, ...rest: [never]) => {
-      if (file === lockPath) tries += 1;
+      if (file === lockPath && rest[0] === 'wx') tries += 1;
       return open(file, ...rest);
     }) as typeof fs.promises.open);
     try {
@@ -55,6 +55,11 @@ describe('CLI write commands wait for the environment lock', () => {
       ['install', 'demo-plugin@1.0.0', '--profile', 'web', '--overlay', 'laptop', '--layer', 'overlay'],
       () => fs.readFileSync(overlayFile, 'utf8').includes('demo-plugin')
     );
+  });
+
+  it('holds the lock while creating an overlay', async () => {
+    const overlayFile = path.join(tempHome, 'envctl', 'overlays', 'laptop.yaml');
+    await expectWaitsForLock(['overlay', 'create', 'laptop'], () => fs.existsSync(overlayFile));
   });
 
   it('holds the lock while adopting', async () => {

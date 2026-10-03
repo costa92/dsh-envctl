@@ -7,6 +7,7 @@ import { rollbackEnvironment } from '../../src/rollback/rollback.js';
 import { resolveEnvironmentPaths } from '../../src/environment/paths.js';
 import { readJournalEntries } from '../../src/io/journal.js';
 import { createEnvironmentSnapshot } from '../../src/io/backup.js';
+import { acquireEnvironmentLock } from '../../src/io/lock.js';
 import { ownedSkillDigests, planSkills, readSkillInventory } from '../../src/resources/skill.js';
 import { loadState } from '../../src/manifest/files.js';
 
@@ -95,6 +96,17 @@ profiles:
     const plan = planSkills(await readSkillInventory(paths), ownedSkillDigests(loadState(fs.readFileSync(paths.stateFile, 'utf8'))));
     expect(plan.unmanaged).toEqual([]);
     expect(plan.operations).toEqual([expect.objectContaining({ kind: 'remove', name: 'demo' })]);
+  });
+
+  it('picks the snapshot once it holds the lock, so one taken while it waited counts', async () => {
+    const paths = resolveEnvironmentPaths({ cliDshHome: tempHome });
+    await createEnvironmentSnapshot(paths, 'apply-older');
+    const held = await acquireEnvironmentLock(paths);
+    const rolling = rollbackEnvironment(paths);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const newer = await createEnvironmentSnapshot(paths, 'apply-newer');
+    await held.release();
+    expect((await rolling).snapshotId).toBe(newer.snapshotId);
   });
 
   it('should preview rollback without writing when dry-run', async () => {
