@@ -47,8 +47,9 @@ export interface PullOptions {
   allowOverlayCreation: boolean;
   // Loose skills in $DSH_HOME/skills are home-wide; false leaves them out.
   skills?: boolean;
-  // False leaves plugins not in the manifest out, e.g. after adopt took only the ones its candidate lists.
-  plugins?: boolean;
+  // False leaves plugins not in the manifest out, e.g. after adopt took only the ones its candidate lists;
+  // profile -> packages takes only those.
+  plugins?: boolean | Record<string, string[]>;
 }
 
 export interface PluginPullChange {
@@ -161,7 +162,14 @@ async function pullUnderLock(paths: EnvironmentPaths, options: PullOptions): Pro
   const lock = readLocalLock(paths);
   const captured = options.plugins === false
     ? null
-    : captureUnmanagedPlugins(inventory, profiles, selectedOverlay && selectedName ? mergeManifest(base, selectedOverlay, selectedName).manifest : base, lock, state);
+    : captureUnmanagedPlugins(
+      inventory,
+      profiles,
+      selectedOverlay && selectedName ? mergeManifest(base, selectedOverlay, selectedName).manifest : base,
+      lock,
+      state,
+      typeof options.plugins === 'object' ? options.plugins : undefined
+    );
 
   const nextBase = structuredClone(base);
   let overlayName = selectedName;

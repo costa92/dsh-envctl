@@ -620,13 +620,15 @@ export function captureUnmanagedPlugins(
   profiles: string[],
   manifest: EnvironmentManifest,
   lock: EnvironmentLock | null,
-  state: EnvironmentState | null
+  state: EnvironmentState | null,
+  // profile -> packages; when given, only these are taken.
+  only?: Record<string, string[]>
 ): CaptureDocument {
   const selected: EnvironmentInventory = { profiles: {} };
   const unmanaged = planPlugins(manifest, lock, inventory, state).unmanaged
     .sort((a, b) => a.profile.localeCompare(b.profile) || a.package.localeCompare(b.package));
   for (const { profile, package: name } of unmanaged) {
-    if (!profiles.includes(profile)) {
+    if (!profiles.includes(profile) || (only && !only[profile]?.includes(name))) {
       continue;
     }
     // Patch entries are pulled on their own; capture would only warn about them.

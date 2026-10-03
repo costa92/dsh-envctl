@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readEnvironmentInventory } from '../inventory/profile-reader.js';
 import { captureEnvironment, initEnvironment } from '../import/capture.js';
-import { adoptEnvironment } from '../import/adopt.js';
+import { adoptEnvironment, type AdoptDetail } from '../import/adopt.js';
 import { parseYamlStrict, serializeCaptureDocument } from '../manifest/files.js';
 import { CaptureDocumentSchema } from '../manifest/schema.js';
 import { writeAtomic } from '../io/atomic-file.js';
@@ -16,6 +16,14 @@ import { Option } from 'commander';
 import { pullProfilePatches } from '../import/pull.js';
 import { renderPullResult } from './pull.js';
 import { reportPreview } from './confirm.js';
+
+function machineLocalPackages(details: AdoptDetail[]): Record<string, string[]> {
+  const packages: Record<string, string[]> = {};
+  for (const detail of details) {
+    (packages[detail.profile] ??= []).push(detail.package);
+  }
+  return packages;
+}
 
 export function registerSetupCommands(ctx: CommandContext): void {
   const { program, writeOut } = ctx;
@@ -121,8 +129,10 @@ export function registerSetupCommands(ctx: CommandContext): void {
       const summary = await adoptEnvironment(paths, parsed.data as CaptureDocument, {
         validateManifest: (manifest) => assertBaseMergesWithOverlay(paths, selection, manifest),
         dryRun: preview,
-        overlay: selection ? readOverlay(paths, selection.name) : undefined
+        overlay: selection ? readOverlay(paths, selection.name) : undefined,
+        allowOverlay: selection !== null || opts.overlay !== false
       });
+      const machineLocal = summary.details.filter((d) => d.layer === 'overlay');
       if (preview) {
         const pending = summary.details.filter((d) => !d.alreadyAdopted);
         if (opts.json) {
@@ -135,7 +145,7 @@ export function registerSetupCommands(ctx: CommandContext): void {
           const profiles = [...new Set(pending.map((d) => d.profile))];
           writeOut(`Would adopt ${pending.length} plugin(s) across profile(s): ${profiles.join(', ')}\n`);
           for (const d of pending) {
-            writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]\n`);
+            writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]${d.layer ? ' into an overlay' : ''}\n`);
           }
         }
         reportPreview(ctx, { json: opts.json, dryRun: cmdOpts.dryRun, pending: pending.length > 0, action: 'adopt' });
@@ -145,14 +155,19 @@ export function registerSetupCommands(ctx: CommandContext): void {
       let patches: Awaited<ReturnType<typeof pullProfilePatches>> | null = null;
       try {
         patches = summary.profiles.length > 0
-          ? await pullProfilePatches(paths, { profiles: summary.profiles, selection, allowOverlayCreation: opts.overlay !== false, plugins: false })
+          ? await pullProfilePatches(paths, {
+            profiles: summary.profiles,
+            selection,
+            allowOverlayCreation: opts.overlay !== false,
+            plugins: machineLocal.length > 0 ? machineLocalPackages(machineLocal) : false
+          })
           : null;
       } catch (err) {
         // The adoption is already written; only the pull remains, so say so rather than suggest adopt failed.
         if (err instanceof Error) {
           err.message =
             `Adopted ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}, ` +
-            `but taking over their patch entries failed: ${err.message}; fix that and run dshenv pull --yes`;
+            `but taking over their patch entries${machineLocal.length > 0 ? ' and machine-local plugins' : ''} failed: ${err.message}; fix that and run dshenv pull --yes`;
         }
         throw err;
       }
@@ -165,7 +180,8 @@ export function registerSetupCommands(ctx: CommandContext): void {
             ? 'Nothing to adopt: the candidate declares no plugins.\n'
             : `Adopted ${summary.adoptedCount} plugin(s) across profile(s): ${summary.profiles.join(', ')}\n`
         );
-        for (const d of summary.details) {
+        // The pull result lists the plugins it put into an overlay.
+        for (const d of summary.details.filter((detail) => !detail.layer)) {
           writeOut(`  + [${d.profile}] ${d.package} (${d.alias}) [${d.sourceType}]\n`);
         }
         if (patches && patches.changes.length > 0) {
