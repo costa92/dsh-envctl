@@ -18,6 +18,7 @@
 - 清单与 `DSH_HOME/skills` 都有、内容不同又从未同步过的 skill，`pull` 视为两边都改过，需要 `--prefer dsh` 或 `--prefer manifest`；此前 `pull` 默认用 DSH 的副本覆盖清单里的新版本，`plan` 却说是清单改了，两边结论相反。`plan` 对这种 skill 说明 `apply` 会装清单的副本，并提示可用 `pull --yes --prefer dsh` 保留 DSH 的。
 - `remote add` 与 `sync` 按整个目录判断团队 skill 与本地 skill 是否冲突：本地已有不归团队的同名 skill 时拒绝并提示先移走；此前只逐个文件比较，团队新增的文件会混进本地同名 skill，之后 `pull` 也拒绝改动它。
 - 本机 overlay 对团队已删除的插件写了 `remove: true` 或字段覆盖时，`sync` 不再被拒绝：合并时对 base 已不再声明的插件，这类条目视为无操作（profile patches 一向如此）；此前只能手改 overlay 才能同步，未选中的 overlay 在同步后也无法再加载。带 `package` 的条目仍按新增插件校验。
+- 本地源码与 skill 的摘要计入软链接（按指向的路径），skill 同步时软链接原样复制，整个 skill 目录本身是软链接时按目录处理；此前软链接被静默跳过：改了它的指向不算变化，`pull`/`apply` 复制后软链接丢失而两边摘要仍相同，以软链接放进 `DSH_HOME/skills` 的 skill 既不会被 `pull` 也不会列为未受管。不含软链接的目录摘要不变。
 
 ## 0.5.0 - 2026-09-30
 

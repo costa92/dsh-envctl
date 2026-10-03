@@ -74,6 +74,24 @@ describe('skill files', () => {
     expect(inventory.declared.wiki).not.toBe(inventory.live.wiki);
   });
 
+  // Windows needs extra rights to create symlinks.
+  it.skipIf(process.platform === 'win32')('keeps symlinks inside a skill as symlinks, so both sides digest alike', async () => {
+    fs.symlinkSync('SKILL.md', path.join(paths.skillsDir, 'wiki', 'link.md'));
+    await applySkillOperation(paths, { resource: 'skill', kind: 'update', name: 'wiki', reason: '' }, path.join(paths.trashDir, 'apply-1'));
+    expect(fs.readlinkSync(path.join(paths.dshSkillsDir, 'wiki', 'link.md'))).toBe('SKILL.md');
+    const inventory = await readSkillInventory(paths);
+    expect(inventory.live.wiki).toBe(inventory.declared.wiki);
+  });
+
+  it.skipIf(process.platform === 'win32')('follows a skill directory that is itself a symlink and copies its content', async () => {
+    write(path.join(tempHome, 'dotfiles', 'notes', 'SKILL.md'), 'notes');
+    fs.symlinkSync(path.join(tempHome, 'dotfiles', 'notes'), path.join(paths.dshSkillsDir, 'notes'));
+    expect(Object.keys((await readSkillInventory(paths)).live).sort()).toEqual(['notes', 'wiki']);
+    await replaceSkillDir(path.join(paths.dshSkillsDir, 'notes'), path.join(paths.skillsDir, 'notes'), path.join(paths.trashDir, 'pull-1', 'notes'));
+    expect(fs.lstatSync(path.join(paths.skillsDir, 'notes')).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(paths.skillsDir, 'notes', 'SKILL.md'), 'utf8')).toBe('notes');
+  });
+
   it('replaces the DSH copy, keeps the old one in trash, and undoes it', async () => {
     const trash = path.join(paths.trashDir, 'apply-1');
     const undo = await applySkillOperation(paths, { resource: 'skill', kind: 'update', name: 'wiki', reason: '' }, trash);

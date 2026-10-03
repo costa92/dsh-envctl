@@ -37,7 +37,7 @@ export async function calculateSourceDigest(dirPath: string): Promise<string> {
       if (entry.isDirectory()) {
         const subFiles = await walk(fullPath);
         files.push(...subFiles);
-      } else if (entry.isFile()) {
+      } else if (entry.isFile() || entry.isSymbolicLink()) {
         files.push(fullPath);
       }
     }
@@ -51,7 +51,9 @@ export async function calculateSourceDigest(dirPath: string): Promise<string> {
   for (const file of allFiles) {
     const relative = path.relative(dirPath, file);
     hash.update(relative);
-    const content = await fs.promises.readFile(file);
+    // A symlink counts by where it points; a tree without one digests as it always has.
+    const stat = await fs.promises.lstat(file);
+    const content = stat.isSymbolicLink() ? `\0symlink\0${await fs.promises.readlink(file)}` : await fs.promises.readFile(file);
     hash.update(content);
   }
 
