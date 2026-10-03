@@ -136,6 +136,30 @@ describe('captureEnvironment and initEnvironment', () => {
     expect(doc.manifest.profiles.web.plugins.ranged.source).toEqual({ type: 'npm', version: '1.2.3' });
   });
 
+  it.each([
+    ['a branch', 'git+https://github.com/x/y.git#main', { type: 'git', url: 'git+https://github.com/x/y.git', ref: 'main' }],
+    ['a tag path', 'git+https://github.com/x/y.git#release/v1', { type: 'git', url: 'git+https://github.com/x/y.git', ref: 'release/v1' }],
+    ['a commit', 'git+https://github.com/x/y.git#abcdef1', { type: 'git', url: 'git+https://github.com/x/y.git' }]
+  ])('takes %s from the spec fragment out of the git URL', (_label, spec, source) => {
+    const doc = captureEnvironment({
+      profiles: {
+        web: { name: 'web', path: '/dummy', plugins: { g: { name: 'g', installed: true, sourceType: 'git', resolvedSource: spec, isSymlink: false, isExternalSymlink: false, enabled: true } } }
+      }
+    });
+    expect(doc.manifest.profiles.web.plugins.g.source).toEqual(source);
+  });
+
+  it('skips a git spec whose fragment is no ref git can take', () => {
+    const spec = 'git+https://github.com/x/y.git#semver:^1.0.0';
+    const doc = captureEnvironment({
+      profiles: {
+        web: { name: 'web', path: '/dummy', plugins: { g: { name: 'g', installed: true, sourceType: 'git', resolvedSource: spec, isSymlink: false, isExternalSymlink: false, enabled: true } } }
+      }
+    });
+    expect(doc.manifest.profiles.web.plugins).toEqual({});
+    expect(doc.warnings.some((w) => w.includes('g') && w.includes('semver:^1.0.0'))).toBe(true);
+  });
+
   it('should lock a git commit from the spec and not invent HEAD', () => {
     const doc = captureEnvironment({
       profiles: {

@@ -34,4 +34,27 @@ describe.skipIf(process.platform === 'win32')('checkNpmVersion', () => {
     const child = Number(fs.readFileSync(path.join(dir, 'child.pid'), 'utf8'));
     expect(() => process.kill(child, 0)).toThrow();
   });
+
+  describe('with an npm that answers', () => {
+    // Records its arguments and answers 1.0.0 as the only version of @acme/plugin.
+    beforeEach(() => {
+      fs.writeFileSync(
+        path.join(dir, 'npm'),
+        `#!/bin/sh\necho "$@" >> '${path.join(dir, 'args')}'\ncase "$*" in\n  *"@acme/plugin@1.0.0 version"*) echo 1.0.0 ;;\n  *"@acme/plugin version"*) echo 1.0.0 ;;\n  *"@acme/plugin@"*) ;;\n  *) echo 'npm error code E404' >&2; exit 1 ;;\nesac\n`,
+        { mode: 0o755 }
+      );
+    });
+    const args = () => fs.readFileSync(path.join(dir, 'args'), 'utf8').trim().split('\n');
+
+    it('passes its options before -- so npm reads them as options', async () => {
+      await checkNpmVersion('@acme/plugin', '1.0.0');
+      expect(args()).toEqual(['view --fetch-retries=0 -- @acme/plugin@1.0.0 version']);
+    });
+
+    it('tells an existing version, a missing one with the latest, and a package npm cannot see', async () => {
+      expect(await checkNpmVersion('@acme/plugin', '1.0.0')).toEqual({ status: 'exists' });
+      expect(await checkNpmVersion('@acme/plugin', '9.9.9')).toEqual({ status: 'missing', latest: '1.0.0' });
+      expect(await checkNpmVersion('@acme/private', '1.0.0')).toEqual({ status: 'unknown', reason: 'npm cannot see the package', reachable: true });
+    });
+  });
 });

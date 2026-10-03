@@ -19,7 +19,10 @@ import { ExactVersionRegex, hasEmbeddedCredentials } from '../manifest/schema.js
 
 const GIT_COMMIT_RE = /^[0-9a-f]{7,64}$/i;
 
-function parseGitSpec(spec: string): { url: string; commit?: string } {
+const GIT_REF_RE = /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/;
+
+// The fragment is a commit or a ref; anything else (such as npm's semver:) is null, as git cannot check it out.
+function parseGitSpec(spec: string): { url: string; commit?: string; ref?: string } | null {
   const hashIndex = spec.lastIndexOf('#');
   if (hashIndex <= 0) {
     return { url: spec };
@@ -29,7 +32,7 @@ function parseGitSpec(spec: string): { url: string; commit?: string } {
   if (GIT_COMMIT_RE.test(fragment)) {
     return { url, commit: fragment };
   }
-  return { url: spec };
+  return GIT_REF_RE.test(fragment) ? { url, ref: fragment } : null;
 }
 
 function getAliasFromPackageName(pkgName: string, usedKeys: Set<string>): string {
@@ -119,6 +122,10 @@ export function captureEnvironment(
         };
       } else if (plugin.sourceType === 'git') {
         const parsed = parseGitSpec(plugin.resolvedSource || '');
+        if (!parsed) {
+          warnings.push(`Package ${pkgName} in profile ${profileName} was skipped: its git spec '${plugin.resolvedSource}' names no commit or ref git can check out`);
+          continue;
+        }
         if (hasEmbeddedCredentials(parsed.url)) {
           warnings.push(
             `Package ${pkgName} in profile ${profileName} was skipped: its git URL embeds credentials; reinstall it over SSH or a git credential helper`
@@ -130,7 +137,8 @@ export function captureEnvironment(
           enabled: isEnabled,
           source: {
             type: 'git',
-            url: parsed.url
+            url: parsed.url,
+            ...(parsed.ref ? { ref: parsed.ref } : {})
           }
         };
         if (parsed.commit) {

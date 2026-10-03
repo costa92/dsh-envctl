@@ -443,7 +443,7 @@ describe.skipIf(process.platform === 'win32')('CLI install checks npm', () => {
     const out = await run(['install', `${PKG}@9.9.9`, '-p', 'web']);
     expect(out.code).toBe(3);
     expect(out.stderr).toBe(`npm has no version 9.9.9 of ${PKG}; the latest is 0.1.22\n`);
-    expect(npmCalls()).toEqual([`view -- ${PKG}@9.9.9 version --json --fetch-retries=0`, `view -- ${PKG} version --fetch-retries=0`]);
+    expect(npmCalls()).toEqual([`view --fetch-retries=0 -- ${PKG}@9.9.9 version`, `view --fetch-retries=0 -- ${PKG} version`]);
   });
 
   it('warns but goes ahead for a package npm cannot see, which may be private', async () => {

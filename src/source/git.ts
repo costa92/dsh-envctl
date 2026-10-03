@@ -200,3 +200,25 @@ export async function safeFastForwardManagedGit(
     newCommit: newCommitRes.stdout.trim()
   };
 }
+
+function comparableGitUrl(url: string): string {
+  return url.trim().replace(/^git\+/, '').replace(/^file:\/\//, '').replace(/\/+$/, '').replace(/\.git$/, '');
+}
+
+// A lock pins what the declared URL serves, so the checkout must come from that repository and its commit be pushed there.
+export async function assertCheckoutServes(repoDir: string, declaredUrl: string): Promise<void> {
+  const origin = await execa('git', ['remote', 'get-url', 'origin'], { cwd: repoDir, shell: false, reject: false, timeout: 5000 });
+  const originUrl = origin.exitCode === 0 ? origin.stdout.trim() : '';
+  if (comparableGitUrl(originUrl) !== comparableGitUrl(declaredUrl)) {
+    throw new ValidationError(
+      `The origin of ${repoDir} (${originUrl || 'none'}) is not the repository the manifest declares (${declaredUrl}); sync the managed clone, or fix the manifest`
+    );
+  }
+}
+
+export async function assertCommitOnOrigin(repoDir: string, commit: string): Promise<void> {
+  const branches = await execa('git', ['branch', '--remotes', '--contains', commit], { cwd: repoDir, shell: false, reject: false, timeout: 5000 });
+  if (branches.exitCode !== 0 || !branches.stdout.split('\n').some((line) => line.trim().startsWith('origin/'))) {
+    throw new ValidationError(`Commit ${commit} in ${repoDir} is not on any branch of origin; push it first, since the lock would pin a commit others cannot fetch`);
+  }
+}

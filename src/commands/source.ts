@@ -8,7 +8,9 @@ import {
   cloneManagedGit,
   safeFastForwardManagedGit,
   managedGitSourceDir,
-  packageNameFromGitUrl
+  packageNameFromGitUrl,
+  assertCheckoutServes,
+  assertCommitOnOrigin
 } from '../source/git.js';
 import { inspectLocalSource } from '../source/local.js';
 import { ValidationError, missingManifestError } from '../errors.js';
@@ -298,8 +300,14 @@ export function registerSourceCommands(ctx: CommandContext): void {
         // The lock entry is rewritten after the fast-forward, so refuse before touching the checkout.
         assertLockEntryNotRemoteOwned(paths, cmdOpts.profile, alias);
       }
+      if (gitUrl) {
+        await assertCheckoutServes(resolvedTarget, gitUrl);
+      }
 
       const res = await safeFastForwardManagedGit(resolvedTarget, ref);
+      if (gitUrl) {
+        await assertCommitOnOrigin(resolvedTarget, res.newCommit);
+      }
 
       if (cmdOpts.profile && alias && packageName && gitUrl) {
         const profile: string = cmdOpts.profile;
