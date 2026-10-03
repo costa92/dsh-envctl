@@ -388,14 +388,17 @@ describe('remote sync engine', () => {
     );
   });
 
-  it('refuses an update the active local overlay no longer merges with', async () => {
+  it('accepts an update that drops a plugin the active local overlay removes or adjusts', async () => {
     await subscribe();
-    fs.writeFileSync(overlayFile('laptop'), 'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      shared:\n        enabled: true\n');
+    fs.writeFileSync(overlayFile('laptop'), 'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      shared:\n        enabled: false\n');
     await commitTeamFiles(
       team,
       { 'envctl/manifest.yaml': 'apiVersion: dshenv/v1\nprofiles: {}\n', 'envctl/lock.json': null, 'envctl/overlays/team.yaml': null },
       'empty base'
     );
-    await expect(prepare({ previous: true, selection: { name: 'laptop', via: 'flag' } })).rejects.toThrow(/must declare package and source/);
+    const preview = await prepare({ previous: true, selection: { name: 'laptop', via: 'flag' } });
+    expect(preview.status).toBe('pending');
+    await acceptSync(paths, preview);
+    expect(read(paths.manifestFile)).toBe('apiVersion: dshenv/v1\nprofiles: {}\n');
   });
 });

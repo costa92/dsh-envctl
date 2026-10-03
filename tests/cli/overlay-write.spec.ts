@@ -171,13 +171,15 @@ describe('CLI writes with an active overlay', () => {
     expect(adopt.stderr).toMatch(/adopt only writes the base manifest/);
   });
 
-  it('refuses a base write that the active overlay can no longer merge onto', async () => {
+  it('removes a base plugin the active overlay adjusts, leaving the overlay entry with nothing to do', async () => {
     fs.writeFileSync(overlayFile(), 'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      heavy:\n        enabled: false\n');
-    const before = [fs.readFileSync(manifestFile(), 'utf8'), fs.readFileSync(overlayFile(), 'utf8')];
-    const { code, stderr } = await run(['remove', 'heavy', '--profile', 'web', '--layer', 'base']);
-    expect(code).toBe(3);
-    expect(stderr).toMatch(/must declare package and source/);
-    expect([fs.readFileSync(manifestFile(), 'utf8'), fs.readFileSync(overlayFile(), 'utf8')]).toEqual(before);
+    const overlayBefore = fs.readFileSync(overlayFile(), 'utf8');
+    expect((await run(['remove', 'heavy', '--profile', 'web', '--layer', 'base'])).code).toBe(0);
+    expect(loadManifest(fs.readFileSync(manifestFile(), 'utf8')).profiles.web.plugins.heavy).toBeUndefined();
+    expect(fs.readFileSync(overlayFile(), 'utf8')).toBe(overlayBefore);
+    const listed = await runOut(['--json', 'plugins', 'list', '--profile', 'web']);
+    expect(listed.code).toBe(0);
+    expect(listed.stdout).not.toContain('"heavy"');
   });
 
   it('source clone checks the overlay and --layer before cloning', async () => {

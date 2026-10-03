@@ -95,10 +95,12 @@ export function mergeManifest(base: EnvironmentManifest, overlay: EnvironmentOve
       const where = `Overlay '${name}' profile '${profileName}' plugin '${alias}'`;
       const existing = Object.hasOwn(target.plugins, alias) ? target.plugins[alias] : undefined;
 
+      // The base may have dropped a plugin the overlay removes or adjusts, e.g. through a team sync; that entry has nothing left to do.
+      if (!existing && (entry.remove || entry.package === undefined)) {
+        continue;
+      }
+
       if (entry.remove) {
-        if (!existing) {
-          throw new ValidationError(`${where}: cannot remove a plugin that is not in the base manifest`);
-        }
         delete target.plugins[alias];
         delete profileProvenance[alias];
         continue;

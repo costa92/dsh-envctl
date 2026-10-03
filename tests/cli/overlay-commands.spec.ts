@@ -48,7 +48,7 @@ describe('CLI overlay commands', () => {
 
     fs.writeFileSync(
       path.join(tempHome, 'envctl', 'overlays', 'broken.yaml'),
-      'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      ghost:\n        remove: true\n'
+      'apiVersion: dshenv-overlay/v1\nprofiles:\n  web:\n    plugins:\n      ghost:\n        package: ghost-plugin\n'
     );
     expect((await run(['overlay', 'use', 'broken'])).code).toBe(3);
     expect(fs.existsSync(selectionFile())).toBe(false);
