@@ -122,6 +122,19 @@ describe('Local Source Lifecycle and Digest', () => {
     });
   });
 
+  // Windows needs extra rights to create symlinks.
+  it.skipIf(process.platform === 'win32')('counts a symlink by its target and keeps the digest of a tree without one', async () => {
+    const plain = await calculateSourceDigest(pkgDir);
+    fs.symlinkSync('index.js', path.join(pkgDir, 'alias.js'));
+    const linked = await calculateSourceDigest(pkgDir);
+    expect(linked).not.toBe(plain);
+    fs.rmSync(path.join(pkgDir, 'alias.js'));
+    fs.symlinkSync('package.json', path.join(pkgDir, 'alias.js'));
+    expect(await calculateSourceDigest(pkgDir)).not.toBe(linked);
+    fs.rmSync(path.join(pkgDir, 'alias.js'));
+    expect(await calculateSourceDigest(pkgDir)).toBe(plain);
+  });
+
   it('should reject non-absolute path', async () => {
     await expect(inspectLocalSource('relative/path')).rejects.toThrow(ValidationError);
   });

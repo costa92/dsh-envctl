@@ -39,7 +39,8 @@ export async function readSkillDigests(dir: string): Promise<Record<string, stri
   const digests: Record<string, string> = {};
   const entries = await fs.promises.readdir(dir, { withFileTypes: true });
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (entry.isDirectory() && SkillNameRegex.test(entry.name)) {
+    const isDir = entry.isDirectory() || (entry.isSymbolicLink() && fs.statSync(path.join(dir, entry.name), { throwIfNoEntry: false })?.isDirectory());
+    if (isDir && SkillNameRegex.test(entry.name)) {
       digests[entry.name] = await calculateSourceDigest(path.join(dir, entry.name));
     }
   }
@@ -97,10 +98,12 @@ export function planSkills(
   return { operations, unmanaged };
 }
 
+// A skill directory that is a symlink is copied as its content; symlinks inside stay symlinks, never their targets' files.
 export async function copySkillDir(from: string, to: string): Promise<void> {
-  await fs.promises.cp(from, to, {
+  await fs.promises.cp(await fs.promises.realpath(from), to, {
     recursive: true,
-    filter: (source) => !SKIPPED.has(path.basename(source)) && !fs.lstatSync(source).isSymbolicLink()
+    verbatimSymlinks: true,
+    filter: (source) => !SKIPPED.has(path.basename(source))
   });
 }
 
