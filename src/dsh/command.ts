@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execa } from 'execa';
-import { DegradedError } from '../errors.js';
+import { CapabilityError, DegradedError } from '../errors.js';
 import { awaitWithTreeTimeout } from '../io/process-tree.js';
 import { parseDshVersion } from './version.js';
 
@@ -118,6 +118,11 @@ export async function probeDsh(
     }
     return result;
   });
+
+  // A path that is not there means no DSH, as when none is on PATH; the path itself stays out of the message.
+  if (!runner && path.isAbsolute(cmd.file) && !fs.existsSync(cmd.file)) {
+    throw new CapabilityError('The DSH CLI that DSH_CLI or --harness-source names does not exist');
+  }
 
   let res: { stdout: string; stderr: string };
   try {

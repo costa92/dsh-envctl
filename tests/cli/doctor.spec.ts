@@ -272,6 +272,36 @@ exit 0
     }
   });
 
+  it('exits 4, as for no DSH at all, when DSH_CLI names a file that does not exist', async () => {
+    const oldDshCli = process.env.DSH_CLI;
+    process.env.DSH_CLI = path.join(fakeBinDir, 'missing-dsh');
+    let stderr = '';
+    try {
+      const code = await runCli(['doctor', '--dsh-home', tempHome], { stdout: () => {}, stderr: (chunk) => { stderr += chunk; } });
+      expect(code).toBe(4);
+      expect(stderr).toMatch(/DSH_CLI.*does not exist/);
+    } finally {
+      if (oldDshCli) process.env.DSH_CLI = oldDshCli;
+      else delete process.env.DSH_CLI;
+    }
+  });
+
+  it('warns that it ignored an invalid manifest, whose harness settings it then cannot use', async () => {
+    const oldDshCli = process.env.DSH_CLI;
+    process.env.DSH_CLI = fakeDsh;
+    fs.mkdirSync(path.join(tempHome, 'envctl'), { recursive: true });
+    fs.writeFileSync(path.join(tempHome, 'envctl', 'manifest.yaml'), 'apiVersion: nope\n');
+    let stderr = '';
+    try {
+      const code = await runCli(['doctor', '--dsh-home', tempHome], { stdout: () => {}, stderr: (chunk) => { stderr += chunk; } });
+      expect(code).toBe(0);
+      expect(stderr).toMatch(/manifest .* is invalid .*harness/);
+    } finally {
+      if (oldDshCli) process.env.DSH_CLI = oldDshCli;
+      else delete process.env.DSH_CLI;
+    }
+  });
+
   it('returns a fixed parse diagnostic without raw malformed version output', async () => {
     const malformedDsh = path.join(fakeBinDir, 'malformed-dsh.sh');
     fs.writeFileSync(malformedDsh, '#!/bin/sh\necho "Authorization: Bearer doctor-secret malformed-version"\n');

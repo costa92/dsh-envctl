@@ -33,7 +33,8 @@ export interface LaunchDshWebOptions {
 export const DSH_WEB_START_TIMEOUT_MS = 60_000;
 const STOP_GRACE_MS = 5_000;
 const POLL_MS = 50;
-const URL_PATTERN = /http:\/\/127\.0\.0\.1:\d+\/\?token=[^\s]+/;
+// A colour code DSH ends the URL with is not part of the token.
+const URL_PATTERN = /http:\/\/127\.0\.0\.1:\d+\/\?token=[^\s\u001b]+/;
 const POSIX = process.platform !== 'win32';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

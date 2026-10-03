@@ -32,6 +32,9 @@
 - 检查 npm 上是否有该版本时，`--fetch-retries=0` 放在 `--` 之前才会生效；此前它被当作位置参数，离线时只能等超时。
 - `capture` 把 Git 依赖 `#<分支或标签>` 片段记为 `ref`，不再留在 URL 里；npm 的 `#semver:` 等 Git 无法检出的片段跳过并警告。
 - `source sync -p <profile> [dir]` 写 lock 前核对该目录的 origin 就是清单声明的仓库，并要求锁定的 commit 已在 origin 的某个分支上；此前会把其他仓库或未推送的 commit 写进 lock，到 `apply` 才失败。
+- `DSH_CLI` 或 `--harness-source` 给出的 DSH 路径不存在时，按「未找到 DSH」以退出码 4 报告，与文档一致；此前报运行时探测失败（退出码 5）。
+- `doctor` 遇到无效的清单时在 stderr 警告它忽略了清单中的 harness 设置；此前静默忽略，可能改去探测 PATH 上的另一个 DSH 而无从察觉。
+- `dsh web` 打印的地址带颜色控制码时，记录的 token 不再包含控制码；此前 `verify` 会因此登录失败（401）。
 
 ## 0.5.0 - 2026-09-30
 
